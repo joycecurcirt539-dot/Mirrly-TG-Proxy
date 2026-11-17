@@ -99,14 +99,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -501,8 +503,8 @@ fun AiChatScreen(
                         onClick = handleBack,
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_close),
+                        MirrlyIcon(
+                            id = R.drawable.ic_close,
                             contentDescription = "Назад",
                             tint = MaterialTheme.colorScheme.onBackground
                         )
@@ -562,8 +564,8 @@ fun AiChatScreen(
                             .clickable { startNewChat() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_chat_plus),
+                        MirrlyIcon(
+                            id = R.drawable.ic_chat_plus,
                             contentDescription = "Новый чат",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
@@ -582,8 +584,8 @@ fun AiChatScreen(
                             .clickable { showSettingsSheet = true },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_settings),
+                        MirrlyIcon(
+                            id = R.drawable.ic_settings,
                             contentDescription = "Настройки",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
@@ -735,8 +737,8 @@ fun AiChatScreen(
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_ai_chat),
+                            MirrlyIcon(
+                                id = R.drawable.ic_ai_chat,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(28.dp)
@@ -809,7 +811,11 @@ fun AiChatScreen(
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(messages, key = { it.id }) { msg ->
+                    items(
+                        messages,
+                        key = { it.id },
+                        contentType = { msg -> if (msg.isUser) "user_msg" else "ai_msg" }
+                    ) { msg ->
                         MessageBubble(msg = msg)
                     }
 
@@ -914,8 +920,8 @@ fun AiChatScreen(
                                     }),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_expand),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_expand,
                                     contentDescription = stringResource(R.string.ai_chat_expand_editor_title),
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
@@ -977,8 +983,8 @@ fun AiChatScreen(
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_send),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_send,
                                     contentDescription = "Отправить",
                                     tint = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                                     modifier = Modifier.size(18.dp)
@@ -1350,8 +1356,8 @@ private fun ExpandedChatInputSheet(
                             .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_expand),
+                        MirrlyIcon(
+                            id = R.drawable.ic_expand,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
@@ -1595,7 +1601,7 @@ private fun ModelStatusIndicator(
     onClick: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "modelPulse")
-    val modelPulseAlpha by infiniteTransition.animateFloat(
+    val modelPulseAlphaState = infiniteTransition.animateFloat(
         initialValue = 0.40f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
@@ -1618,12 +1624,13 @@ private fun ModelStatusIndicator(
             .clip(RoundedCornerShape(6.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 2.dp)
+            .graphicsLayer { alpha = modelPulseAlphaState.value }
     ) {
         Box(
             modifier = Modifier
                 .size(6.dp)
                 .background(
-                    MaterialTheme.colorScheme.primary.copy(alpha = modelPulseAlpha),
+                    MaterialTheme.colorScheme.primary,
                     shape = CircleShape
                 )
         )
@@ -1632,7 +1639,7 @@ private fun ModelStatusIndicator(
             text = "$providerLabel • $shortModelName",
             style = MaterialTheme.typography.labelSmall,
             fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = modelPulseAlpha),
+            color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -1640,7 +1647,7 @@ private fun ModelStatusIndicator(
         Text(
             text = "▾",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = modelPulseAlpha)
+            color = MaterialTheme.colorScheme.primary
         )
     }
 }
@@ -2143,7 +2150,7 @@ fun ThinkingDotsCanvas(
     color: Color = MaterialTheme.colorScheme.primary
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "ThinkingDots")
-    val phase by infiniteTransition.animateFloat(
+    val phaseState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = (2f * Math.PI).toFloat(),
         animationSpec = infiniteRepeatable(
@@ -2154,6 +2161,7 @@ fun ThinkingDotsCanvas(
     )
 
     Canvas(modifier = modifier.size(width = 36.dp, height = 16.dp)) {
+        val phase = phaseState.value
         val dotRadius = 2.dp.toPx()
         val spacing = 6.dp.toPx()
         val totalWidth = (dotRadius * 2 * 3) + (spacing * 2)
@@ -2210,8 +2218,8 @@ fun ThinkingAccordion(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_ai_thought),
+                MirrlyIcon(
+                    id = R.drawable.ic_ai_thought,
                     contentDescription = null,
                     tint = Color(0xFF888894),
                     modifier = Modifier.size(14.dp)
@@ -2265,7 +2273,7 @@ fun Modifier.runningBeamBorder(
     }
 
     val transition = rememberInfiniteTransition(label = "RunningBeam")
-    val offset by transition.animateFloat(
+    val offsetState = transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -2275,21 +2283,29 @@ fun Modifier.runningBeamBorder(
         label = "beamOffset"
     )
 
+    val beamColors = remember(color) {
+        listOf(
+            Color.Transparent,
+            color.copy(alpha = 0.15f),
+            color,
+            color.copy(alpha = 0.15f),
+            Color.Transparent
+        )
+    }
+
+    var cachedCenter by remember { mutableStateOf(Offset.Zero) }
+    var cachedBrush by remember { mutableStateOf<Brush?>(null) }
+
     this.drawWithContent {
         drawContent()
         val strokeWidth = 1.5.dp.toPx()
         val cornerRadius = CornerRadius(12.dp.toPx())
-        val brush = Brush.sweepGradient(
-            listOf(
-                Color.Transparent,
-                color.copy(alpha = 0.15f),
-                color,
-                color.copy(alpha = 0.15f),
-                Color.Transparent
-            ),
-            center = center
-        )
-        rotate(degrees = offset * 360f, pivot = center) {
+        if (cachedCenter != center || cachedBrush == null) {
+            cachedCenter = center
+            cachedBrush = Brush.sweepGradient(beamColors, center = center)
+        }
+        val brush = cachedBrush ?: return@drawWithContent
+        rotate(degrees = offsetState.value * 360f, pivot = center) {
             drawRoundRect(
                 brush = brush,
                 size = size,
@@ -2349,8 +2365,8 @@ private fun PromptCard(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                painter = painterResource(id = icon),
+            MirrlyIcon(
+                id = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp)
@@ -2372,8 +2388,8 @@ private fun PromptCard(
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
-            Icon(
-                painter = painterResource(id = R.drawable.ic_chevron_right),
+            MirrlyIcon(
+                id = R.drawable.ic_chevron_right,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
                 modifier = Modifier.size(16.dp)

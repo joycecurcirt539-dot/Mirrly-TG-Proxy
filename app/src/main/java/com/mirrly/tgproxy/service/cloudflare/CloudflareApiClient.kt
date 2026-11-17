@@ -50,7 +50,7 @@ object CloudflareApiClient {
     private const val BASE_URL = "https://api.cloudflare.com/client/v4"
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-    // Network execution is handled by CloudflareNetworkClient with adaptive SOCKS5/DoH/TLS fallback
+    // Network execution is handled by CloudflareNetworkClient with adaptive SOCKS5/TLS fragmentation fallback
 
     private fun createApiException(bodyStr: String, code: Int): IOException {
         val msg = parseCloudflareError(bodyStr, code)

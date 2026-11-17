@@ -144,8 +144,8 @@ impl MsgSplitter {
                 // Need more bytes to complete current packet frame
                 break;
             }
-            if pkt_len <= 0 || pkt_len > 1024 * 1024 {
-                // Unknown/invalid format or packet exceeding 1 MiB limit: disable splitter and pass through
+            if pkt_len <= 0 || pkt_len > MAX_MTPROTO_PACKET_LEN {
+                // Unknown/invalid format or packet exceeding limit: disable splitter and pass through
                 self.disabled = true;
                 let mut remaining = std::mem::take(&mut self.plain_buf);
                 tg_enc.xor(&mut remaining);

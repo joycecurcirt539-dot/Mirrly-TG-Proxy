@@ -55,6 +55,26 @@ object LocaleHelper {
         }
     }
 
+    /**
+     * Returns true when [langCode] resolves to Persian/Farsi (explicit `"fa"` or `"system"` on a Persian device).
+     */
+    fun isPersianLanguage(
+        langCode: String,
+        systemLanguage: String = getSystemLocale().language
+    ): Boolean {
+        val normalized = langCode.trim().lowercase(Locale.ROOT)
+        val effective = if (normalized.isEmpty() || normalized == LANG_SYSTEM) {
+            systemLanguage.trim().lowercase(Locale.ROOT)
+        } else {
+            normalized
+        }
+        return effective == LANG_FA ||
+            effective.startsWith("fa-") ||
+            effective.startsWith("fa_") ||
+            effective == "per" ||
+            effective == "fas"
+    }
+
     fun applyLocale(context: Context, langCode: String) {
         val targetLocale = getTargetLocale(langCode)
         Locale.setDefault(targetLocale)

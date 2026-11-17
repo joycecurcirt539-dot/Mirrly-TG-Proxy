@@ -31,8 +31,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -177,10 +183,24 @@ fun Modifier.liquidGlass(
 
     val density = LocalDensity.current
     val primaryColor = LocalProtocolColors.current.primary
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val isAppResumed = remember { mutableStateOf(true) }
 
-    // 60/120 FPS continuous orbital time animation for liquid light glint
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isAppResumed.value = false
+                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> isAppResumed.value = true
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // 60/120 FPS continuous orbital time animation for liquid light glint (paused when minimized)
     val infiniteTransition = rememberInfiniteTransition(label = "liquidGlassClock")
-    val time by infiniteTransition.animateFloat(
+    val animatedTime = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 6.283185f,
         animationSpec = infiniteRepeatable(
@@ -205,8 +225,9 @@ fun Modifier.liquidGlass(
                 .clip(shape)
                 .drawBehind {
                     if (size.width > 0f && size.height > 0f) {
+                        val time = if (isAppResumed.value) animatedTime.value else 0f
                         shader.setFloatUniform("size", size.width, size.height)
-                        shader.setFloatUniform("cornerRadius", with(density) { cornerRadiusDp.toPx() })
+                        shader.setFloatUniform("cornerRadius", cornerRadiusDp.toPx())
                         shader.setFloatUniform("time", time)
                         shader.setFloatUniform("warpStrength", warpStrength)
                         shader.setFloatUniform("glassTint", tint.red, tint.green, tint.blue, tint.alpha)
@@ -241,6 +262,7 @@ fun Modifier.liquidGlass(
                 .clip(shape)
                 .background(tint)
                 .drawBehind {
+                    val time = if (isAppResumed.value) animatedTime.value else 0f
                     val sheenShift = (time / 6.283185f) * size.width
                     drawRect(
                         brush = Brush.horizontalGradient(
@@ -275,6 +297,7 @@ fun Modifier.liquidGlass(
             .clip(shape)
             .background(tint)
             .drawBehind {
+                val time = if (isAppResumed.value) animatedTime.value else 0f
                 val sheenShift = (time / 6.283185f) * size.width
                 drawRect(
                     brush = Brush.horizontalGradient(

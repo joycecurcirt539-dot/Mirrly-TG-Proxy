@@ -7,6 +7,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val singleAbiProp = (project.findProperty("singleAbi") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+    ?: System.getenv("MIRRLY_SINGLE_ABI")?.trim()?.takeIf { it.isNotEmpty() }
+val activeAbis = if (singleAbiProp != null) listOf(singleAbiProp) else listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+
 android {
     namespace = "com.mirrly.tgproxy"
     compileSdk = 36
@@ -15,8 +19,8 @@ android {
         applicationId = "com.mirrly.tgproxy"
         minSdk = 26
         targetSdk = 36
-        versionCode = 31
-        versionName = "2.1.1"
+        versionCode = 32
+        versionName = "2.1.2"
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -25,7 +29,7 @@ android {
         }
         manifestPlaceholders["appLabel"] = "Mirrly TG Proxy"
         ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            abiFilters += activeAbis
         }
     }
 
@@ -74,7 +78,7 @@ android {
                 enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true
-                enableV4Signing = true
+                enableV4Signing = false
             }
         }
     }
@@ -140,8 +144,8 @@ android {
         abi {
             isEnable = true
             reset()
-            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-            isUniversalApk = true
+            include(*activeAbis.toTypedArray())
+            isUniversalApk = singleAbiProp == null
         }
     }
 
@@ -151,6 +155,7 @@ android {
         }
         jniLibs {
             useLegacyPackaging = false
+            keepDebugSymbols += "**/libmirrlyengine.so"
         }
     }
     sourceSets {
@@ -167,6 +172,36 @@ android {
             val abi = output?.getFilter("ABI") ?: "universal"
             output?.outputFileName = "MTGP [$vName+$vCode] [$abi].apk"
         }
+    }
+}
+
+val rootDirFile = rootProject.projectDir
+val buildCargoNdk = tasks.register<Exec>("buildCargoNdk") {
+    group = "build"
+    description = "Builds mirrlyengine native Rust libraries via cargo-ndk for active ABIs into app/src/main/jniLibs"
+    workingDir = rootDirFile
+    inputs.dir(rootDirFile.resolve("mirrlyengine/src")).withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(
+        rootDirFile.resolve("mirrlyengine/Cargo.toml"),
+        rootDirFile.resolve("mirrlyengine/Cargo.lock"),
+        rootDirFile.resolve("mirrlyengine/.cargo/config.toml")
+    ).withPathSensitivity(PathSensitivity.RELATIVE)
+    if (singleAbiProp != null) {
+        inputs.property("singleAbi", singleAbiProp)
+        environment("MIRRLY_SINGLE_ABI", singleAbiProp)
+    }
+    outputs.dir(project.layout.projectDirectory.dir("src/main/jniLibs"))
+    outputs.cacheIf { true }
+    if (org.apache.tools.ant.taskdefs.condition.Os.isFamily(org.apache.tools.ant.taskdefs.condition.Os.FAMILY_WINDOWS)) {
+        commandLine("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${rootDirFile}/build_native.ps1")
+    } else {
+        commandLine("bash", "${rootDirFile}/build_native.sh")
+    }
+}
+
+if (project.hasProperty("autoBuildNative") || System.getenv("AUTO_BUILD_NATIVE") == "true") {
+    tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach {
+        dependsOn(buildCargoNdk)
     }
 }
 

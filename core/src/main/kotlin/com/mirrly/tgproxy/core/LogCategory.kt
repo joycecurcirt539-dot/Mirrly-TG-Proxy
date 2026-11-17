@@ -25,17 +25,13 @@ enum class LogCategory(
     ),
     WARP_SCANNER(
         key = "warp_scanner",
-        defaultTitle = "Cloudflare WARP и сканер",
-        defaultDescription = "Фоновые зонды портов, регистрация и фрагментация",
+        defaultTitle = "VPN профили и протоколы",
+        defaultDescription = "Управление профилями AmneziaWG и WireGuard",
         tags = setOf(
-            "WarpEndpointScanner",
-            "WarpAccountManager",
-            "WarpPipelineProfiler",
-            "WarpPacketFragmenter",
-            "WarpObfuscatedHttpClient",
-            "WarpKeystoreEncryption",
             "WarpProfileCodec",
-            "WarpProfileParser"
+            "WarpProfileParser",
+            "WarpProfileManager",
+            "BuiltinVpnServers"
         )
     ),
     HEALTH_PROBES(
@@ -47,8 +43,6 @@ enum class LogCategory(
             "PingEngine",
             "NodeHealthProber",
             "WorkerRelayHealthProbe",
-            "DohResolver",
-            "DohBenchmarkEngine",
             "DpiAnomalyDetector",
             "AdaptiveHeartbeatEngine",
             "BatteryThermalQoSEngine"
@@ -61,6 +55,7 @@ enum class LogCategory(
         tags = setOf(
             "ProxyForegroundService",
             "MirrlyVpnService",
+            "MirrlyVPN",
             "BootReceiver",
             "ScheduleManager",
             "System"

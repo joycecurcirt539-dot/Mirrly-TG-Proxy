@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -28,7 +29,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -173,7 +173,7 @@ fun UpdateScreen(
 
     // Infinite breathing animation for cyber glow badge
     val infiniteTransition = rememberInfiniteTransition(label = "updateGlow")
-    val glowAlpha by infiniteTransition.animateFloat(
+    val glowAlphaState = infiniteTransition.animateFloat(
         initialValue = 0.35f,
         targetValue = 0.85f,
         animationSpec = infiniteRepeatable(
@@ -231,11 +231,11 @@ fun UpdateScreen(
                             .size(58.dp)
                             .clip(CircleShape)
                             .background(Color.Transparent)
-                            .graphicsLayer { alpha = glowAlpha }
+                            .graphicsLayer { alpha = glowAlphaState.value }
                             .border(1.5.dp, ActiveGreenLed, CircleShape)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_refresh),
+                        MirrlyIcon(
+                            id = R.drawable.ic_refresh,
                             contentDescription = null,
                             tint = ActiveGreenLed,
                             modifier = Modifier.size(26.dp)
@@ -322,8 +322,8 @@ fun UpdateScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_shield),
+                            MirrlyIcon(
+                                id = R.drawable.ic_shield,
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
                                 modifier = Modifier.size(16.dp)
@@ -418,8 +418,8 @@ fun UpdateScreen(
                                 .background(accentColor.copy(alpha = 0.10f))
                                 .border(1.dp, accentColor.copy(alpha = 0.4f), CircleShape)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_shield),
+                            MirrlyIcon(
+                                id = R.drawable.ic_shield,
                                 contentDescription = null,
                                 tint = accentColor,
                                 modifier = Modifier.size(18.dp)
@@ -494,8 +494,8 @@ fun UpdateScreen(
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextWhite
                                 )
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_arrow_down),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_arrow_down,
                                     contentDescription = null,
                                     tint = TextMuted,
                                     modifier = Modifier.size(12.dp)
@@ -548,8 +548,8 @@ fun UpdateScreen(
                             verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = if (isAvail) R.drawable.ic_settings else R.drawable.ic_shield),
+                            MirrlyIcon(
+                                id = if (isAvail) R.drawable.ic_settings else R.drawable.ic_shield,
                                 contentDescription = null,
                                 tint = if (isAvail) TextMuted else ActiveGreenLed,
                                 modifier = Modifier
@@ -827,8 +827,8 @@ fun UpdateScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                Icon(
-                                                    painter = painterResource(id = R.drawable.ic_arrow_down),
+                                                MirrlyIcon(
+                                                    id = R.drawable.ic_arrow_down,
                                                     contentDescription = null,
                                                     tint = Color(0xFFFFB703),
                                                     modifier = Modifier.size(18.dp)
@@ -897,8 +897,8 @@ fun UpdateScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                Icon(
-                                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                                MirrlyIcon(
+                                                    id = R.drawable.ic_refresh,
                                                     contentDescription = null,
                                                     tint = ActiveGreenLed,
                                                     modifier = Modifier.size(18.dp)
@@ -966,8 +966,8 @@ fun UpdateScreen(
                                                         strokeWidth = 2.dp
                                                     )
                                                 } else {
-                                                    Icon(
-                                                        painter = painterResource(id = R.drawable.ic_refresh),
+                                                    MirrlyIcon(
+                                                        id = R.drawable.ic_refresh,
                                                         contentDescription = null,
                                                         tint = TextWhite,
                                                         modifier = Modifier.size(16.dp)
@@ -1003,8 +1003,8 @@ fun UpdateScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_github),
+                                            MirrlyIcon(
+                                                id = R.drawable.ic_github,
                                                 contentDescription = null,
                                                 tint = TextWhite,
                                                 modifier = Modifier.size(16.dp)
@@ -1244,8 +1244,8 @@ fun UpdateScreen(
                                     .background(Color.Transparent)
                                     .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), CircleShape)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_github),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_github,
                                     contentDescription = null,
                                     tint = ActiveGreenLed,
                                     modifier = Modifier.size(16.dp)
@@ -1334,8 +1334,8 @@ fun UpdateScreen(
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onBack()
                     }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_arrow_left),
+                        MirrlyIcon(
+                            id = R.drawable.ic_arrow_left,
                             contentDescription = stringResource(R.string.action_back),
                             tint = TextWhite,
                             modifier = Modifier.size(22.dp)
@@ -1347,8 +1347,8 @@ fun UpdateScreen(
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         pendingRedirectUrl = activeReleaseInfo?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
                     }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_github),
+                        MirrlyIcon(
+                            id = R.drawable.ic_github,
                             contentDescription = "GitHub",
                             tint = TextWhite,
                             modifier = Modifier.size(22.dp)
@@ -1457,8 +1457,8 @@ fun SelectApkTypeDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_shield),
+                        MirrlyIcon(
+                            id = R.drawable.ic_shield,
                             contentDescription = null,
                             tint = greenLed,
                             modifier = Modifier.size(18.dp)
@@ -1635,8 +1635,8 @@ fun SelectApkTypeDialog(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Icon(
-                                                    painter = painterResource(id = R.drawable.ic_shield),
+                                                MirrlyIcon(
+                                                    id = R.drawable.ic_shield,
                                                     contentDescription = null,
                                                     tint = if (isSelected) accentColor else TextMuted,
                                                     modifier = Modifier.size(12.dp)
@@ -1678,8 +1678,8 @@ fun SelectApkTypeDialog(
                                         fontWeight = FontWeight.Medium,
                                         color = accentColor.copy(alpha = 0.9f)
                                     )
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_arrow_down),
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_arrow_down,
                                         contentDescription = null,
                                         tint = accentColor.copy(alpha = 0.9f),
                                         modifier = Modifier.size(10.dp)

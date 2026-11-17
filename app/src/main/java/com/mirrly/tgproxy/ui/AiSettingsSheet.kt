@@ -71,7 +71,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -237,8 +237,8 @@ fun AiSettingsSheet(
                     onClick = onDismiss,
                     modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_close),
+                    MirrlyIcon(
+                        id = R.drawable.ic_close,
                         contentDescription = "Закрыть",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -556,8 +556,8 @@ fun AiSettingsSheet(
                                 },
                                 modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_close),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_close,
                                     contentDescription = "Очистить ключ",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     modifier = Modifier.size(16.dp)
@@ -576,10 +576,8 @@ fun AiSettingsSheet(
                                 },
                                 label = "keyVisibilityIcon"
                             ) { visible ->
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (visible) R.drawable.ic_ai_thought else R.drawable.ic_ai_chat
-                                    ),
+                                MirrlyIcon(
+                                    id = if (visible) R.drawable.ic_ai_thought else R.drawable.ic_ai_chat,
                                     contentDescription = "Видимость ключа",
                                     tint = if (visible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)

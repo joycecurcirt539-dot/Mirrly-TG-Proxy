@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import com.mirrly.tgproxy.ui.theme.*
 import com.mirrly.tgproxy.util.shareApp
 import kotlinx.coroutines.launch
@@ -84,7 +85,7 @@ fun AboutScreen(
 
     // Pulsing gradient glow for hero section
     val infiniteTransition = rememberInfiniteTransition(label = "pulseGlow")
-    val glowAlpha by infiniteTransition.animateFloat(
+    val glowAlphaState = infiniteTransition.animateFloat(
         initialValue = 0.35f,
         targetValue = 0.85f,
         animationSpec = infiniteRepeatable(
@@ -214,7 +215,7 @@ fun AboutScreen(
                             val r = (w.coerceAtMost(h) / 2f) - 3.dp.toPx()
 
                             drawCircle(
-                                color = ledGreen.copy(alpha = glowAlpha * 0.70f),
+                                color = ledGreen.copy(alpha = glowAlphaState.value * 0.70f),
                                 radius = r,
                                 center = c,
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
@@ -257,8 +258,8 @@ fun AboutScreen(
                                 })
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_github),
+                            MirrlyIcon(
+                                id = R.drawable.ic_github,
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
                                 modifier = Modifier.size(14.dp)
@@ -471,8 +472,8 @@ fun AboutScreen(
                                 .background(Color.Transparent)
                                 .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_hall_of_fame),
+                            MirrlyIcon(
+                                id = R.drawable.ic_hall_of_fame,
                                 contentDescription = null,
                                 tint = Color(0xFFFFBD22),
                                 modifier = Modifier.size(20.dp)
@@ -513,8 +514,8 @@ fun AboutScreen(
                             )
                         }
 
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                        MirrlyIcon(
+                            id = R.drawable.ic_chevron_right,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(16.dp)
@@ -557,8 +558,8 @@ fun AboutScreen(
                                     .background(Color.Transparent)
                                     .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.40f), RoundedCornerShape(10.dp))
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_star),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_star,
                                     contentDescription = null,
                                     tint = Color(0xFFFFB703),
                                     modifier = Modifier.size(18.dp)
@@ -598,8 +599,8 @@ fun AboutScreen(
                                 .height(44.dp)
                                 .springPress()
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_star),
+                            MirrlyIcon(
+                                id = R.drawable.ic_star,
                                 contentDescription = null,
                                 tint = Color(0xFFFFB703),
                                 modifier = Modifier.size(16.dp)
@@ -650,8 +651,8 @@ fun AboutScreen(
                                     .background(Color.Transparent)
                                     .border(1.dp, ActiveGreenLed.copy(alpha = 0.40f), RoundedCornerShape(10.dp))
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_donate),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_donate,
                                     contentDescription = null,
                                     tint = ActiveGreenLed,
                                     modifier = Modifier.size(18.dp)
@@ -691,8 +692,8 @@ fun AboutScreen(
                                 .height(44.dp)
                                 .springPress()
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_donate),
+                            MirrlyIcon(
+                                id = R.drawable.ic_donate,
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
                                 modifier = Modifier.size(16.dp)
@@ -779,8 +780,8 @@ fun AboutScreen(
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onBack()
                     }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_arrow_left),
+                        MirrlyIcon(
+                            id = R.drawable.ic_arrow_left,
                             contentDescription = stringResource(R.string.action_back),
                             tint = TextWhite,
                             modifier = Modifier.size(22.dp)
@@ -802,7 +803,7 @@ fun AboutScreen(
 
 /**
  * Architectural Tech Stack Section showcasing the actual technical layers of Mirrly TG Proxy:
- * - Native Engine: Rust 2021 (Tokio, smoltcp, Quinn), C++20 NDK
+ * - Native Engine: Rust 2021 (Tokio, AmneziaWG Noise IKpsk2), C++20 NDK
  * - Protocols: MTProto FakeTLS, SOCKS5 Relay, Cloudflare WSS, VpnService
  * - Platform & UI: Kotlin 2.0, Jetpack Compose, MirrlyUI
  * - Diagnostics & AI: TLS Fragmentation, Happy Eyeballs RFC 8305, Gemini BYOK
@@ -838,7 +839,7 @@ private fun TechStackSection(
                 accentColor = ActiveGreenLed,
                 items = listOf(
                     TechSpecItem("Rust 2021", "Tokio • mirrlyengine"),
-                    TechSpecItem("smoltcp & Quinn", "TCP/IP • QUIC NDK"),
+                    TechSpecItem("AmneziaWG NDK", "Noise IKpsk2 • ChaCha20"),
                     TechSpecItem("C++20 NDK", "JNI • Native Sec")
                 )
             )
@@ -1025,8 +1026,8 @@ private fun LinkCardItem(
                     .background(Color.Transparent)
                     .border(1.dp, iconTint.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
             ) {
-                Icon(
-                    painter = painterResource(id = iconRes),
+                MirrlyIcon(
+                    id = iconRes,
                     contentDescription = null,
                     tint = iconTint,
                     modifier = Modifier.size(16.dp)
@@ -1048,8 +1049,8 @@ private fun LinkCardItem(
             }
         }
 
-        Icon(
-            painter = painterResource(id = R.drawable.ic_chevron_right),
+        MirrlyIcon(
+            id = R.drawable.ic_chevron_right,
             contentDescription = null,
             tint = TextMuted.copy(alpha = 0.7f),
             modifier = Modifier.size(15.dp)
@@ -1134,8 +1135,8 @@ private fun CommunityShowcaseSection(
                                 .background(Color.Transparent)
                                 .border(1.dp, primaryColor.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_volunteer_badge),
+                            MirrlyIcon(
+                                id = R.drawable.ic_volunteer_badge,
                                 contentDescription = null,
                                 tint = primaryColor,
                                 modifier = Modifier.size(20.dp)
@@ -1164,8 +1165,8 @@ private fun CommunityShowcaseSection(
                             .size(32.dp)
                             .clip(CircleShape)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_arrow_down),
+                        MirrlyIcon(
+                            id = R.drawable.ic_arrow_down,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier
@@ -1195,11 +1196,10 @@ private fun CommunityShowcaseSection(
                                 .background(Color.Transparent)
                                 .border(1.dp, primaryColor.copy(alpha = 0.40f), RoundedCornerShape(10.dp))
                         ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_community_cat_plane),
+                            MirrlyIcon(
+                                id = R.drawable.ic_community_cat_plane,
                                 contentDescription = null,
-                                modifier = Modifier.size(34.dp),
-                                contentScale = ContentScale.Fit
+                                modifier = Modifier.size(34.dp)
                             )
                         }
 
@@ -1275,16 +1275,15 @@ private fun CommunityShowcaseSection(
                             }
 
                             // Interactive Vector Artwork Preview
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_community_cat_plane),
+                            MirrlyIcon(
+                                id = R.drawable.ic_community_cat_plane,
                                 contentDescription = stringResource(R.string.about_community_artwork_desc),
                                 modifier = Modifier
                                     .size(155.dp)
                                     .graphicsLayer {
                                         scaleX = previewBounce.value
                                         scaleY = previewBounce.value
-                                    },
-                                contentScale = ContentScale.Fit
+                                    }
                             )
 
                             // Clean inscription directly inside the preview canvas
@@ -1314,8 +1313,8 @@ private fun CommunityShowcaseSection(
                                     .background(Color.Transparent)
                                     .border(1.dp, primaryColor.copy(alpha = 0.45f), CircleShape)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_user),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_user,
                                     contentDescription = null,
                                     tint = primaryColor,
                                     modifier = Modifier.size(16.dp)
@@ -1383,8 +1382,8 @@ private fun CommunityShowcaseSection(
                                     .clip(CircleShape)
                                     .background(Color(0xFFFF4081).copy(alpha = 0.15f))
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_heart),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_heart,
                                     contentDescription = null,
                                     tint = Color(0xFFFF4081),
                                     modifier = Modifier.size(16.dp)

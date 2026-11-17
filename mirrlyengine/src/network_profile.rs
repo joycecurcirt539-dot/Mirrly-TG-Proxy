@@ -194,7 +194,7 @@ pub fn current_generation() -> u64 {
 }
 
 /// Filters every outbound resolver result at the engine boundary. This applies
-/// equally to MTProto, SOCKS5 Worker WSS, VLESS and VPN dial paths.
+/// equally to MTProto, SOCKS5 Worker WSS and VPN dial paths.
 pub fn filter_ip_family(ips: Vec<IpAddr>) -> Vec<IpAddr> {
     match get_profile().ip_family_preference.as_str() {
         "IPV4_ONLY" => ips.into_iter().filter(|ip| ip.is_ipv4()).collect(),

@@ -19,7 +19,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v2.1.0-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Version](https://img.shields.io/badge/Релиз-v2.1.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Language](https://img.shields.io/badge/Язык-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-интерфейс-приложения)
 [![Genesis](https://img.shields.io/badge/Генезис-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
@@ -112,7 +112,6 @@
   * *Проверка подлинности обновлений*: нативная C++ NDK верификация цифровой подписи APK (`SignatureVerifier`) и парсинг контрольных сумм SHA-256 в `UpdateChecker`.
 
 #### 2. В разработке
-* **Системный VPN-туннель (L3) и VPN-аплинки**: общесистемная маршрутизация трафика устройства и протоколы VLESS/MASQUE находятся на переработке.
 * **Встроенный замер скорости (SpeedTest)**: модуль измерения пропускной способности соединения внутри приложения.
 
 ---
@@ -298,7 +297,7 @@ flowchart TD
 * **Экран настроек (`SettingsScreen`)**:
   * *Простой режим*: выбор режима прокси, аплинка, таймер сна, расписание работы, автозапуск при включении устройства, выбор языка, темы и пользовательских обоев.
   * *Продвинутый режим*: параметры сокетов `TCP_NODELAY`, буферы сокетов и емкость WebSocket-пула.
-* **Генератор WARP (`WarpGeneratorScreen`)**: генерация профилей WireGuard и AmneziaWG, ручной ввод эндпоинтов, портов и параметров обфускации, экспорт конфигураций в `.conf` и `JSON`, шифрование Keystore.
+* **Режим VPN (`VpnModeScreen`)**: системный туннель на базе AmneziaWG и WireGuard с 14 встроенными европейскими Anycast-серверами, автоматическим пингом, раздельным туннелированием (Per-App VPN) и поддержкой импорта сторонних профилей .conf.
 * **Локальный ИИ-чат (`AiChatScreen`)**: экран встроенного ИИ-ассистента для интерактивной диагностики сети и разбора ошибок подключения без отправки данных наружу.
 * **Кастомизация фона (`CustomWallpaperLayer`)**: поддержка статических изображений и видеофайлов MP4 под прозрачным интерфейсом MirrlyUI (Zero Background).
 * **Экран первого запуска (`OnboardingScreen`)**: пошаговый мастер быстрой начальной настройки с мгновенным выбором языка (RU, EN, FA) и надежной работой без зависаний на смартфонах Samsung и Huawei.
@@ -402,7 +401,7 @@ Mirrly TG Proxy/
 ├── app/                  # Android-клиент (Jetpack Compose UI, Foreground Service, NDK C++ native_sec.cpp)
 │   ├── src/main/assets/  # Предустановленные фоновые обои (wallpapers/)
 │   ├── src/main/cpp/     # Нативный C++ модуль верификации подписи APK (native_sec.cpp, CMakeLists.txt)
-│   ├── src/main/java/    # UI экраны (WarpGenerator, AiChat, Fame), онбординг, каналы, сервисы, локализация
+│   ├── src/main/java/    # UI экраны (VpnMode, AiChat, Fame), онбординг, каналы, сервисы, локализация
 │   └── src/main/res/     # Ресурсы, разметка, векторные иконки, strings.xml (RU / EN / FA)
 ├── core/                 # Модуль бизнес-логики и сетевых алгоритмов Kotlin
 │   └── src/main/kotlin/  # LocalProxyServer, FFI NativeProxy, WarpConfigGeneratorEngine, Keystore, UpdateChecker
@@ -415,7 +414,6 @@ Mirrly TG Proxy/
 │   ├── src/dns.rs        # DoH-резолвер и гонка DNS-ответов
 │   ├── src/faketls.rs    # MTProto FakeTLS (домены, ee/dd префиксы)
 │   ├── src/generation_guard.rs # Защита от гонок сетевых поколений
-│   ├── src/masque.rs     # WARP MASQUE HTTP/3 CONNECT-UDP
 │   ├── src/network_profile.rs  # Дискретный FSM стабильности сети (NORMAL, DEGRADED, RECOVERING)
 │   ├── src/node_independence.rs # Политики изоляции приватных и публичных узлов
 │   ├── src/prober.rs     # Зондирование доступности узлов и пинг
@@ -513,6 +511,7 @@ chmod +x tools/build/build_native.sh
 | **`v2.0.0.2`** | Локализация и UI | Персидская локализация (Farsi / RTL), динамическое масштабирование шрифта индикатора качества в тесте скорости, изоляция экрана VPN в разработке. |
 | **`v2.0.0.3`** | Редизайн и стабильность | Минималистичный AMOLED-редизайн экранов истории сессий и системных логов, прозрачный стиль элементов во вкладке «Поделиться», устранение зависания первого запуска и выбора языка на Samsung One UI и Huawei EMUI/HarmonyOS, удаление ложных DNS-логов Cloudflare и быстрое освобождение портов SOCKS5 (`SO_REUSEPORT`). |
 | **`v2.1.0`** | Генератор WARP, ИИ-чат и обои | Предупреждающая плашка о переработке системного VPN, встроенный генератор профилей WireGuard и AmneziaWG с шифрованием Keystore, локальный ИИ-чат диагностики сети, поддержка пользовательских фото- и видео-обоев под контурами MirrlyUI, удаление неиспользуемых нативных библиотек (снижение размера APK на 21 МБ) и расширение Зала Славы до 79 участников. |
+| **`v2.1.2`** | Ремонт прокси и AmneziaWG | Экстренное восстановление прокси (отключение проблемного внешнего TLS по умолчанию, снятие MSS-клемпинга на loopback, прогрев пула Anycast CDN), 14 встроенных серверов AmneziaWG, настройки выживания службы в фоне, векторные иконки `MirrlyIcon` и аркада Cyber Snake. |
 
 ---
 

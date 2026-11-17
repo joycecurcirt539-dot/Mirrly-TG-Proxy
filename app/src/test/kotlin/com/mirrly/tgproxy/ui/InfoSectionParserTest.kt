@@ -38,7 +38,7 @@ class InfoSectionParserTest {
     fun restoresSectionsWhenAndroidCollapsesSettingsXmlWhitespace() {
         val collapsed = "АРХИТЕКТУРА АПЛИНКА: • Общая схема маршрута. " +
             "1. CLOUDFLARE WORKER: • Работа через WSS. " +
-            "2. CLOUDFLARE WARP: • Работа через MASQUE."
+            "2. CLOUDFLARE WARP: • Работа через AWG."
 
         val sections = parseInfoSections(collapsed)
 

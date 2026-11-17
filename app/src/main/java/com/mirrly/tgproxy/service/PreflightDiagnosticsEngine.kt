@@ -196,8 +196,7 @@ object PreflightDiagnosticsEngine {
                 validatedAtTimestampMs = System.currentTimeMillis(),
                 bestWorkerId = if (config.isSocks5Mode) prefsManager.getActiveWorkerId() else null,
                 bestMtprotoDc = if (!config.isSocks5Mode) "kws2.web.telegram.org:443" else null,
-                bestWarpEndpoint = if (config.isSocks5Mode) config.warpPeerEndpoint else null,
-                isDnsHealthy = true
+                bestWarpEndpoint = if (config.isSocks5Mode) config.warpPeerEndpoint else null
             )
         )
 

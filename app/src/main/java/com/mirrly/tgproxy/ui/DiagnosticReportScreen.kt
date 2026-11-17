@@ -9,6 +9,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -35,7 +36,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -124,8 +124,8 @@ fun DiagnosticReportScreen(
                             .background(ActiveGreenLed.copy(alpha = 0.12f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_shield),
+                        MirrlyIcon(
+                            id = R.drawable.ic_shield,
                             contentDescription = null,
                             tint = ActiveGreenLed,
                             modifier = Modifier.size(18.dp)
@@ -168,8 +168,8 @@ fun DiagnosticReportScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_copy),
+                        MirrlyIcon(
+                            id = R.drawable.ic_copy,
                             contentDescription = null,
                             tint = TextWhite,
                             modifier = Modifier.size(14.dp)
@@ -199,8 +199,8 @@ fun DiagnosticReportScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_send),
+                        MirrlyIcon(
+                            id = R.drawable.ic_send,
                             contentDescription = null,
                             tint = TextWhite,
                             modifier = Modifier.size(14.dp)
@@ -231,8 +231,8 @@ fun DiagnosticReportScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_github),
+                    MirrlyIcon(
+                        id = R.drawable.ic_github,
                         contentDescription = null,
                         tint = ActiveGreenLed,
                         modifier = Modifier.size(16.dp)
@@ -286,8 +286,8 @@ fun DiagnosticReportScreen(
                         onBack()
                     }
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_arrow_left),
+                    MirrlyIcon(
+                        id = R.drawable.ic_arrow_left,
                         contentDescription = null,
                         tint = TextWhite,
                         modifier = Modifier.size(20.dp)
@@ -304,8 +304,8 @@ fun DiagnosticReportScreen(
                 IconButton(
                     onClick = { copyReportToClipboard() }
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_copy),
+                    MirrlyIcon(
+                        id = R.drawable.ic_copy,
                         contentDescription = null,
                         tint = TextWhite,
                         modifier = Modifier.size(18.dp)

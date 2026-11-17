@@ -55,8 +55,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Share
+import com.mirrly.tgproxy.ui.icon.MirrlyShareIcon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -78,7 +77,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -373,8 +372,8 @@ fun WorkerManagerScreen(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_shield),
+                                        MirrlyIcon(
+                                            id = R.drawable.ic_shield,
                                             contentDescription = null,
                                             tint = TextMuted,
                                             modifier = Modifier.size(46.dp)
@@ -398,8 +397,8 @@ fun WorkerManagerScreen(
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_diag_worker),
+                                            MirrlyIcon(
+                                                id = R.drawable.ic_diag_worker,
                                                 contentDescription = null,
                                                 tint = activeProtoColor,
                                                 modifier = Modifier.size(36.dp)
@@ -497,8 +496,8 @@ fun WorkerManagerScreen(
                                                 )
                                             },
                                             leadingIcon = {
-                                                Icon(
-                                                    painter = painterResource(id = R.drawable.ic_search),
+                                                MirrlyIcon(
+                                                    id = R.drawable.ic_search,
                                                     contentDescription = null,
                                                     tint = if (searchQuery.isNotEmpty()) activeProtoColor else TextMuted,
                                                     modifier = Modifier.size(17.dp)
@@ -573,7 +572,8 @@ fun WorkerManagerScreen(
 
                                 itemsIndexed(
                                     items = filteredWorkers,
-                                    key = { _, item -> item.id }
+                                    key = { _, item -> item.id },
+                                    contentType = { _, _ -> "worker_card" }
                                 ) { _, worker ->
                                     val isActive = worker.id == activeWorkerId
                                     val isActiveMtproto = worker.id == activeWorkerIdMtproto
@@ -658,6 +658,73 @@ fun WorkerManagerScreen(
                                         } else null
                                     )
                                 }
+
+                                item(key = "worker_swipe_setting") {
+                                    val isWorkerSwipeEnabled by prefs.isWorkerSwipeEnabledFlow.collectAsState()
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color.Transparent,
+                                        border = BorderStroke(1.dp, AmoledBorder),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp, bottom = 12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Box(
+                                                    contentAlignment = Alignment.Center,
+                                                    modifier = Modifier
+                                                        .size(34.dp)
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(Color.Transparent)
+                                                        .border(1.dp, activeProtoColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                                ) {
+                                                    MirrlyIcon(
+                                                        id = R.drawable.ic_arrow_down,
+                                                        contentDescription = null,
+                                                        tint = activeProtoColor,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+
+                                                Column(modifier = Modifier.padding(end = 8.dp)) {
+                                                    Text(
+                                                        text = stringResource(R.string.settings_worker_swipe_title),
+                                                        fontSize = 13.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = TextWhite
+                                                    )
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = stringResource(R.string.settings_worker_swipe_desc),
+                                                        fontSize = 11.sp,
+                                                        color = TextMuted,
+                                                        lineHeight = 14.sp
+                                                    )
+                                                }
+                                            }
+
+                                            InertialSpringSwitch(
+                                                checked = isWorkerSwipeEnabled,
+                                                onCheckedChange = { checked ->
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    prefs.setWorkerSwipeEnabled(checked)
+                                                },
+                                                activeColor = activeProtoColor
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -688,8 +755,8 @@ fun WorkerManagerScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_diag_worker),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_diag_worker,
                                     contentDescription = null,
                                     tint = activeProtoColor,
                                     modifier = Modifier.size(15.dp)
@@ -845,8 +912,8 @@ fun WorkerManagerScreen(
                             onClick = { handleDismiss() },
                             modifier = Modifier.size(38.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_arrow_left),
+                            MirrlyIcon(
+                                id = R.drawable.ic_arrow_left,
                                 contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
                                 modifier = Modifier.size(19.dp)
@@ -863,8 +930,8 @@ fun WorkerManagerScreen(
                                     },
                                     modifier = Modifier.size(36.dp)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_diag_formula),
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_diag_formula,
                                         contentDescription = stringResource(R.string.wm_desc_analytics),
                                         tint = activeProtoColor,
                                         modifier = Modifier.size(18.dp)
@@ -885,8 +952,8 @@ fun WorkerManagerScreen(
                                 },
                                 modifier = Modifier.size(36.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_search),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_search,
                                     contentDescription = stringResource(R.string.action_search),
                                     tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
                                     modifier = Modifier.size(18.dp)
@@ -900,8 +967,8 @@ fun WorkerManagerScreen(
                                 },
                                 modifier = Modifier.size(36.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_refresh,
                                     contentDescription = stringResource(R.string.wm_desc_measure_ping),
                                     tint = if (isPinging) activeProtoColor else TextWhite,
                                     modifier = Modifier
@@ -1028,8 +1095,8 @@ fun WorkerManagerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_info_circle),
+                        MirrlyIcon(
+                            id = R.drawable.ic_info_circle,
                             contentDescription = null,
                             tint = if (isGuideSelected) guideColor else TextMuted,
                             modifier = Modifier.size(13.dp)
@@ -1354,8 +1421,8 @@ private fun GlassWorkerCard(
                                 .springPress(onClick = onVisitSite)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_globe),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_globe,
                                     contentDescription = "Открыть сайт",
                                     tint = TextWhite,
                                     modifier = Modifier.size(13.dp)
@@ -1384,8 +1451,8 @@ private fun GlassWorkerCard(
                                         strokeWidth = 1.5.dp
                                     )
                                 } else {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_refresh),
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_refresh,
                                         contentDescription = stringResource(R.string.cf_deploy_btn_update_script),
                                         tint = updateBtnColor,
                                         modifier = Modifier.size(13.dp)
@@ -1406,9 +1473,7 @@ private fun GlassWorkerCard(
                                 .springPress(onClick = onShare)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = stringResource(R.string.wm_tab_share),
+                                MirrlyShareIcon(
                                     tint = TextWhite,
                                     modifier = Modifier.size(12.dp)
                                 )
@@ -1427,8 +1492,8 @@ private fun GlassWorkerCard(
                                 .springPress(onClick = onDelete)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_trash),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_trash,
                                     contentDescription = stringResource(R.string.action_delete),
                                     tint = BloodRed,
                                     modifier = Modifier.size(12.dp)
@@ -1592,8 +1657,8 @@ private fun AddWorkerSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_copy),
+                            MirrlyIcon(
+                                id = R.drawable.ic_copy,
                                 contentDescription = null,
                                 tint = activeAccentColor,
                                 modifier = Modifier.size(13.dp)
@@ -1625,8 +1690,8 @@ private fun AddWorkerSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_diag_worker),
+                            MirrlyIcon(
+                                id = R.drawable.ic_diag_worker,
                                 contentDescription = null,
                                 tint = activeAccentColor,
                                 modifier = Modifier.size(13.dp)
@@ -2159,8 +2224,8 @@ private fun QrScannerSheet(
                         verticalArrangement = Arrangement.Center,
                         modifier = Modifier.padding(20.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_diag_worker),
+                        MirrlyIcon(
+                            id = R.drawable.ic_diag_worker,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(40.dp)
@@ -2228,8 +2293,8 @@ private fun QrScannerSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_copy),
+                    MirrlyIcon(
+                        id = R.drawable.ic_copy,
                         contentDescription = null,
                         tint = activeAccentColor,
                         modifier = Modifier.size(14.dp)
@@ -2359,8 +2424,8 @@ private fun ShareWorkerContent(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.padding(24.dp)
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_diag_worker),
+                MirrlyIcon(
+                    id = R.drawable.ic_diag_worker,
                     contentDescription = null,
                     tint = TextMuted.copy(alpha = 0.5f),
                     modifier = Modifier.size(56.dp)
@@ -2544,8 +2609,8 @@ private fun ShareWorkerContent(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_copy),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_copy,
                                     contentDescription = null,
                                     tint = activeAccentColor,
                                     modifier = Modifier.size(14.dp)
@@ -2578,9 +2643,7 @@ private fun ShareWorkerContent(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = null,
+                                MirrlyShareIcon(
                                     tint = activeAccentColor,
                                     modifier = Modifier.size(14.dp)
                                 )
@@ -2683,8 +2746,8 @@ private fun ScannerWorkerContent(
                             .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(16.dp))
                             .padding(20.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_diag_worker),
+                        MirrlyIcon(
+                            id = R.drawable.ic_diag_worker,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(40.dp)
@@ -2746,8 +2809,8 @@ private fun ScannerWorkerContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_copy),
+                        MirrlyIcon(
+                            id = R.drawable.ic_copy,
                             contentDescription = null,
                             tint = activeAccentColor,
                             modifier = Modifier.size(14.dp)
@@ -2818,8 +2881,8 @@ private fun ManualWorkerGuideContent(
                         modifier = Modifier.size(36.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_diag_cloudflare),
+                            MirrlyIcon(
+                                id = R.drawable.ic_diag_cloudflare,
                                 contentDescription = null,
                                 tint = Color(0xFF38BDF8),
                                 modifier = Modifier.size(18.dp)
@@ -2926,8 +2989,8 @@ private fun ManualWorkerGuideContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_copy),
+                        MirrlyIcon(
+                            id = R.drawable.ic_copy,
                             contentDescription = null,
                             tint = Color(0xFF38BDF8),
                             modifier = Modifier.size(13.dp)
@@ -2965,8 +3028,8 @@ private fun ManualWorkerGuideContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_github),
+                        MirrlyIcon(
+                            id = R.drawable.ic_github,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(13.dp)

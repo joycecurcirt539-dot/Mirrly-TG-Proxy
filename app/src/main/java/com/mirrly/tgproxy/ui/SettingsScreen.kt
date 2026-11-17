@@ -47,6 +47,7 @@ import com.mirrly.tgproxy.ui.theme.ThemeAccentMode
 import com.mirrly.tgproxy.ui.theme.ThemePresets
 import com.mirrly.tgproxy.ui.theme.ColorEngine
 import android.view.WindowManager
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
@@ -81,7 +82,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.painterResource
@@ -105,7 +105,9 @@ import com.mirrly.tgproxy.core.NagleMode
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.core.ProxyMode
 import com.mirrly.tgproxy.core.TcpNoDelayMode
+import com.mirrly.tgproxy.service.OemAutostartHelper
 import com.mirrly.tgproxy.service.ProxyForegroundService
+import com.mirrly.tgproxy.service.ProxyResurrectionManager
 import com.mirrly.tgproxy.ui.theme.*
 import com.mirrly.tgproxy.util.shareApp
 import android.net.Uri
@@ -439,14 +441,9 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
                 keywords = listOf("wireguard", "amnezia", "awg")
             ),
             TermGlossaryItem(
-                term = "MASQUE Protocol",
-                definition = "Modern IETF tunneling standard over HTTP/3 and QUIC cloaking connection as standard web traffic.",
-                keywords = listOf("masque", "quic", "http/3")
-            ),
-            TermGlossaryItem(
                 term = "Uplink Route",
                 definition = "The external server route through which the proxy reaches target data centers.",
-                keywords = listOf("uplink", "warp", "masque", "awg", "route")
+                keywords = listOf("uplink", "warp", "awg", "route")
             ),
             TermGlossaryItem(
                 term = "Network Latency RTT",
@@ -462,11 +459,6 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
                 term = "Traffic Cloaking FakeTLS",
                 definition = "Disguising proxy data as normal HTTPS website browsing to prevent ISP deep packet inspection from blocking it.",
                 keywords = listOf("obfuscation", "faketls", "cloaking", "secret", "tls")
-            ),
-            TermGlossaryItem(
-                term = "Encrypted DNS",
-                definition = "Encrypted resolution of server IP addresses, protecting your DNS requests from ISP snooping and tampering.",
-                keywords = listOf("dns")
             ),
             TermGlossaryItem(
                 term = "Queue Bufferbloat",
@@ -536,11 +528,6 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
                 keywords = listOf("wireguard", "amnezia", "awg")
             ),
             TermGlossaryItem(
-                term = "پروتکل MASQUE",
-                definition = "استاندارد نوین اینترنت بر پایه HTTP/3 و QUIC با استتار به عنوان ترافیک عادی وب.",
-                keywords = listOf("masque", "quic", "http/3")
-            ),
-            TermGlossaryItem(
                 term = "مسیر بالادست",
                 definition = "مسیر یا سرور خروجی که پروکسی از طریق آن به اینترنت متصل می‌شود.",
                 keywords = listOf("uplink", "وارپ", "بالادست", "مسیر")
@@ -559,11 +546,6 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
                 term = "استتار FakeTLS",
                 definition = "شبیه‌سازی ترافیک پروکسی به عنوان وبگردی عادی و امن جهت جلوگیری از شناسایی و فیلترینگ.",
                 keywords = listOf("استتار", "faketls", "رمزنگاری", "tls", "مبدل")
-            ),
-            TermGlossaryItem(
-                term = "دی‌ان‌اس رمزنگاری‌شده",
-                definition = "یافتن آدرس‌های اینترنتی به صورت رمزنگاری‌شده تا اپراتور نتواند مسیرهای شما را شنود کند.",
-                keywords = listOf("dns", "دی‌ان‌اس")
             ),
             TermGlossaryItem(
                 term = "صف بافر بلوت",
@@ -628,14 +610,9 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
                 keywords = listOf("wireguard", "amnezia", "awg")
             ),
             TermGlossaryItem(
-                term = "Протокол MASQUE",
-                definition = "Современный стандарт IETF на базе HTTP/3 и QUIC, маскирующий сетевое соединение под обычный веб-трафик к CDN.",
-                keywords = listOf("masque", "quic", "http/3")
-            ),
-            TermGlossaryItem(
                 term = "Сервер подключения",
                 definition = "Внешний маршрут через который приложение связывается с целевой сетью.",
-                keywords = listOf("аплинк", "uplink", "warp", "masque", "awg", "маршрут")
+                keywords = listOf("аплинк", "uplink", "warp", "awg", "маршрут")
             ),
             TermGlossaryItem(
                 term = "Сетевая задержка RTT",
@@ -651,11 +628,6 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
                 term = "Маскировка FakeTLS",
                 definition = "Технология сокрытия сетевого трафика под стандартный защищенный веб-сайт для предотвращения блокировок провайдером.",
                 keywords = listOf("маскировк", "обфус", "faketls", "tls", "секрет", "secret")
-            ),
-            TermGlossaryItem(
-                term = "Шифрованный DNS",
-                definition = "Зашифрованное определение IP-адресов серверов, исключающее перехват и подмену сетевых запросов.",
-                keywords = listOf("dns", "днс")
             ),
             TermGlossaryItem(
                 term = "Очередь Bufferbloat",
@@ -942,7 +914,7 @@ fun SettingsScreen(
     onOpenOnboarding: () -> Unit = {},
     onOpenVpnOnboarding: (() -> Unit)? = null,
     onOpenDiagnosticReport: () -> Unit = {},
-    onOpenWarpGenerator: () -> Unit = {},
+    onOpenSecurityAdvisory: () -> Unit = {},
     onOpenAiChat: ((String?) -> Unit)? = null,
     initialIsVpn: Boolean = false
 ) {
@@ -1022,7 +994,9 @@ fun SettingsScreen(
     val vpnSplitTunnelEnabled by app.prefsManager.vpnSplitTunnelEnabledFlow.collectAsState()
     val vpnSplitTunnelAllowlist by app.prefsManager.vpnSplitTunnelAllowlistFlow.collectAsState()
     val vpnSplitTunnelPackages by app.prefsManager.vpnSplitTunnelPackagesFlow.collectAsState()
-    var showVpnProtocolDialog by rememberSaveable { mutableStateOf(false) }
+    val vpnDnsMode by app.prefsManager.vpnDnsModeFlow.collectAsState()
+    val vpnCustomDnsIps by app.prefsManager.vpnCustomDnsIpsFlow.collectAsState()
+    var showVpnDnsDialog by rememberSaveable { mutableStateOf(false) }
     var showSplitTunnelAppsDialog by rememberSaveable { mutableStateOf(false) }
     var warpProfile by remember { mutableStateOf(app.prefsManager.getWarpProfile()) }
     var isRegisteringWarp by remember { mutableStateOf(false) }
@@ -1071,22 +1045,6 @@ fun SettingsScreen(
         Modifier
     }
 
-    val onLanguageChange: (String) -> Unit = { newLang ->
-        if (!langBlurAnim.isRunning) {
-            coroutineScope.launch {
-                langBlurAnim.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(durationMillis = 130, easing = FastOutLinearInEasing)
-                )
-                app.prefsManager.setAppLanguage(newLang)
-                langBlurAnim.animateTo(
-                    targetValue = 0f,
-                    animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing)
-                )
-            }
-        }
-    }
-
     fun restartProxyIfNeeded() {
         app.saveConfig()
         if (server.isRunning) {
@@ -1101,6 +1059,26 @@ fun SettingsScreen(
                 }
             } catch (e: Exception) {
                 AppLogger.e("SettingsScreen", "Failed to restart proxy service: ${e.message}")
+            }
+        }
+    }
+
+    val onLanguageChange: (String) -> Unit = { newLang ->
+        if (!langBlurAnim.isRunning) {
+            coroutineScope.launch {
+                langBlurAnim.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 130, easing = FastOutLinearInEasing)
+                )
+                val previousTls = app.prefsManager.isTlsEnabled()
+                app.prefsManager.setAppLanguage(newLang)
+                if (app.prefsManager.isTlsEnabled() != previousTls) {
+                    restartProxyIfNeeded()
+                }
+                langBlurAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing)
+                )
             }
         }
     }
@@ -1196,10 +1174,10 @@ fun SettingsScreen(
         )
     }
 
-    if (showVpnProtocolDialog) {
-        VpnProtocolSelectorDialog(
+    if (showVpnDnsDialog) {
+        VpnDnsSelectorDialog(
             vpnColors = systemVpnColors,
-            onDismiss = { showVpnProtocolDialog = false }
+            onDismiss = { showVpnDnsDialog = false }
         )
     }
 
@@ -1210,12 +1188,19 @@ fun SettingsScreen(
         scrollState.animateScrollTo(0)
     }
 
+    val isVpnMode = activeProtocolMode == SettingsProtocolMode.VPN
+    LaunchedEffect(isVpnMode, selectedCategory) {
+        if (isVpnMode && selectedCategory == SettingsCategory.UPLINK) {
+            selectedCategory = SettingsCategory.ALL
+        }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
         val showNetwork = selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.NETWORK
-        val showUplink = selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.UPLINK
+        val showUplink = !isVpnMode && (selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.UPLINK)
         val showSystem = selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.SYSTEM
         val showMisc = selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.MISC
 
@@ -1261,25 +1246,7 @@ fun SettingsScreen(
 
                 when (activeProtocolMode) {
                     SettingsProtocolMode.VPN -> {
-                        SettingsVpnStatusOverviewSection(
-                            vpnColors = systemVpnColors,
-                            vpnState = vpnState,
-                            onOpenVpnDialog = { showVpnProtocolDialog = true },
-                            onInfoClick = { key -> infoKey = key }
-                        )
-
-                        SettingsDivider()
-
-                        SettingsVpnSplitTunnelSection(
-                            vpnColors = systemVpnColors,
-                            isEnabled = vpnSplitTunnelEnabled,
-                            onToggleEnabled = { app.prefsManager.setVpnSplitTunnelEnabled(it) },
-                            isAllowlist = vpnSplitTunnelAllowlist,
-                            onToggleAllowlist = { app.prefsManager.setVpnSplitTunnelAllowlist(it) },
-                            packageCount = vpnSplitTunnelPackages.size,
-                            onOpenAppPicker = { showSplitTunnelAppsDialog = true },
-                            onInfoClick = { key -> infoKey = key }
-                        )
+                        // Настройки VPN (DNS, раздельное туннелирование, выбор серверов) перенесены на главный экран вкладки VPN
                     }
                     SettingsProtocolMode.MTPROTO -> {
                         SettingsNetworkSection(
@@ -1413,12 +1380,8 @@ fun SettingsScreen(
                                 com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
                             }
                         },
-                        onRefreshWarpAccount = {
-                            onOpenWarpGenerator()
-                        },
-                        onOpenWarpDetails = {
-                            onOpenWarpGenerator()
-                        },
+                        onRefreshWarpAccount = {},
+                        onOpenWarpDetails = {},
                         onInfoClick = { infoKey = it },
                         onRestartProxy = {
                             if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
@@ -1459,6 +1422,12 @@ fun SettingsScreen(
                         },
                         onOpenWorkerManager = { onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.MTPROTO) }
                     )
+
+                    SettingsHomeModeSwipeCard(activeColor = MtprotoAccent)
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    SettingsWorkerSwipeCard(activeColor = MtprotoAccent)
 
                     SettingsMtprotoCdnOverviewCard()
 
@@ -1561,6 +1530,7 @@ fun SettingsScreen(
             onBack = onBack,
             isAdvancedMode = isAdvancedMode,
             onToggleAdvancedMode = toggleAdvancedMode,
+            isUplinkHidden = isVpnMode,
             modifier = langBlurModifier
         )
 
@@ -1627,13 +1597,10 @@ fun SettingsScreen(
                 onDismiss = { showVpnOnboardingDialog = false },
                 onCreateProfileAuto = {
                     showVpnOnboardingDialog = false
-                    onOpenWarpGenerator()
                 },
                 onOpenImport = {
                     showVpnOnboardingDialog = false
-                    onOpenWarpGenerator()
-                },
-                onOpenGenerator = onOpenWarpGenerator
+                }
             )
         }
 
@@ -1655,10 +1622,12 @@ private fun SettingsTopBar(
     onBack: () -> Unit,
     isAdvancedMode: Boolean = false,
     onToggleAdvancedMode: (Boolean) -> Unit = {},
+    isUplinkHidden: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
-    val accent = ActiveGreenLed
+    val protocolColors = LocalProtocolColors.current
+    val accent = protocolColors.primary
 
     Column(
         modifier = Modifier
@@ -1742,7 +1711,12 @@ private fun SettingsTopBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SettingsCategory.values().forEach { category ->
+            val visibleCategories = if (isUplinkHidden) {
+                SettingsCategory.values().filter { it != SettingsCategory.UPLINK }
+            } else {
+                SettingsCategory.values().toList()
+            }
+            visibleCategories.forEach { category ->
                 val isSelected = selectedCategory == category
                 val chipBg by animateColorAsState(
                     targetValue = if (isSelected) accent.copy(alpha = 0.14f) else Color.Transparent,
@@ -2081,6 +2055,119 @@ private fun SettingsVpnStatusOverviewSection(
 }
 
 @Composable
+private fun SettingsVpnDnsSection(
+    vpnColors: ProtocolColors,
+    currentDnsMode: com.mirrly.tgproxy.core.VpnDnsMode,
+    customDnsIps: String,
+    onOpenDnsSelector: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val cardShape = LocalCardShape.current
+
+    val modeTitle = when (currentDnsMode) {
+        com.mirrly.tgproxy.core.VpnDnsMode.CLOUDFLARE -> "Cloudflare DNS · 1.1.1.1"
+        com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS -> "Comss.one DNS"
+        com.mirrly.tgproxy.core.VpnDnsMode.GOOGLE -> "Google DNS · 8.8.8.8"
+        com.mirrly.tgproxy.core.VpnDnsMode.QUAD9 -> "Quad9 DNS · 9.9.9.9"
+        com.mirrly.tgproxy.core.VpnDnsMode.CUSTOM -> if (customDnsIps.isNotBlank()) stringResource(R.string.vpn_dns_mode_custom_format, customDnsIps) else stringResource(R.string.vpn_dns_title_custom)
+    }
+
+    val modeSubtitle = when (currentDnsMode) {
+        com.mirrly.tgproxy.core.VpnDnsMode.CLOUDFLARE -> stringResource(R.string.vpn_dns_sub_cloudflare)
+        com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS -> stringResource(R.string.vpn_dns_sub_comss)
+        com.mirrly.tgproxy.core.VpnDnsMode.GOOGLE -> stringResource(R.string.vpn_dns_sub_google)
+        com.mirrly.tgproxy.core.VpnDnsMode.QUAD9 -> stringResource(R.string.vpn_dns_sub_quad9)
+        com.mirrly.tgproxy.core.VpnDnsMode.CUSTOM -> stringResource(R.string.vpn_dns_sub_custom)
+    }
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 2),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.vpn_action_dns).uppercase(),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.3.sp,
+                color = TextMuted,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(cardShape)
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, cardShape)
+                .springPress(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenDnsSelector()
+                })
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f).padding(end = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MirrlyIcon(
+                            id = R.drawable.ic_globe,
+                            contentDescription = null,
+                            tint = vpnColors.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = modeTitle,
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Text(
+                            text = modeSubtitle,
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                MirrlyIcon(
+                    id = R.drawable.ic_chevron_right,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsVpnSplitTunnelSection(
     vpnColors: ProtocolColors,
     isEnabled: Boolean,
@@ -2338,8 +2425,15 @@ fun SplitTunnelAppsDialog(
         }
     }
 
+    rememberDialogBlurState(blurRadiusPx = 60)
+
     MirrlyModalBottomSheet(
-        onDismissRequest = onDismiss
+        onDismissRequest = onDismiss,
+        maxTabletWidth = 480.dp,
+        containerColor = AmoledBackground.copy(alpha = 0.94f),
+        scrimColor = AmoledBackground.copy(alpha = 0.65f),
+        enableBackdropBlur = true,
+        blurRadiusPx = 60
     ) {
         Column(
             modifier = Modifier
@@ -2575,20 +2669,18 @@ fun SplitTunnelAppsDialog(
                                     )
                                 }
 
-                                Checkbox(
+                                InertialSpringSwitch(
                                     checked = isChecked,
                                     onCheckedChange = { checked ->
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         currentSelection = if (checked) {
                                             currentSelection + app.packageName
                                         } else {
                                             currentSelection - app.packageName
                                         }
                                     },
-                                    colors = CheckboxDefaults.colors(
-                                        checkedColor = vpnColors.primary,
-                                        uncheckedColor = AmoledBorder,
-                                        checkmarkColor = Color.Black
-                                    )
+                                    activeColor = vpnColors.primary,
+                                    modifier = Modifier.graphicsLayer { scaleX = 0.85f; scaleY = 0.85f }
                                 )
                             }
                         }
@@ -4447,6 +4539,107 @@ private fun SettingsAdvancedEngineeringSection(
             }
         }
 
+        // 4.5. Transport TLS Control (Critical Stability Setting)
+        val isTlsEnabled by app.prefsManager.isTlsEnabledFlow.collectAsState()
+        val tlsCardBorder by animateColorAsState(
+            targetValue = if (isTlsEnabled) Color(0xFFF59E0B).copy(alpha = 0.45f) else Color(0xFFFF1744).copy(alpha = 0.55f),
+            animationSpec = tween(220),
+            label = "tlsCardBorder"
+        )
+        val tlsWarnBorder by animateColorAsState(
+            targetValue = if (isTlsEnabled) Color(0xFFF59E0B).copy(alpha = 0.4f) else Color(0xFFFF1744).copy(alpha = 0.45f),
+            animationSpec = tween(220),
+            label = "tlsWarnBorder"
+        )
+        val tlsWarnTitleColor by animateColorAsState(
+            targetValue = if (isTlsEnabled) Color(0xFFFFB74D) else Color(0xFFFF5252),
+            animationSpec = tween(220),
+            label = "tlsWarnTitleColor"
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.Transparent)
+                .border(1.dp, tlsCardBorder, RoundedCornerShape(14.dp))
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_tls_enabled_title),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.5.sp
+                            )
+                            InfoButton { onInfoClick("tls_enabled") }
+                        }
+                        Text(
+                            text = stringResource(R.string.settings_tls_enabled_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    InertialSpringSwitch(
+                        checked = isTlsEnabled,
+                        onCheckedChange = { checked ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            app.prefsManager.setTlsEnabled(checked)
+                            onRestartProxy()
+                        },
+                        activeColor = Color(0xFFF59E0B)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, tlsWarnBorder, RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = stringResource(
+                                if (isTlsEnabled) R.string.settings_tls_enabled_card_title
+                                else R.string.settings_tls_disabled_card_title
+                            ),
+                            color = tlsWarnTitleColor,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = stringResource(
+                                if (isTlsEnabled) R.string.settings_tls_enabled_card_desc
+                                else R.string.settings_tls_disabled_card_desc
+                            ),
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
+        }
+
         // 5. Reset Engineering Defaults
         Surface(
             shape = RoundedCornerShape(14.dp),
@@ -4580,6 +4773,158 @@ private fun SettingsWorkerSection(
                 )
             }
         }
+
+        SettingsHomeModeSwipeCard(activeColor = ActiveGreenLed)
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        SettingsWorkerSwipeCard(activeColor = ActiveGreenLed)
+    }
+}
+
+@Composable
+private fun SettingsWorkerSwipeCard(
+    activeColor: Color = ActiveGreenLed,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val app = MirrlyApplication.instance
+    val isWorkerSwipeEnabled by app.prefsManager.isWorkerSwipeEnabledFlow.collectAsState()
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(20.dp))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, activeColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                ) {
+                    MirrlyIcon(
+                        id = R.drawable.ic_arrow_down,
+                        contentDescription = null,
+                        tint = activeColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.padding(end = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_worker_swipe_title),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = stringResource(R.string.settings_worker_swipe_desc),
+                        fontSize = 11.5.sp,
+                        color = TextMuted,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+
+            InertialSpringSwitch(
+                checked = isWorkerSwipeEnabled,
+                onCheckedChange = { checked ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    app.prefsManager.setWorkerSwipeEnabled(checked)
+                },
+                activeColor = activeColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsHomeModeSwipeCard(
+    activeColor: Color = ActiveGreenLed,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val app = MirrlyApplication.instance
+    val isHomeModeSwipeEnabled by app.prefsManager.isHomeModeSwipeEnabledFlow.collectAsState()
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(20.dp))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, activeColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                ) {
+                    MirrlyIcon(
+                        id = R.drawable.ic_diag_protocol,
+                        contentDescription = null,
+                        tint = activeColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.padding(end = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_home_mode_swipe_title),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = stringResource(R.string.settings_home_mode_swipe_desc),
+                        fontSize = 11.5.sp,
+                        color = TextMuted,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+
+            InertialSpringSwitch(
+                checked = isHomeModeSwipeEnabled,
+                onCheckedChange = { checked ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    app.prefsManager.setHomeModeSwipeEnabled(checked)
+                },
+                activeColor = activeColor
+            )
+        }
     }
 }
 
@@ -4690,32 +5035,18 @@ private fun SettingsUplinkWarpSection(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            UplinkModeChip(
-                mode = com.mirrly.tgproxy.core.UplinkMode.MASQUE,
-                displayName = "WARP MASQUE",
-                subtitle = stringResource(R.string.settings_uplink_masque_sub),
-                isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE,
-                onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.MASQUE) },
-                modifier = Modifier.weight(1f)
-            )
-            UplinkModeChip(
-                mode = com.mirrly.tgproxy.core.UplinkMode.AWG,
-                displayName = "WARP AWG",
-                subtitle = stringResource(R.string.settings_anycast_obfuscation),
-                isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
-                onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG) },
-                modifier = Modifier.weight(1f)
-            )
-        }
+        UplinkModeChip(
+            mode = com.mirrly.tgproxy.core.UplinkMode.AWG,
+            displayName = "WARP AWG",
+            subtitle = stringResource(R.string.settings_anycast_obfuscation),
+            isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
+            onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG) },
+            modifier = Modifier.fillMaxWidth()
+        )
 
-        // Profile Cloudflare WARP (MASQUE and AWG)
+        // Profile Cloudflare WARP (AWG)
         AnimatedVisibility(
-            visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE
-                || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
+            visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
@@ -4757,7 +5088,7 @@ private fun SettingsUplinkWarpSection(
                                         fontWeight = FontWeight.Bold,
                                         color = TextWhite
                                     )
-                                    InfoButton { onInfoClick("warp_masque_info") }
+                                    InfoButton { onInfoClick("uplink_modes_info") }
                                 }
                             }
                             Text(
@@ -5223,6 +5554,11 @@ private fun SettingsSystemSection(
         var batteryGuardThreshold by remember { mutableStateOf(app.config.batteryGuardThreshold) }
         var batteryGuardStopOnPowerSave by remember { mutableStateOf(app.config.batteryGuardStopOnPowerSave) }
         var isAdaptiveQoSEnabled by remember { mutableStateOf(app.config.isAdaptiveQoSEnabled) }
+        var isAlarmClockWatchdogEnabled by remember { mutableStateOf(app.config.isAlarmClockWatchdogEnabled) }
+        var isCpuAntiFreezeEnabled by remember { mutableStateOf(app.config.isCpuAntiFreezeEnabled) }
+        var isTrafficPulseEnabled by remember { mutableStateOf(app.config.isTrafficPulseEnabled) }
+        val oemBrandName = remember { OemAutostartHelper.getOemBrandName() }
+        val isOemAutostartSupported = remember { OemAutostartHelper.isOemAutostartSupported() }
 
         val powerManager = remember { context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager }
         var isIgnoringBatteryOptimizations by remember {
@@ -5535,6 +5871,182 @@ private fun SettingsSystemSection(
                             app.prefsManager.setAnimationsDisabled(newValue)
                         }
                     )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                // Блок 2.5: Аппаратный сторож службы (AlarmClock Watchdog)
+                SurvivalToggleRow(
+                    iconRes = R.drawable.ic_watchdog_clock,
+                    titleRes = R.string.settings_watchdog_alarm_title,
+                    descRes = R.string.settings_watchdog_alarm_desc,
+                    firmwareRes = R.string.settings_watchdog_alarm_firmware,
+                    checked = isAlarmClockWatchdogEnabled,
+                    onInfoClick = { onInfoClick("watchdog_alarm") },
+                    onCheckedChange = { checked ->
+                        isAlarmClockWatchdogEnabled = checked
+                        app.config.isAlarmClockWatchdogEnabled = checked
+                        app.saveConfig()
+                        if (app.prefsManager.isProxyActive()) {
+                            ProxyResurrectionManager.startWatchdog(context)
+                        }
+                    }
+                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                // Блок 2.6: Защита от заморозки процессора (CPU Anti-Freeze)
+                SurvivalToggleRow(
+                    iconRes = R.drawable.ic_cpu_antifreeze,
+                    titleRes = R.string.settings_cpu_antifreeze_title,
+                    descRes = R.string.settings_cpu_antifreeze_desc,
+                    firmwareRes = R.string.settings_cpu_antifreeze_firmware,
+                    checked = isCpuAntiFreezeEnabled,
+                    onInfoClick = { onInfoClick("cpu_antifreeze") },
+                    onCheckedChange = { checked ->
+                        isCpuAntiFreezeEnabled = checked
+                        app.config.isCpuAntiFreezeEnabled = checked
+                        app.saveConfig()
+                        ProxyForegroundService.applyCpuAntiFreezeDirectly(checked)
+                    }
+                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                // Блок 2.7: Фоновый микро-пульс трафика (Traffic Pulse)
+                SurvivalToggleRow(
+                    iconRes = R.drawable.ic_traffic_pulse,
+                    titleRes = R.string.settings_traffic_pulse_title,
+                    descRes = R.string.settings_traffic_pulse_desc,
+                    firmwareRes = R.string.settings_traffic_pulse_firmware,
+                    checked = isTrafficPulseEnabled,
+                    onInfoClick = { onInfoClick("traffic_pulse") },
+                    onCheckedChange = { checked ->
+                        isTrafficPulseEnabled = checked
+                        app.config.isTrafficPulseEnabled = checked
+                        app.saveConfig()
+                        ProxyForegroundService.applyTrafficPulseDirectly(checked)
+                    }
+                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                // Блок 2.8: Автозапуск в оболочке системы (OEM Startup Manager)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            MirrlyIcon(
+                                id = R.drawable.ic_oem_startup,
+                                contentDescription = null,
+                                tint = if (isOemAutostartSupported) ActiveGreenLed else TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_oem_autostart_title),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            InfoButton { onInfoClick("oem_autostart") }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(7.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (isOemAutostartSupported) ActiveGreenLed.copy(alpha = 0.45f) else AmoledBorder
+                            )
+                        ) {
+                            Text(
+                                text = oemBrandName,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isOemAutostartSupported) ActiveGreenLed else TextMuted,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = stringResource(R.string.settings_oem_autostart_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_oem_autostart_firmware),
+                        color = if (isOemAutostartSupported) ActiveGreenLed.copy(alpha = 0.78f) else TextMuted.copy(alpha = 0.8f),
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Transparent)
+                                .border(
+                                    1.dp,
+                                    if (isOemAutostartSupported) ActiveGreenLed.copy(alpha = 0.55f) else AmoledBorder,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    OemAutostartHelper.openAutostartSettings(context)
+                                })
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_oem_autostart_btn),
+                                color = if (isOemAutostartSupported) ActiveGreenLed else TextWhite,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Transparent)
+                                .border(
+                                    1.dp,
+                                    if (isIgnoringBatteryOptimizations) ActiveGreenLed.copy(alpha = 0.55f) else AmoledBorder,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    OemAutostartHelper.requestIgnoreBatteryOptimizations(context)
+                                })
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_oem_battery_unrestricted_btn),
+                                color = if (isIgnoringBatteryOptimizations) ActiveGreenLed else TextWhite,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -5889,6 +6401,13 @@ private fun SettingsCustomizationSection(
             accentColor = accentColor,
             onInfoClick = onInfoClick
         )
+
+        // ── 7. ЖЕСТЫ И НАВИГАЦИЯ ──
+        SettingsHomeModeSwipeCard(activeColor = accentColor)
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        SettingsWorkerSwipeCard(activeColor = accentColor)
     }
 }
 
@@ -6311,7 +6830,6 @@ private fun SettingsAboutSection(
 fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
     val (dlgTitleRes, dlgBodyRes) = when (infoKey) {
         "uplink_modes_info" -> R.string.info_uplink_modes_title to R.string.info_uplink_modes_body
-        "warp_masque_info" -> R.string.info_warp_masque_title to R.string.info_warp_masque_body
         "port", "ports_info" -> R.string.info_ports_title to R.string.info_ports_body
         "secret", "secret_info" -> R.string.info_secret_title to R.string.info_secret_body
         "cf_domain", "worker_info" -> R.string.info_worker_title to R.string.info_worker_body
@@ -6324,12 +6842,17 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "battery_guard", "battery_guard_info" -> R.string.info_battery_guard_title to R.string.info_battery_guard_body
         "adaptive_qos", "qos_info" -> R.string.info_qos_title to R.string.info_qos_body
         "doze_mode", "doze_mode_info" -> R.string.info_doze_mode_title to R.string.info_doze_mode_body
+        "watchdog_alarm" -> R.string.info_watchdog_alarm_title to R.string.info_watchdog_alarm_body
+        "oem_autostart" -> R.string.info_oem_autostart_title to R.string.info_oem_autostart_body
+        "cpu_antifreeze" -> R.string.info_cpu_antifreeze_title to R.string.info_cpu_antifreeze_body
+        "traffic_pulse" -> R.string.info_traffic_pulse_title to R.string.info_traffic_pulse_body
         "advanced_mode" -> R.string.settings_advanced_mode_title to R.string.settings_advanced_mode_desc
         "happy_eyeballs" -> R.string.info_happy_eyeballs_title to R.string.info_happy_eyeballs_body
         "ip_family" -> R.string.info_ip_family_title to R.string.info_ip_family_body
         "warp_anycast" -> R.string.info_warp_anycast_title to R.string.info_warp_anycast_body
         "socket_buffer" -> R.string.info_socket_buffer_title to R.string.info_socket_buffer_body
         "ws_keepalive" -> R.string.info_ws_keepalive_title to R.string.info_ws_keepalive_body
+        "tls_enabled" -> R.string.info_tls_enabled_title to R.string.info_tls_enabled_body
         "vpn_core_info" -> R.string.info_vpn_system_title to R.string.info_vpn_system_body
         "vpn_splittunnel_info" -> R.string.info_vpn_splittunnel_title to R.string.info_vpn_splittunnel_body
         "custom_wallpaper_info", "customization_info" -> R.string.settings_customization_info_title to R.string.settings_customization_info_desc
@@ -6344,6 +6867,64 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
     val dlgTitle = stringResource(dlgTitleRes)
     val dlgBody = stringResource(dlgBodyRes)
     InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = onDismiss)
+}
+
+@Composable
+private fun SurvivalToggleRow(
+    @androidx.annotation.DrawableRes iconRes: Int,
+    @StringRes titleRes: Int,
+    @StringRes descRes: Int,
+    @StringRes firmwareRes: Int,
+    checked: Boolean,
+    onInfoClick: () -> Unit,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f).padding(end = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                MirrlyIcon(
+                    id = iconRes,
+                    contentDescription = null,
+                    tint = if (checked) ActiveGreenLed else TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = stringResource(titleRes),
+                    color = TextWhite,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                InfoButton { onInfoClick() }
+            }
+            Text(
+                text = stringResource(descRes),
+                color = TextMuted,
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp
+            )
+            Text(
+                text = stringResource(firmwareRes),
+                color = if (checked) ActiveGreenLed.copy(alpha = 0.78f) else TextMuted.copy(alpha = 0.8f),
+                fontSize = 10.5.sp,
+                lineHeight = 14.sp
+            )
+        }
+        InertialSpringSwitch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
 }
 
 @Composable

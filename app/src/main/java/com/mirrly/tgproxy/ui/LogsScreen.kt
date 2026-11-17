@@ -36,7 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -137,7 +137,12 @@ fun LogsScreen(
 
     // AppLogger owns the single bounded history. Re-entering this screen now
     // observes that same snapshot instead of copying and replaying it locally.
-    val rawLogs by AppLogger.logsFlow.collectAsState()
+    // If screen is invisible or backgrounded, flow collection is cancelled to prevent background CPU/recomposition load.
+    val rawLogs by produceState(initialValue = remember { AppLogger.getLogs() }, isVisible) {
+        if (!isVisible) return@produceState
+        value = AppLogger.getLogs()
+        AppLogger.logsFlow.collect { list -> value = list }
+    }
     val totalCount = rawLogs.size
     val debugCount = remember(rawLogs) { rawLogs.count { it.level == LogLevel.DEBUG } }
     val infoCount = remember(rawLogs) { rawLogs.count { it.level == LogLevel.INFO } }
@@ -311,8 +316,8 @@ fun LogsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.staggeredEntrance(index = 1)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_logs),
+                    MirrlyIcon(
+                        id = R.drawable.ic_logs,
                         contentDescription = null,
                         tint = TextMuted.copy(alpha = 0.4f),
                         modifier = Modifier.size(52.dp)
@@ -341,7 +346,8 @@ fun LogsScreen(
             ) {
                 itemsIndexed(
                     items = displayedLogs,
-                    key = { _, entry -> entry.id }
+                    key = { _, entry -> entry.id },
+                    contentType = { _, _ -> "log_entry" }
                 ) { index, entry ->
                     val isSelected = selectedLogIds.contains(entry.id)
                     GlassLogCard(
@@ -412,8 +418,8 @@ fun LogsScreen(
                                 isSelectionMode = false
                                 selectedLogIds.clear()
                             }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_close),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_close,
                                     contentDescription = stringResource(R.string.action_cancel),
                                     tint = TextWhite,
                                     modifier = Modifier.size(20.dp)
@@ -486,8 +492,8 @@ fun LogsScreen(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onBack()
                             }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_arrow_left),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_arrow_left,
                                     contentDescription = stringResource(R.string.action_back),
                                     tint = TextWhite,
                                     modifier = Modifier.size(22.dp)
@@ -506,8 +512,8 @@ fun LogsScreen(
                                     keyboardController?.hide()
                                 }
                             }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_search),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_search,
                                     contentDescription = stringResource(R.string.action_search),
                                     tint = if (isSearchActive) activeProtoColor else TextWhite,
                                     modifier = Modifier.size(20.dp)
@@ -519,8 +525,8 @@ fun LogsScreen(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 isSelectionMode = true
                             }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_check),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_check,
                                     contentDescription = stringResource(R.string.logs_action_select),
                                     tint = TextWhite,
                                     modifier = Modifier.size(19.dp)
@@ -532,8 +538,8 @@ fun LogsScreen(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 showExportSheet = true
                             }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_export),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_export,
                                     contentDescription = stringResource(R.string.logs_action_export),
                                     tint = TextWhite,
                                     modifier = Modifier.size(20.dp)
@@ -542,8 +548,8 @@ fun LogsScreen(
 
                             // Clear Logs
                             IconButton(onClick = onClearLogs) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_trash),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_trash,
                                     contentDescription = stringResource(R.string.logs_action_clear),
                                     tint = TextWhite,
                                     modifier = Modifier.size(20.dp)
@@ -555,8 +561,8 @@ fun LogsScreen(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 showSettingsSheet = true
                             }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_settings),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_settings,
                                     contentDescription = stringResource(R.string.logs_settings_sheet_title),
                                     tint = TextWhite,
                                     modifier = Modifier.size(20.dp)
@@ -589,8 +595,8 @@ fun LogsScreen(
                             )
                         },
                         leadingIcon = {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_search),
+                            MirrlyIcon(
+                                id = R.drawable.ic_search,
                                 contentDescription = null,
                                 tint = if (searchQuery.isNotEmpty()) activeProtoColor else TextMuted,
                                 modifier = Modifier.size(18.dp)
@@ -760,8 +766,8 @@ fun LogsScreen(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_copy),
+                            MirrlyIcon(
+                                id = R.drawable.ic_copy,
                                 contentDescription = null,
                                 tint = if (selectedLogIds.isNotEmpty()) TextWhite else TextMuted,
                                 modifier = Modifier.size(16.dp)
@@ -809,8 +815,8 @@ fun LogsScreen(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_export),
+                            MirrlyIcon(
+                                id = R.drawable.ic_export,
                                 contentDescription = null,
                                 tint = if (selectedLogIds.isNotEmpty()) activeProtoColor else TextMuted,
                                 modifier = Modifier.size(16.dp)
@@ -853,8 +859,8 @@ fun LogsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_arrow_left),
+                    MirrlyIcon(
+                        id = R.drawable.ic_arrow_left,
                         contentDescription = null,
                         tint = activeProtoColor,
                         modifier = Modifier
@@ -1070,8 +1076,8 @@ private fun TabLogControlBanner(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_export),
+                        MirrlyIcon(
+                            id = R.drawable.ic_export,
                             contentDescription = null,
                             tint = tabColor,
                             modifier = Modifier.size(13.dp)
@@ -1261,13 +1267,16 @@ private fun Modifier.logItemCascadeEntrance(
     index: Int,
     isInitialBatch: Boolean
 ): Modifier {
-    var visible by remember { mutableStateOf(false) }
+    // If initial loading cascade is finished and this item is scrolled into view, render immediately without animations/delays
+    if (!isInitialBatch && index > 0) return this
+
+    var visible by remember { mutableStateOf(!isInitialBatch && index > 0) }
 
     LaunchedEffect(Unit) {
         val delayMs = if (isInitialBatch) {
             (index.coerceAtMost(8) * 45).toLong()
         } else {
-            (index.coerceAtMost(3) * 35).toLong()
+            0L
         }
         if (delayMs > 0) delay(delayMs)
         visible = true

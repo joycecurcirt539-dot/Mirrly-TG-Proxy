@@ -107,6 +107,90 @@ fun TelegramConnectDialog(
                 modifier = Modifier.padding(horizontal = 8.dp)
             )
 
+            // ─── CARD 0: MirrlyGram (Official Ecosystem Client) ───
+            val pm = context.packageManager
+            val isMirrlyGramInstalled = remember {
+                try {
+                    pm.getPackageInfo("com.mirrly.gram", 0)
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Transparent)
+                    .border(
+                        1.5.dp,
+                        s5Color.copy(alpha = 0.85f),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(s5Color)
+                        )
+                        Text(
+                            text = "MirrlyGram ⚡ Фирменный клиент",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.5.sp,
+                            color = TextWhite
+                        )
+                    }
+
+                    Text(
+                        text = if (isMirrlyGramInstalled)
+                            "Официальный форк MirrlyGram с защитой сообщений, историей правок, AMOLED-интерфейсом и преднастроенным шлюзом 127.0.0.1:10888."
+                        else
+                            "Установите официальный форк MirrlyGram для аппаратной связки со шлюзом, защиты от удаления и скрытого режима.",
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        lineHeight = 16.5.sp
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, s5Color, RoundedCornerShape(12.dp))
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (isMirrlyGramInstalled) {
+                                    val launchIntent = pm.getLaunchIntentForPackage("com.mirrly.gram")
+                                    if (launchIntent != null) {
+                                        launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(launchIntent)
+                                    }
+                                } else {
+                                    Toast.makeText(context, "MirrlyGram не установлен", Toast.LENGTH_SHORT).show()
+                                }
+                                onDismiss()
+                            }),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isMirrlyGramInstalled) "Открыть MirrlyGram ⚡" else "MirrlyGram не установлен",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = s5Color
+                        )
+                    }
+                }
+            }
+
             // ─── CARD 1: MTProto Proxy (Recommended for chats) ───
             Box(
                 modifier = Modifier

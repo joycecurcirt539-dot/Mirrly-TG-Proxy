@@ -8,6 +8,7 @@
 package com.mirrly.tgproxy.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.Base64
@@ -71,7 +72,7 @@ class WarpProfileParserTest {
     }
 
     @Test
-    fun testParseAmneziaWgConf() {
+    fun testParseAmneziaWgConfForCloudflareSanitizesJcAndS() {
         val awgConf = """
             [Interface]
             PrivateKey = $testPrivKey
@@ -81,12 +82,13 @@ class WarpProfileParserTest {
             Jc = 4
             Jmin = 40
             Jmax = 70
-            S1 = 0
-            S2 = 0
-            H1 = 1
-            H2 = 2
-            H3 = 3
-            H4 = 4
+            S1 = 15
+            S2 = 35
+            H1 = 100
+            H2 = 200
+            H3 = 300
+            H4 = 400
+            DisableCookies = on
 
             [Peer]
             PublicKey = $testPeerKey
@@ -101,7 +103,71 @@ class WarpProfileParserTest {
         assertEquals(ImportedProfileType.AMNEZIA_WG_CONF, success.type)
         assertEquals("172.16.0.2", success.profile.clientIpv4)
         assertEquals("188.114.96.1:8095", success.profile.peerEndpoint)
+        // Cloudflare Anycast: Jc, Jmin, Jmax, S1..S4 strictly forced to 0, H1..H4 to 1..4
+        assertEquals(0, success.profile.awgJc)
+        assertEquals(0, success.profile.awgJmin)
+        assertEquals(0, success.profile.awgJmax)
+        assertEquals(0, success.profile.awgS1)
+        assertEquals(0, success.profile.awgS2)
+        assertEquals(1L, success.profile.awgH1)
+        assertEquals(2L, success.profile.awgH2)
+        assertEquals(3L, success.profile.awgH3)
+        assertEquals(4L, success.profile.awgH4)
+        assertTrue(success.profile.awgRawConfig.contains("Jc = 0"))
+        assertTrue(success.profile.awgRawConfig.contains("S1 = 0"))
+        assertTrue(success.profile.awgRawConfig.contains("H1 = 1"))
+        assertTrue(success.profile.awgRawConfig.contains("DisableCookies = off"))
+        assertFalse(success.profile.awgRawConfig.contains("Jc = 4"))
+        assertTrue(success.profile.isUsable())
+    }
+
+    @Test
+    fun testParseAmneziaWgConfCustomVpsPreservesParameters() {
+        val customPeerKey = "t9Zk4c12pU7o+s3f79m1Q6gL8k3z1A5x7e9c0B2d4="
+        val vpsEndpoint = "198.51.100.25:51820"
+        val awgConf = """
+            [Interface]
+            PrivateKey = $testPrivKey
+            Address = 10.8.0.2/24
+            DNS = 8.8.8.8
+            MTU = 1420
+            Jc = 5
+            Jmin = 50
+            Jmax = 80
+            S1 = 20
+            S2 = 40
+            H1 = 100
+            H2 = 200
+            H3 = 300
+            H4 = 400
+
+            [Peer]
+            PublicKey = $customPeerKey
+            AllowedIPs = 0.0.0.0/0
+            Endpoint = $vpsEndpoint
+        """.trimIndent()
+
+        val result = WarpProfileParser.parse(awgConf)
+        assertTrue(result is WarpImportResult.Success)
+
+        val success = result as WarpImportResult.Success
+        assertEquals(ImportedProfileType.AMNEZIA_WG_CONF, success.type)
+        assertEquals("10.8.0.2", success.profile.clientIpv4)
+        assertEquals(vpsEndpoint, success.profile.peerEndpoint)
+        // 3rd-party VPS: parameters MUST be preserved intact!
+        assertEquals(5, success.profile.awgJc)
+        assertEquals(50, success.profile.awgJmin)
+        assertEquals(80, success.profile.awgJmax)
+        assertEquals(20, success.profile.awgS1)
+        assertEquals(40, success.profile.awgS2)
+        assertEquals(100L, success.profile.awgH1)
+        assertEquals(200L, success.profile.awgH2)
+        assertEquals(300L, success.profile.awgH3)
+        assertEquals(400L, success.profile.awgH4)
         assertEquals(awgConf.trim(), success.profile.awgRawConfig)
+        assertTrue(success.profile.awgRawConfig.contains("Jc = 5"))
+        assertTrue(success.profile.awgRawConfig.contains("S1 = 20"))
+        assertTrue(success.profile.awgRawConfig.contains("H1 = 100"))
         assertTrue(success.profile.isUsable())
     }
 
@@ -188,5 +254,130 @@ class WarpProfileParserTest {
 
         // Unrecognized format
         assertTrue(WarpProfileParser.parse("random string with no structure") is WarpImportResult.Error)
+    }
+
+    @Test
+    fun testParseAmneziaWgConfWithI1ToI5AndExport() {
+        val i1Pattern = "<b 0xc000000001><rc 8><t><rd 4><r 32>"
+        val i2Pattern = "<b 0xd100000001><r 64>"
+        val awgConfWithI1 = """
+            [Interface]
+            PrivateKey = $testPrivKey
+            Address = 172.16.0.2/32
+            Reserved = 10, 20, 30
+            I1 = $i1Pattern
+            I2 = $i2Pattern
+            DNS = 1.1.1.1
+            MTU = 1280
+            Jc = 4
+            Jmin = 40
+            Jmax = 70
+            H1 = 1
+            H2 = 2
+            H3 = 3
+            H4 = 4
+
+            [Peer]
+            PublicKey = $testPeerKey
+            AllowedIPs = 0.0.0.0/0, ::/0
+            Endpoint = 188.114.96.1:8095
+        """.trimIndent()
+
+        val result = WarpProfileParser.parse(awgConfWithI1)
+        assertTrue(result is WarpImportResult.Success)
+
+        val success = result as WarpImportResult.Success
+        assertEquals(ImportedProfileType.AMNEZIA_WG_CONF, success.type)
+        assertEquals(i1Pattern, success.profile.awgI1)
+        assertEquals(i2Pattern, success.profile.awgI2)
+        assertEquals("10, 20, 30", success.profile.clientId)
+
+        // 1. Export via WarpProfile.toAmneziaWgConfig
+        val exportedAwg = success.profile.toAmneziaWgConfig()
+        assertTrue(exportedAwg.contains("I1 = $i1Pattern"), "Exported AWG must contain I1 directive")
+        assertTrue(exportedAwg.contains("I2 = $i2Pattern"), "Exported AWG must contain I2 directive")
+        assertTrue(exportedAwg.contains("Reserved = 10, 20, 30"), "Exported AWG must contain Reserved directive")
+
+        // 2. Application to ProxyConfig and export via getAmneziaWgConfig
+        val config = ProxyConfig()
+        config.applyWarpProfile(success.profile)
+        assertEquals(i1Pattern, config.awgI1)
+        assertEquals(i2Pattern, config.awgI2)
+
+        val proxyAwg = config.getAmneziaWgConfig(cleanEndpoint = "188.114.96.1:8095")
+        assertTrue(proxyAwg.contains("I1 = $i1Pattern"), "ProxyConfig AWG must generate I1 in [Interface]")
+        assertTrue(proxyAwg.contains("I2 = $i2Pattern"), "ProxyConfig AWG must generate I2 in [Interface]")
+        assertTrue(proxyAwg.contains("Reserved = 10, 20, 30"), "ProxyConfig AWG must generate Reserved in [Interface]")
+
+        // 3. Round-trip serialization through WarpProfileCodec
+        val encoded = WarpProfileCodec.encode(success.profile)
+        val decoded = WarpProfileCodec.decode(encoded)
+        org.junit.jupiter.api.Assertions.assertNotNull(decoded)
+        assertEquals(i1Pattern, decoded?.awgI1)
+        assertEquals(i2Pattern, decoded?.awgI2)
+        assertEquals("10, 20, 30", decoded?.clientId)
+    }
+
+    @Test
+    fun testParseReservedFormatsInConfAndYaml() {
+        // 1. CONF with bracketed Reserved = [5, 6, 7]
+        val confBracketed = """
+            [Interface]
+            PrivateKey = $testPrivKey
+            Address = 172.16.0.2/32
+            Reserved = [5, 6, 7]
+            DNS = 1.1.1.1
+            MTU = 1280
+
+            [Peer]
+            PublicKey = $testPeerKey
+            Endpoint = 188.114.96.1:8095
+        """.trimIndent()
+        val resConf = WarpProfileParser.parse(confBracketed)
+        assertTrue(resConf is WarpImportResult.Success)
+        val successConf = resConf as WarpImportResult.Success
+        assertEquals("5, 6, 7", successConf.profile.clientId)
+        assertEquals("5, 6, 7", successConf.profile.reserved)
+
+        val cfg = ProxyConfig()
+        cfg.applyWarpProfile(successConf.profile)
+        assertEquals("5, 6, 7", cfg.warpClientId)
+        assertTrue(cfg.getAmneziaWgConfig().contains("Reserved = 5, 6, 7"))
+
+        // 2. YAML with reserved: [10, 20, 30]
+        val yamlWithReserved = """
+            type: wireguard
+            server: 188.114.96.1
+            port: 8095
+            ip: 172.16.0.2
+            public-key: $testPeerKey
+            private-key: $testPrivKey
+            reserved: [10, 20, 30]
+        """.trimIndent()
+        val resYaml = WarpProfileParser.parse(yamlWithReserved)
+        assertTrue(resYaml is WarpImportResult.Success)
+        val successYaml = resYaml as WarpImportResult.Success
+        assertEquals("10, 20, 30", successYaml.profile.clientId)
+        assertEquals("10, 20, 30", successYaml.profile.reserved)
+
+        val cfgYaml = ProxyConfig()
+        cfgYaml.applyWarpProfile(successYaml.profile)
+        assertEquals("10, 20, 30", cfgYaml.warpClientId)
+
+        // 3. JSON with reserved array: [11, 22, 33]
+        val jsonWithReservedArray = """
+            {
+              "private_key": "$testPrivKey",
+              "public_key": "$testPeerKey",
+              "address": "172.16.0.2/32",
+              "endpoint": "188.114.96.1:8095",
+              "reserved": [11, 22, 33]
+            }
+        """.trimIndent()
+        val resJson = WarpProfileParser.parse(jsonWithReservedArray)
+        assertTrue(resJson is WarpImportResult.Success)
+        val successJson = resJson as WarpImportResult.Success
+        assertEquals("11, 22, 33", successJson.profile.clientId)
+        assertEquals("11, 22, 33", successJson.profile.reserved)
     }
 }

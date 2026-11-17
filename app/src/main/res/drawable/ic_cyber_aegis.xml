@@ -1,0 +1,31 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- MirrlyUI Cyber Aegis Vector Shield (Outline-Only, 1.5dp Stroke) -->
+    <!-- Layer 1: Outer Kinetic Aegis Hull -->
+    <path
+        android:name="outer_hull"
+        android:pathData="M12,2L18.7,4.3L21.1,9.1L19.7,15.6L14.4,20.6L12,22.5L9.6,20.6L4.3,15.6L2.9,9.1L5.3,4.3Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Layer 2: Inner Energy Chamber & Quantum Diamond Core -->
+    <path
+        android:name="inner_chamber_and_core"
+        android:pathData="M12,5.8L16.8,7.7L18.2,11L16.3,16.3L12,19.2L7.7,16.3L5.8,11L7.2,7.7ZM12,9.1L14.4,12L12,14.9L9.6,12Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Layer 3: Energy Spines & Perimeter Struts -->
+    <path
+        android:name="energy_struts"
+        android:pathData="M12,2V5.8M12,19.2V22.5M2.9,9.1L5.8,11M21.1,9.1L18.2,11"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

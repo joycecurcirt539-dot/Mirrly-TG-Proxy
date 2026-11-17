@@ -96,6 +96,7 @@ fun CyberEnergyCanvas(
     particleSize: Float? = null,
     parallaxOffsetX: Float = 0f,
     parallaxOffsetY: Float = 0f,
+    parallaxOffsetProvider: (() -> Offset)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -380,9 +381,13 @@ fun CyberEnergyCanvas(
 
         val t = timeState.value / 1_000_000_000f
 
+        val resolvedTilt = parallaxOffsetProvider?.invoke() ?: Offset(parallaxOffsetX, parallaxOffsetY)
+        val effTiltX = resolvedTilt.x
+        val effTiltY = resolvedTilt.y
+
         // Multi-layer parallax: background orb layer shifts counter to foreground particles (depth 0.3 vs 0.7)
-        val orbTiltX = -parallaxOffsetX * (14f / 24f)
-        val orbTiltY = -parallaxOffsetY * (14f / 24f)
+        val orbTiltX = -effTiltX * (14f / 24f)
+        val orbTiltY = -effTiltY * (14f / 24f)
 
         // Balanced float speed for glowing spheres
         val timeScale = 0.70f + animatedEnergy * 0.45f
@@ -505,11 +510,11 @@ fun CyberEnergyCanvas(
                     val speedFactor = p.speedY * effectiveSpeed
 
                     // Continuous vertical position with smooth tilt shift
-                    val rawY = p.relY * height + t * baseSpeedY * speedFactor + parallaxOffsetY * (0.6f + p.speedY * 0.4f)
+                    val rawY = p.relY * height + t * baseSpeedY * speedFactor + effTiltY * (0.6f + p.speedY * 0.4f)
                     var py = ((rawY % height) + height) % height
 
                     // Continuous horizontal position with smooth tilt shift
-                    val rawX = p.relX * width + sin(t * p.freqX * effectiveSpeed + p.phase) * driftXPx + parallaxOffsetX * (0.6f + p.speedY * 0.4f)
+                    val rawX = p.relX * width + sin(t * p.freqX * effectiveSpeed + p.phase) * driftXPx + effTiltX * (0.6f + p.speedY * 0.4f)
                     var px = ((rawX % width) + width) % width
 
                     // Touch magnetic deflection
@@ -543,10 +548,10 @@ fun CyberEnergyCanvas(
                     val depthParallax = 0.7f + p.speedY * 0.3f
                     val speedFactor = (0.65f + p.speedY * 0.75f) * effectiveSpeed
 
-                    val rawX = p.relX * width + parallaxOffsetX * depthParallax
+                    val rawX = p.relX * width + effTiltX * depthParallax
                     val px = ((rawX % width) + width) % width
 
-                    val rawY = p.relY * height + t * downwardSpeed * speedFactor + parallaxOffsetY * depthParallax
+                    val rawY = p.relY * height + t * downwardSpeed * speedFactor + effTiltY * depthParallax
                     val py = ((rawY % height) + height) % height
 
                     // Packet burst impulse at active transmission intervals
@@ -566,8 +571,8 @@ fun CyberEnergyCanvas(
                 }
             }
             ParticleStyle.STARFIELD_WARP -> {
-                val cx = width / 2f + parallaxOffsetX
-                val cy = height / 2f + parallaxOffsetY
+                val cx = width / 2f + effTiltX
+                val cy = height / 2f + effTiltY
                 val maxR = kotlin.math.sqrt(width * width + height * height) * 0.55f
 
                 for (i in 0 until effectiveCount) {
@@ -814,13 +819,11 @@ fun CyberParticlesOverlay(
     val currentSizePref by app.prefsManager.wallpaperParticlesSizeFlow.collectAsState()
     val parallaxEnabled by app.prefsManager.wallpaperParallaxEnabledFlow.collectAsState()
     val parallaxDepth by app.prefsManager.wallpaperParallaxDepthFlow.collectAsState()
-    val tiltOffset by rememberSensorTilt(
+    val tiltOffsetState = rememberSensorTilt(
         enabled = parallaxEnabled,
         powerSaveActive = false,
         depthMultiplier = parallaxDepth
     )
-    val effParallaxX = if (parallaxOffsetX != 0f) parallaxOffsetX else if (parallaxEnabled) with(density) { tiltOffset.x * 24.dp.toPx() } else 0f
-    val effParallaxY = if (parallaxOffsetY != 0f) parallaxOffsetY else if (parallaxEnabled) with(density) { tiltOffset.y * 24.dp.toPx() } else 0f
 
     val effectiveStyle = particleStyle ?: remember(currentStyleName) {
         ParticleStyle.fromString(currentStyleName)
@@ -921,6 +924,11 @@ fun CyberParticlesOverlay(
         if (width <= 0f || height <= 0f || !shouldAnimate) return@Canvas
 
         val t = timeState.value / 1_000_000_000f
+
+        // Phase Deferral: Read sensor tilt directly in Draw phase to eliminate whole-screen recompositions
+        val tilt = tiltOffsetState.value
+        val effParallaxX = if (parallaxOffsetX != 0f) parallaxOffsetX else if (parallaxEnabled) with(density) { tilt.x * 24.dp.toPx() } else 0f
+        val effParallaxY = if (parallaxOffsetY != 0f) parallaxOffsetY else if (parallaxEnabled) with(density) { tilt.y * 24.dp.toPx() } else 0f
 
         // Pass 1: Compute particle coordinates
         when (effectiveStyle) {

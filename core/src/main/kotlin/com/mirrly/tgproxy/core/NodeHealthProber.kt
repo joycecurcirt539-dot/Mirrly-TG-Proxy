@@ -157,7 +157,7 @@ object NodeHealthProber {
 
     /**
      * Прямая проверка доступности узла и детекция блокировок ТСПУ РКН:
-     * - DNS резолвинг (системный/DoH).
+     * - Системное разрешение имени хоста.
      * - TCP соединение.
      * - TLS рукопожатие с передачей SNI.
      *   Если TCP открывается (<300мс), но на TLS летит RST/Connection reset/Timeout -> это 100% блокировка ТСПУ по SNI.
@@ -168,7 +168,7 @@ object NodeHealthProber {
         val port = target.port
         val startTime = System.currentTimeMillis()
 
-        // 1. Резолвинг DNS (без DoH)
+        // 1. Разрешение хоста (системный getaddrinfo + Anycast для CF доменов)
         val addresses = try {
             val d = host.lowercase()
             if (d.endsWith(".workers.dev") || d.endsWith(".pages.dev") || d.endsWith(".cloudflare.com")) {

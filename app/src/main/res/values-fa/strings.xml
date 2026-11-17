@@ -89,9 +89,7 @@
     <string name="status_connecting_tg_mtproto">در حال اتصال به تلگرام (MTProto)...</string>
     <string name="status_connecting_cf_wss">در حال اتصال به ورکر کلودفلر WSS...</string>
     <string name="status_connecting_cf_warp">در حال اتصال به Anycast کلودفلر WARP...</string>
-    <string name="status_connecting_vless">در حال برقراری اتصال VLESS روی WSS...</string>
     <string name="status_connecting_amnezia">در حال برقراری تونل AmneziaWG به WARP Anycast...</string>
-    <string name="status_warp_masque_needs_reg">WARP MASQUE · نیازمند ثبت‌نام در تنظیمات</string>
     <string name="status_vpn_disabled">VPN غیرفعال است</string>
     <string name="status_vpn_enabled">VPN متصل است</string>
     <string name="status_vpn_connecting">در حال اتصال VPN...</string>
@@ -103,8 +101,6 @@
     <string name="uplink_mtproto_flowseal_secured">MTProto Anycast Flowseal • محافظت‌شده</string>
     <string name="uplink_mtproto_direct_secured">MTProto مستقیم (Fake-TLS) • محافظت‌شده</string>
     <string name="uplink_cf_wss_secured">Cloudflare WSS · محافظت‌شده</string>
-    <string name="uplink_warp_masque_secured">WARP MASQUE (%1$s) • محافظت‌شده</string>
-    <string name="uplink_vless_secured">VLESS روی WSS (TLS 1.3 Chrome) • محافظت‌شده</string>
     <string name="uplink_amnezia_secured">AmneziaWG (WARP Anycast) • محافظت‌شده</string>
     <string name="status_secured">محافظت‌شده</string>
     <string name="status_public_fallback">پشتیبان عمومی</string>
@@ -126,7 +122,17 @@
     <string name="telemetry_bytes_zero">۰ B</string>
     <string name="telemetry_speed_format">%1$s/s</string>
     <string name="verdict_ideal_channel">اتصال بهینه</string>
-    <string name="verdict_ideal_channel_desc">حداقل تأخیر و تونل WSS مستقیم و پایدار</string>
+    <string name="verdict_ideal_channel_desc">حداقل تأخیر و تونل انتقال پایدار</string>
+    <string name="verdict_calibrating">در حال کالیبراسیون</string>
+    <string name="verdict_calibrating_desc">در حال بررسی مسیر انتقال…</string>
+    <string name="verdict_quota_429">سهمیه Worker ۴۲۹</string>
+    <string name="verdict_quota_429_desc">سهمیه روزانه درخواست Cloudflare Worker تمام شده است</string>
+    <string name="verdict_ideal_flowseal_ws_desc">تأخیر کم از طریق Flowseal WS :80 Anycast CDN</string>
+    <string name="verdict_ideal_flowseal_wss_desc">تأخیر کم از طریق Flowseal WSS TLS Anycast CDN</string>
+    <string name="verdict_ideal_worker_ws_desc">تأخیر کم از طریق تونل Worker WS :80</string>
+    <string name="verdict_ideal_worker_wss_desc">حداقل تأخیر و تونل پایدار Worker WSS TLS</string>
+    <string name="verdict_ideal_vpn_desc">حداقل تأخیر و تونل پایدار WARP AmneziaWG</string>
+    <string name="verdict_good_live_desc">نشست فعال با نوسان جزئی تأخیر</string>
     <string name="verdict_dpi_blocked">مسدودسازی DPI اپراتور</string>
     <string name="verdict_dpi_blocked_desc">ریست شدن بسته TCP/ClientHello توسط تجهیزات فیلترینگ شناسایی شد</string>
     <string name="verdict_tls_failed">خطای امنیتی TLS</string>
@@ -149,8 +155,10 @@
     <string name="chat_verdict_moderate">سرعت متوسط</string>
     <string name="chat_verdict_delays">تأخیر در دانلود</string>
     <string name="chat_verdict_failures">خطا در اتصال</string>
+    <string name="chat_verdict_checking">در حال بررسی…</string>
     <string name="chat_verdict_none">No connection</string>
     <string name="mos_grade_hd">صدای HD (عالی)</string>
+    <string name="mos_grade_calibrating">در حال کالیبراسیون</string>
     <string name="mos_grade_good">خوب (پایدار)</string>
     <string name="mos_grade_acceptable">قابل قبول (SD)</string>
     <string name="mos_grade_noise">With noise</string>
@@ -170,7 +178,6 @@
     <string name="ws_grade_awaiting">Awaiting</string>
     <string name="settings_uplink_worker_sub">لبه کلودفلر (Cloudflare Edge)</string>
     <string name="settings_uplink_awg_sub">توصیه می‌شود • مقاوم در برابر فیلترینگ</string>
-    <string name="settings_uplink_masque_sub">HTTP/3 • احتمال مسدودسازی</string>
     <string name="content_desc_logs">Logs</string>
     <string name="content_desc_session_history">Session History</string>
     <string name="content_desc_sleep_timer">Sleep Timer</string>
@@ -179,7 +186,6 @@
     <string name="banner_update_install">• Install</string>
     <string name="banner_update_dismissed">Update v%1$s dismissed</string>
     <string name="err_service_switch">خطا در تغییر وضعیت سرویس پروکسی: %1$s</string>
-    <string name="warp_masque_registration_needed">WARP MASQUE: نیازمند ثبت‌نام</string>
     <string name="warp_tap_settings_create_profile">برای ایجاد پروفایل در تنظیمات ضربه بزنید</string>
     <string name="worker_shared_pool_badge">%1$s (Shared Pool)</string>
     <string name="worker_shared_pool_warning">Request limits may exhaust. Choose another worker in manager or deploy a private one.</string>
@@ -199,6 +205,7 @@
     <string name="uplink_field_protocol">پروتکل</string>
     <string name="uplink_field_transport">ترنسپورت</string>
     <string name="uplink_field_encryption">رمزنگاری</string>
+    <string name="uplink_field_encryption_disabled">TLS غیرفعال · WS Plain :80</string>
     <string name="uplink_field_cache_nodes">نودهای لبه</string>
     <string name="uplink_field_cache_nodes_val">۲۰ نود لبه شبکه Anycast CDN</string>
     <string name="uplink_field_active_worker">ورکر فعال</string>
@@ -274,9 +281,13 @@
     <string name="settings_cf_title">تونل‌سازی کلودفلر</string>
     <string name="settings_worker_manager">مدیریت ورکرها</string>
     <string name="settings_worker_active">فعال: %1$s</string>
+    <string name="settings_worker_swipe_title">کشیدن مدیریت ورکر</string>
+    <string name="settings_worker_swipe_desc">باز کردن برگه مدیریت ورکر با کشیدن به پایین در صفحه اصلی</string>
+    <string name="settings_home_mode_swipe_title">کشیدن برای تغییر حالت</string>
+    <string name="settings_home_mode_swipe_desc">کشیدن افقی در صفحه اصلی برای جابجایی بین MTProto، SOCKS5 و VPN</string>
     <string name="settings_worker_guide">راهنمای دیپلوی ورکر</string>
     <string name="settings_worker_guide_desc">راه‌اندازی ورکر شخصی در ۲ دقیقه</string>
-    <string name="settings_cf_worker_desc_socks5">ورکر کلودفلر اتصالات WSS/VLESS را دریافت کرده و ترافیک TCP پروتکل SOCKS5 را از طریق cloudflare:sockets هدایت می‌کند.</string>
+    <string name="settings_cf_worker_desc_socks5">ورکر کلودفلر اتصالات WSS را دریافت کرده و ترافیک TCP پروتکل SOCKS5 را از طریق cloudflare:sockets هدایت می‌کند.</string>
     <string name="settings_cf_worker_desc_mtproto">ورکر کلودفلر برای آپ‌لینک SOCKS5 استفاده می‌شود. در حالت فعلی MTProto، اتصال مستقیماً به گیت‌وی‌های تلگرام برقرار است.</string>
     <string name="settings_uplink_title">حالت آپ‌لینک (WARP و ورکر)</string>
     <string name="settings_uplink_note">آپ‌لینک ترافیک SOCKS5 را تونل می‌کند. برای MTProto از اتصال مستقیم استفاده می‌شود.</string>
@@ -293,13 +304,6 @@
     <string name="settings_mtls_cert">گواهی mTLS P-256</string>
     <string name="settings_cert_active_x509">فعال (X.509)</string>
     <string name="settings_warp_plus_license">لایسنس WARP+</string>
-    <string name="settings_vless_uuid_client">شناسه کلاینت (UUID):</string>
-    <string name="settings_btn_new_uuid">UUID جدید</string>
-    <string name="settings_vless_active_host">هاست فعال</string>
-    <string name="settings_vless_node_region">منطقه نود</string>
-    <string name="settings_vless_ws_path">مسیر وب‌سوکت</string>
-    <string name="settings_vless_transport_port">پورت ترنسپورت</string>
-    <string name="settings_vless_browser_mimic">شبیه‌سازی مرورگر</string>
     <string name="settings_system_title">سیستم و مدیریت مصرف انرژی</string>
     <string name="settings_autostart_title">اجرای خودکار سرویس</string>
     <string name="settings_autostart_desc">اجرای خودکار سرویس پروکسی هنگام روشن شدن گوشی و باز کردن برنامه</string>
@@ -332,6 +336,37 @@
     <string name="settings_power_saver_title">طراحی بهینه مصرف باتری</string>
     <string name="settings_power_saver_desc">غیرفعال‌سازی ذرات متحرک و انیمیشن‌های پس‌زمینه برای کاهش مصرف باتری</string>
     <string name="settings_help_title">راهنما و مستندات</string>
+    <!-- Hardware Service Watchdog (AlarmClock) -->
+    <string name="settings_watchdog_alarm_title">نگهبان سخت‌افزاری سرویس</string>
+    <string name="settings_watchdog_alarm_desc">راه‌اندازی مجدد پروکسی توسط آلارم ساعت سیستم در صورت توقف توسط سیستم‌عامل. دور زدن محدودیت‌های پس‌زمینه اندروید ۱۴ و ۱۵. هنگامی که این گزینه فعال است، ممکن است آیکون زنگ ساعت در نوار وضعیت نمایش داده شود که رفتار عادی سیستم‌عامل است.</string>
+    <string name="settings_watchdog_alarm_firmware">فقط برای اندروید ۱۴ و ۱۵: MagicOS 8/9، HyperOS، One UI 6/7، ColorOS 14/15، OriginOS.</string>
+
+    <!-- System Startup Manager (OEM Startup & Unrestricted) -->
+    <string name="settings_oem_autostart_title">مدیریت شروع به کار سیستم</string>
+    <string name="settings_oem_autostart_desc">میانبر مستقیم به مدیریت راه‌اندازی خودکار سیستم برای حذف محدودیت‌های پس‌زمینه.</string>
+    <string name="settings_oem_autostart_firmware">برای MagicOS، EMUI، HyperOS، ColorOS، OriginOS.</string>
+    <string name="settings_oem_autostart_btn">پیکربندی</string>
+    <string name="settings_oem_battery_unrestricted_btn">بدون محدودیت</string>
+
+    <!-- CPU Anti-Freeze Protection -->
+    <string name="settings_cpu_antifreeze_title">محافظت ضد انجماد پردازنده</string>
+    <string name="settings_cpu_antifreeze_desc">جلوگیری از به خواب عمیق رفتن پردازنده هنگام خاموش بودن صفحه برای حفظ سوکت‌های محلی پروکسی.</string>
+    <string name="settings_cpu_antifreeze_firmware">برای MagicOS، EMUI، HyperOS، OriginOS. برای اندروید خام و پیکسل نیاز نیست.</string>
+
+    <!-- Background Traffic Pulse -->
+    <string name="settings_traffic_pulse_title">پالس ترافیک پس‌زمینه</string>
+    <string name="settings_traffic_pulse_desc">ارسال پینگ شبکه هر ۷۵ ثانیه در زمان بیکاری برای فعال نگه داشتن CGNAT و جلوگیری از بسته شدن توسط سیستم‌عامل.</string>
+    <string name="settings_traffic_pulse_firmware">برای MagicOS، HyperOS، One UI و اپراتورهای دارای NAT سخت‌گیرانه.</string>
+
+    <!-- Info sheets -->
+    <string name="info_watchdog_alarm_title">نگهبان سخت‌افزاری سرویس</string>
+    <string name="info_watchdog_alarm_body">در اندروید ۱۴ به بعد، آلارم‌های معمولی نمی‌توانند سرویس‌های پیش‌زمینه را از پس‌زمینه راه‌اندازی کنند. AlarmClockInfo دارای معافیت رسمی سیستم است.\n\nتا زمانی که این گزینه فعال است، اندروید ممکن است آیکون زنگ ساعت را در نوار وضعیت و پنل تنظیمات سریع نمایش دهد. سیستم‌عامل این آیکون را برای هر تایمر AlarmClockInfo نشان می‌دهد که رفتار عادی سیستم است و فعال بودن نگهبان سرویس را تایید می‌کند. در صورت تمایل می‌توانید این کلید را غیرفعال کنید.</string>
+    <string name="info_oem_autostart_title">مدیریت شروع به کار سیستم</string>
+    <string name="info_oem_autostart_body">سیستم‌های مدیریت باتری برنامه‌ها را می‌بندند مگر اینکه راه‌اندازی خودکار دستی مجاز باشد.</string>
+    <string name="info_cpu_antifreeze_title">محافظت ضد انجماد پردازنده</string>
+    <string name="info_cpu_antifreeze_body">نگه‌داشتن بیداری جزئی سبک برای جلوگیری از تعلیق سوکت‌های محلی پروکسی توسط درایور cgroups.</string>
+    <string name="info_traffic_pulse_title">پالس ترافیک پس‌زمینه</string>
+    <string name="info_traffic_pulse_body">ارسال بسته‌های داده حداقلی در دوره‌های بیکاری برای زنده نگه‌داشتن اتصال اپراتور.</string>
     <string name="settings_tab_security">امنیت</string>
     <string name="settings_tab_how_it_works">نحوه کارکرد</string>
     <string name="settings_tab_why_custom_worker">چرا ورکر شخصی</string>
@@ -374,7 +409,7 @@
 
 پروتکل‌های اتصال:
 • WARP AWG: پروتکل AmneziaWG با قابلیت عبور از فیلترینگ و کاهش تاخیر در شبکه‌های همراه.
-• WARP MASQUE: استاندارد IETF مبتنی بر HTTP/3 و QUIC که ترافیک شبکه را به شکل وب معتبر ماسک می‌کند.
+
 
 مسیربندی DNS:
 • تمامی درخواست‌های DNS از مسیر امن عبور کرده تا از هرگونه نشت آدرس جلوگیری شود.</string>
@@ -385,24 +420,6 @@
 حالت‌های مسیربندی:
 • استثنا کردن انتخاب‌شده‌ها: ترافیک کل دستگاه از طریق وی‌پی‌ان عبور می‌کند به جز برنامه‌های انتخاب شده.
 • فقط برنامه‌های انتخاب‌شده: تنها ترافیک برنامه‌های مشخص‌شده از تونل رمزگذاری‌شده رد می‌شود.</string>
-    <string name="settings_opera_upstream_title">آپ‌لینک Opera VPN برای WARP</string>
-    <string name="settings_opera_upstream_desc">مسیر آبشاری: فیلترینگ -&gt; Opera VPN Anycast -&gt; کلودفلر MASQUE</string>
-    <string name="settings_opera_node_select">انتخاب نود OPERA VPN</string>
-    <string name="settings_opera_node_selected">نود Opera VPN: %1$s</string>
-    <string name="settings_vless_pages_title">نودهای عمومی (PAGES و ANYCAST CDN)</string>
-    <string name="settings_vless_page_selected">نود Pages انتخاب شد: %1$s</string>
-    <string name="settings_vless_cf_workers_title">ورکرهای کلودفلر برای VLESS</string>
-    <string name="settings_vless_worker_selected">ورکر کلودفلر انتخاب شد: %1$s</string>
-    <string name="settings_vless_opera_servers_title">سرورهای OPERA VPN (میزبانی VLESS)</string>
-    <string name="settings_vless_opera_selected">سرور Opera VPN انتخاب شد: %1$s</string>
-    <string name="settings_vless_uuid_copied">شناسه UUID در کلیپ‌بورد کپی شد</string>
-    <string name="settings_vless_node_imported">نود وارد شد: %1$s</string>
-    <string name="settings_vless_err">خطای VLESS: %1$s</string>
-    <string name="settings_vless_no_link_in_clip">کلیپ‌بورد فاقد لینک vless:// است</string>
-    <string name="settings_vless_btn_import">وارد کردن vless</string>
-    <string name="settings_vless_nodes_available">نودهای موجود: %1$s</string>
-    <string name="settings_vless_link_copied">لینک vless:// کپی شد</string>
-    <string name="settings_vless_btn_export">خروجی</string>
     <string name="label_tspu_bypass">DPI Bypass</string>
     <string name="state_loading">در حال بارگذاری...</string>
     <string name="settings_schedule_active">فعال • %1$s</string>
@@ -423,13 +440,8 @@
     <string name="settings_update_search_github">در حال بررسی گیت‌هاب برای انتشارهای جدید</string>
     <string name="action_stop">Stop</string>
     <string name="unit_ms_val">%1$s ms</string>
-    <string name="toast_vless_uuid_generated">Generated new VLESS UUID</string>
     <string name="info_uplink_modes_title">حالت‌های آپ‌لینک (ترنسپورت و عبور از فیلترینگ)</string>
-    <string name="info_uplink_modes_body">MIRRLY UPLINK ARCHITECTURE: • Upstream Tunnel defines the physical and cryptographic network route from local SOCKS5 proxy (127.0.0.1:10808) to تلگرام data centers via censorship gateways. • Messenger traffic is encapsulated into modern protocols disguised as regular web surfing or tunneled through Cloudflare Anycast infrastructure. • Unlike system VPN, Mirrly operates as a local transparent TCP relay without creating a TUN interface, preventing DNS leaks, battery drain, and OS restrictions.  1. CLOUDFLARE WORKER (WEBSOCKET OVER TLS 1.3): • How it works: traffic traverses an encrypted WebSocket tunnel (port 443) to a serverless V8 function on Cloudflare Edge. ورکر connects to تلگرام data centers using internal socket API (cloudflare:sockets). • Bypass mechanism: telecom carriers and DPI see a standard HTTPS request with a trusted TLS 1.3 certificate of a global CDN, bypassing protocol inspection. • Quota: Cloudflare free plan offers 100,000 requests per day. Thanks to multiplexing, this quota is virtually impossible to exhaust during everyday use.  2. CLOUDFLARE WARP (MASQUE / RFC 9484): • How it works: state-of-the-art IETF CONNECT-IP / CONNECT-UDP standard over HTTP/3 and QUIC. Connects to Cloudflare Anycast gateways (188.114.96.1) using WireGuard credentials and mTLS certificates (ECDSA P-256). • Advantages: zero Head-of-Line Blocking, minimal round-trip latency, and superior voice and video call quality. • DPI resilience: auto-scans open Anycast ports (500, 8095, 8443, 1074, 443) and applies Noise Handshake Fragmentation.  3. VLESS OVER WEBSOCKET (ANYCAST PAGES CDN): • How it works: lightweight binary VLESS v0 protocol over WebSocket (port 443) with TLS 1.3, masquerading as regular Google Chrome traffic. • Zero-registration: requires no Cloudflare account, API tokens, or custom workers. • Auto pool: includes stable Anycast nodes across Europe and Asia with Happy Eyeballs racing.  4. HYBRID MODE (WORKER + WARP CASCADE): • How it works: two-hop tunneling. Device connects to trusted ورکر over WSS, and ورکر proxies data to WARP Anycast.</string>
-    <string name="info_warp_masque_title">Cloudflare WARP &amp; MASQUE Tunnel</string>
-    <string name="info_warp_masque_body">HOW MASQUE WORKS (RFC 9484): • MASQUE (Multiplexing Application Substrate over QUIC Encryption, RFC 9484 / RFC 9298) multiplexes IP packets and UDP datagrams over HTTP/3 and QUIC transport layer. • Traffic routes through the nearest low-latency Cloudflare Edge Anycast server.  AUTOMATIC PROVISIONING &amp; CRYPTOGRAPHY: • Creates WireGuard / Curve25519 keypair and issues a client mTLS certificate (ECDSA P-256) for mutual authentication. • Allocates dedicated internal IPv4 (172.16.0.2) and IPv6 (/128) addresses.  DPI CIRCUMVENTION &amp; HANDSHAKE PACKET FRAGMENTATION: • Bypasses WireGuard handshake filtering via handshake packet fragmentation (splitting init frames below MTU with delayed tail dispatch). • Endpoint scanner automatically finds responsive Anycast ports (8095, 8443, 500, 1074, 443).  AMNEZIAWG EXPORT: • Profile parameters and junk packet headers (Init Packet Magic Header I1) can be copied to clipboard for external AmneziaWG clients.</string>
-    <string name="info_vless_title">VLESS Protocol &amp; Public Anycast Nodes</string>
-    <string name="info_vless_body">VLESS PROTOCOL FEATURES: • VLESS is a zero-overhead transport protocol (v0) relying on outer TLS 1.3 encryption without inner cipher duplicates. • Masquerades as standard Google Chrome browser traffic (Chrome utls-mimic) on port 443.  CLOUDFLARE PAGES INFRASTRUCTURE: • Unlike Workers, Pages nodes operate on global Anycast CDN. *.pages.dev domains carry high trust scores in network firewalls and bypass DPI inspections.  DYNAMIC POOL &amp; HAPPY EYEBALLS DUAL-STACK RACE: • Parallel connectivity probing in Rust core (RFC 8305) ensures instantaneous failover between nodes without interrupting active تلگرام sessions. • Subscription streaming engine automatically synchronizes verified nodes from GitHub mirrors with strict filtering (pure WSS-over-TLS only; Reality, gRPC, and raw TCP are stripped). • All verified nodes are cached in persistent local device storage.</string>
+    <string name="info_uplink_modes_body">MIRRLY UPLINK ARCHITECTURE: • Upstream Tunnel defines the physical and cryptographic network route from local SOCKS5 proxy (127.0.0.1:10808) to تلگرام data centers via censorship gateways. • Messenger traffic is encapsulated into modern protocols disguised as regular web surfing or tunneled through Cloudflare Anycast infrastructure. • Unlike system VPN, Mirrly operates as a local transparent TCP relay without creating a TUN interface, preventing DNS leaks, battery drain, and OS restrictions.  1. CLOUDFLARE WORKER (WEBSOCKET OVER TLS 1.3): • How it works: traffic traverses an encrypted WebSocket tunnel (port 443) to a serverless V8 function on Cloudflare Edge. ورکر connects to تلگرام data centers using internal socket API (cloudflare:sockets). • Bypass mechanism: telecom carriers and DPI see a standard HTTPS request with a trusted TLS 1.3 certificate of a global CDN, bypassing protocol inspection. • Quota: Cloudflare free plan offers 100,000 requests per day. Thanks to multiplexing, this quota is virtually impossible to exhaust during everyday use.  2. CLOUDFLARE WARP (AMNEZIAWG / WIREGUARD): • How it works: high-performance secure tunnel based on WireGuard with AmneziaWG (AWG) obfuscation. Connects to Cloudflare Anycast gateways using native WARP credentials, client ID reserved bytes, and noise handshake packets. • Advantages: minimal round-trip latency, high throughput, and stable voice and video call performance. • DPI resilience: header and payload obfuscation parameters (Jc, Jmin, Jmax, S1, S2, H1-H4), custom Anycast endpoints and ports, and middlebox signature circumvention.</string>
     <string name="info_ports_title">Local پروکسی Ports</string>
     <string name="info_ports_body">PORT CONFIGURATION: • Local listening port is the socket on 127.0.0.1 where تلگرام client connects. • Port 1080: Standard MTProto port with Fake-TLS. • Port 10808: Standard SOCKS5 transparent TCP relay port.  RECOMMENDATIONS: • Recommended ports: 1080 (MTProto) and 10808 (SOCKS5). They require no root privileges and are standardized for proxy servers. • Allowed range: 1024 to 65535. • If the selected port is occupied by another application, a Bind Error occurs. • Update تلگرام proxy link after changing ports via \"Connect تلگرام\".</string>
     <string name="info_secret_title">MTProto Secret Key (Fake-TLS)</string>
@@ -448,7 +460,7 @@
     <string name="info_powersaver_title">Power Saver Aesthetic Mode</string>
     <string name="info_powersaver_body">POWER SAVING OPTIMIZATIONS: • Disables particle canvas overlays and animations. • Minimizes Compose redraw phases, saving battery on 90-120Hz AMOLED displays.</string>
     <string name="info_protocols_title">تلگرام Connection Protocols</string>
-    <string name="info_protocols_body">PROTOCOL COMPARISON: • MTProto (port 1080): تلگرام native protocol with Fake-TLS and Flowseal Anycast. • SOCKS5 (port 10808): Transparent TCP Relay (RFC 1928), end-to-end encryption, seamless voice/video calls, supports all upstreams (ورکر, WARP, VLESS).</string>
+    <string name="info_protocols_body">PROTOCOL COMPARISON: • MTProto (port 1080): تلگرام native protocol with Fake-TLS and Flowseal Anycast. • SOCKS5 (port 10808): Transparent TCP Relay (RFC 1928), end-to-end encryption, seamless voice/video calls, supports all upstreams (ورکر, Anycast CDN Flowseal).</string>
     <string name="info_socks5_auth_title">SOCKS5 Authentication (RFC 1929)</string>
     <string name="info_socks5_auth_body">LOCAL SOCKET SECURITY: • By default, 127.0.0.1:10808 socket is open to all local processes. • Setting username and password activates RFC 1929 authentication, preventing unauthorized local apps from using the proxy. • Credentials are automatically embedded into tg://socks links when copied or launched into تلگرام.</string>
     <string name="info_battery_guard_title">Battery Protection Guard</string>
@@ -476,9 +488,14 @@
     <string name="security_advisory_bullet_official">Official builds are published only on @WhyOKyHb and GitHub.</string>
     <string name="security_advisory_bullet_gateway">In modified builds the network gateway is locked and proxy will not work. Authentic builds connect instantly.</string>
     <string name="security_advisory_bullet_free">Mirrly is 100% free and ad-free. The project is sustained solely by voluntary user donations.</string>
-    <string name="security_advisory_bullet_patterns">Counterfeit signs: white popups (FreelySoft), VPN ads (Soft Tunnel), non-official signature.</string>
+    <string name="security_advisory_bullet_patterns">Counterfeit signs: white popups, VPN ads, non-official signature.</string>
+    <string name="security_advisory_disclaimer_prefix">"برنامه را فقط از مخزن رسمی "</string>
+    <string name="security_advisory_disclaimer_and">" و کانال "</string>
+    <string name="security_advisory_disclaimer_suffix">" دانلود کنید. در صورت دانلود از منابع غیررسمی، توسعه‌دهنده مسئولیتی در قبال خرابی یا افشای داده‌های شخصی ندارد."</string>
     <string name="security_advisory_btn_telegram">Telegram @WhyOKyHb</string>
     <string name="security_advisory_btn_github">GitHub Releases</string>
+    <string name="security_advisory_checkbox_acknowledged">من این اطلاعات را مطالعه کردم و متوجه شدم</string>
+    <string name="security_advisory_btn_acknowledge_required">تأیید مطالعه</string>
     <string name="security_advisory_btn_timer_wait">Wait (%1$d s)</string>
     <string name="security_advisory_btn_dismiss_ready">Got it</string>
     <string name="donation_banner_dialog_title">حمایت از توسعه Mirrly</string>
@@ -554,7 +571,7 @@
     <string name="tg_connect_mtproto_desc">Ideal for messaging, channels, and 4K media. Fastest speeds, pre-warmed WsPool, and low power usage.</string>
     <string name="tg_connect_btn_open_tg">Open تلگرام</string>
     <string name="tg_connect_toast_mtproto_copied">MTProto link copied!</string>
-    <string name="tg_connect_socks5_desc">Bypasses censorship on voice and video calls via TCP relay. Currently in BETA; stability may vary depending on network provider.</string>
+    <string name="tg_connect_socks5_desc">Bypasses censorship on voice and video calls via TCP relay.</string>
     <string name="tg_connect_socks5_login_prefix">Username: %1$s</string>
     <string name="tg_connect_socks5_pass_prefix">Password: %1$s</string>
     <string name="tg_connect_toast_socks5_copied">SOCKS5 link copied!</string>
@@ -1265,7 +1282,7 @@
     <string name="wm_filter_all">همه</string>
     <string name="wm_filter_official">رسمی</string>
     <string name="wm_filter_custom">سفارشی</string>
-    <string name="wm_dev_workers_removed_title">بدون ورکر • Anycast CDN (بتا)</string>
+    <string name="wm_dev_workers_removed_title">بدون ورکر • Anycast CDN</string>
     <string name="wm_dev_workers_removed_reason">ترافیک از طریق Anycast CDN Flowseal هدایت می‌شود</string>
     <string name="wm_dev_workers_removed_desc">در صورت عدم تنظیم ورکر، شبکه Anycast CDN به صورت پیش‌فرض فعال است. می‌توانید ادامه دهید یا ورکر اختصاصی خود را اضافه کنید.</string>
     <string name="wm_dev_workers_removed_btn">تنظیم ورکر</string>
@@ -1731,7 +1748,7 @@
     <string name="nd_calls_unsupported_mtproto">در MTProto پشتیبانی نمی‌شود</string>
     <string name="nd_badge_socks5_only">فقط SOCKS5</string>
     <string name="nd_info_mtproto_pool_title">استخر اتصالات آماده MTProto</string>
-    <string name="nd_info_mtproto_pool_desc" formatted="false">HOW IT WORKS:\n• For maximum transfer speed and Telegram responsiveness, the engine maintains a hot pool of pre-established FakeTLS connections to data centers (DC 1–5).\n• When downloading heavy files and media, connections are assigned from the pool instantly without TLS handshake latency.\n\nIMPORTANT ABOUT CALLS:\n• Telegram MTProto protocol architecture does not support voice and video calls. For voice and video calls support, switch to SOCKS5 mode.</string>
+    <string name="nd_info_mtproto_pool_desc" formatted="false">HOW IT WORKS:\n• For maximum transfer speed and Telegram responsiveness, the engine maintains a hot pool of pre-established connections to data centers (DC 1–5).\n• When downloading heavy files and media, connections are assigned from the pool instantly without handshake latency.\n\nIMPORTANT ABOUT CALLS:\n• Telegram MTProto protocol architecture does not support voice and video calls. For voice and video calls support, switch to SOCKS5 mode.</string>
     <string name="nd_network_path_title">مسیر شبکه و تأخیر</string>
     <string name="nd_rtt_title">تأخیر تونل (EWMA RTT)</string>
     <string name="nd_badge_excellent">عالی</string>
@@ -1755,6 +1772,10 @@
     <string name="nd_badge_attention">توجه</string>
     <string name="nd_cf_segment_title">بخش ورکر کلودفلر</string>
     <string name="nd_wss_tunnel_active">تونل WSS فعال است</string>
+    <string name="nd_ws_tunnel_active">تونل WS :80 فعال است</string>
+    <string name="nd_hero_warm_pool_val">%1$d/%2$d گرم</string>
+    <string name="nd_hero_flowseal_domains_val">%1$d/%2$d دامنه</string>
+    <string name="nd_live_traffic_active">جریان فعال</string>
     <string name="nd_waiting_probe">در انتظار پروب</string>
     <string name="nd_badge_available">در دسترس</string>
     <string name="nd_badge_lag">تأخیر</string>
@@ -1889,24 +1910,23 @@
     <string name="preset_balanced">متعادل</string>
     <string name="preset_eco">اقتصادی</string>
     <string name="preset_auto">خودکار</string>
-    <string name="notif_failover_masque_to_awg">WARP MASQUE is unavailable on your carrier, switched to AmneziaWG</string>
-    <string name="notif_failover_awg_to_masque">WARP AmneziaWG is unavailable on your carrier, switched to MASQUE</string>
     <string name="notif_ping_ms">%1$d ms</string>
-    <string name="notif_ping_jitter_ms">%1$d ms (±%2$d ms)</string>
+    <string name="notif_ping_jitter_ms">%1$d ms</string>
     <string name="notif_net_cellular">Cellular</string>
     <string name="notif_net_none">No connection</string>
     <string name="notif_net_active">شبکه active</string>
-    <string name="notif_timer_suffix"> | Timer: %1$s</string>
-    <string name="notif_title_template">Mirrly TG پروکسی [%1$s] • %2$s</string>
+    <string name="notif_timer_suffix"> • تایمر: %1$s</string>
+    <string name="notif_title_template">Mirrly Proxy • %1$s</string>
+    <string name="notif_title_offline">Mirrly Proxy • %1$s • %2$s</string>
     <string name="notif_status_active">فعال</string>
     <string name="notif_status_public_relay">Public relay</string>
     <string name="notif_status_no_net">No connection</string>
-    <string name="notif_body_no_net">شبکه: Offline | ↓ 0 B/s  ↑ 0 B/s | No connection</string>
-    <string name="notif_body_format">%1$s: %2$s | ↓ %3$s/s  ↑ %4$s/s | %5$s%6$s</string>
+    <string name="notif_body_no_net">اتصال شبکه برقرار نیست</string>
+    <string name="notif_speed_format">↓ %1$s/s  ↑ %2$s/s</string>
+    <string name="notif_body_format">%1$s • %2$s • ↓ %3$s/s  ↑ %4$s/s%5$s</string>
     <string name="notif_status_tunnel_active">Tunnel active</string>
     <string name="notif_status_waiting_traffic">در انتظار for traffic</string>
     <string name="notif_route_fallback_awg">AmneziaWG (Fallback)</string>
-    <string name="notif_route_fallback_masque">MASQUE (Fallback)</string>
     <string name="notif_trust_public_relay"> [Public relay]</string>
     <string name="battery_guard_reason_threshold">شارژ باتری به %1$d٪ رسید (آستانه: %2$d٪)</string>
     <string name="battery_guard_reason_powersave">Android system power saving mode activated</string>
@@ -1951,7 +1971,7 @@
     <string name="onboarding_step2_relay_desc">میرلی ترافیک تلگرام را از طریق پروتکل‌های امن MTProto و SOCKS5 و سرورهای کلودفلر برای دور زدن محدودیت‌ها بدون نیاز به VPN سیستمی هدایت می‌کند.</string>
     <string name="onboarding_feature_faketls_title">Fake-TLS &amp; SOCKS5</string>
     <string name="onboarding_feature_faketls_desc">حفاظت در برابر فیلترینگ و مسدودسازی</string>
-    <string name="onboarding_feature_warp_title">Cloudflare WARP &amp; MASQUE</string>
+    <string name="onboarding_feature_warp_title">Cloudflare WARP &amp; AWG</string>
     <string name="onboarding_feature_warp_desc">کمترین تأخیر برای تماس‌ها و فایل‌ها</string>
     <string name="onboarding_feature_rust_title">کاهش مصرف باتری</string>
     <string name="onboarding_feature_rust_desc">موتور فوق‌سریع و کم‌مصرف راست (Rust)</string>
@@ -2012,6 +2032,8 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="info_socket_buffer_body">Sets the kernel receive (SO_RCVBUF) and send (SO_SNDBUF) buffer sizes for TCP sockets:\n\n• 128 KB — Minimal footprint, saves RAM on entry-level devices and slow 2G/3G connections.\n• 256 KB — Standard balanced default. Minimizes latency jitter (bufferbloat) while maintaining smooth chat sync.\n• 512 KB – 1 MB — High throughput. Recommended for streaming high-bitrate video files on 4G/5G and Wi-Fi.\n• 2 MB — Maximum buffer for high-bandwidth gigabit optical networks.</string>
     <string name="info_ws_keepalive_title">WebSocket Keep-Alive Interval</string>
     <string name="info_ws_keepalive_body">Specifies the frequency of heartbeat ping frames sent to Cloudflare Edge over WebSocket:\n\n• Why use this: intermediate carrier gateways and home Wi-Fi routers drop idle NAT translations after 30–60 seconds of inactivity. Periodic pings keep the tunnel open.\n• 15 sec — Maximum resilience on aggressive cellular carriers, prevents drops during idle intervals.\n• 30 sec — Standard verified default, optimizes battery life while ensuring reliable notifications.\n• 60 sec — Low-power mode for stable fixed broadband connections.</string>
+    <string name="info_tls_enabled_title">رمزنگاری TLS 1.2 و 1.3</string>
+    <string name="info_tls_enabled_body">تنظیم حیاتی برای پایداری پروکسی و نحوه برخورد فیلترینگ با ترافیک:\n\n• هر دو حالت ریسک قطع اتصال دارند: بسته به اپراتور و قوانین DPI، یکی از این دو وضعیت ممکن است در برخی موارد اتصال شبکه را بازیابی کند.\n• در زبان فارسی به صورت پیش‌فرض فعال است: ارتباط از طریق TLS 1.2 و 1.3 روی پورت ۴۴۳ با تکه‌سازی ClientHello و FakeTLS برقرار می‌شود.\n• در صورت غیرفعال‌سازی: WebSocket ساده روی پورت ۸۰ با DNS سیستم و بررسی مستقیم اتصال بدون TLS اجرا می‌شود؛ رمزنگاری داخلی MTProto فعال می‌ماند.</string>
 
     <!-- Task 06: Error Taxonomy & Failure Descriptions -->
     <string name="failure_worker_quota_exceeded">سقف روزانه درخواست‌های ورکر پر شده است (429)</string>
@@ -2067,13 +2089,21 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="diagnostic_report_issue_body">### Issue Description\n\n### Diagnostic Report:\n```markdown\n%1$s\n```</string>
 
     <!-- Full UI and Components Localization Audit -->
-    <string name="tile_proxy_on">Mirrly</string>
+    <string name="tile_proxy_on">پروکسی Mirrly</string>
+    <string name="tile_proxy_label">پروکسی Mirrly</string>
+    <string name="tile_vpn_label">Mirrly VPN</string>
+    <string name="tile_subtitle_connected">متصل شد</string>
+    <string name="tile_subtitle_disconnected">قطع شد</string>
+    <string name="tile_subtitle_connecting">در حال اتصال…</string>
+    <string name="tile_server_auto_title">انتخاب خودکار</string>
+    <string name="tile_server_auto_desc">انتخاب مسیر بر اساس کمترین تأخیر</string>
+    <string name="vpn_server_tg_direct">تلگرام بدون پروکسی • تماس</string>
     <string name="tile_proxy_off">Mirrly</string>
     <string name="badge_top">TOP</string>
     <string name="badge_beta">BETA</string>
     <string name="badge_expert">EXPERT</string>
     <string name="badge_new">NEW</string>
-    <string name="settings_vpn_mode_desc">تونل مستقیم Tun2Socks + کلودفلر WARP MASQUE / AmneziaWG</string>
+    <string name="settings_vpn_mode_desc">تونل مستقیم Tun2Socks + کلودفلر WARP AmneziaWG</string>
     <string name="license_gnu_gpl_title">GNU GPLv3 License</string>
     <string name="tg_connect_proto_mtproto">MTProto پروکسی</string>
     <string name="tg_connect_proto_socks5">SOCKS5 پروکسی</string>
@@ -2105,7 +2135,7 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_vpn_in_dev_title">MIRRLY VPN در حال توسعه است</string>
     <string name="settings_vpn_in_dev_desc">پشته شبکه Mirrly VPN در دست توسعه فعال است. تنظیمات تونل برای آزمایش در دسترس هستند، اما ثبات اتصال تضمین نمی‌شود. برای اتصال پایدار تلگرام، از MTProto یا SOCKS5 استفاده کنید.</string>
     <string name="settings_vpn_in_dev_dialog_title">Mirrly VPN در حال توسعه است</string>
-    <string name="settings_vpn_in_dev_dialog_body">حالت تونل‌سازی Mirrly VPN و پروتکل‌های آپ‌لینک آن (WARP، VLESS، AWG) در مرحله تست مهندسی هستند. امکان بررسی تنظیمات وجود دارد اما مسیریابی کلی ترافیک ممکن است ناپایدار باشد.</string>
+    <string name="settings_vpn_in_dev_dialog_body">حالت تونل‌سازی Mirrly VPN و پروتکل‌های آپ‌لینک آن (WARP، AWG) در مرحله تست مهندسی هستند. امکان بررسی تنظیمات وجود دارد اما مسیریابی کلی ترافیک ممکن است ناپایدار باشد.</string>
     <string name="settings_vpn_in_dev_dialog_ok">متوجه شدم</string>
     <string name="vpn_in_dev_card_title">VPN در حال توسعه</string>
     <string name="vpn_in_dev_card_desc">ماژول سیستم VPN در دست توسعه است و موقتا غیرفعال می‌باشد. برای حفاظت ترافیک از MTProto یا SOCKS5 استفاده نمایید.</string>
@@ -2155,17 +2185,11 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
 
     <!-- VPN Protocol selector dialog -->
     <string name="vpn_device_tunnel_inactive">Device tunneling via %1$s</string>
-    <string name="vpn_protocol_masque_desc">IETF RFC 9484 CONNECT-UDP over HTTP/3 • QUIC</string>
     <string name="vpn_protocol_awg_desc">AmneziaWG with junk packet obfuscation • Anycast</string>
     <string name="vpn_protocol_dialog_title">انتخاب پروتکل VPN</string>
     <string name="vpn_protocol_dialog_desc">پروتکل تونل‌سازی را برای تست مهندسی انتخاب فرمایید:</string>
     <string name="vpn_select_protocol_short">پروتکل</string>
     <string name="vpn_protocol_awg_badge">توصیه می‌شود (مقاوم در برابر فیلترینگ)</string>
-    <string name="vpn_protocol_masque_badge">احتمال مسدودسازی توسط فیلترینگ</string>
-    <string name="vpn_protocol_masque_warning_title">هشدار: مسدودسازی MASQUE در روسیه</string>
-    <string name="vpn_protocol_masque_warning_desc">پروتکل MASQUE از QUIC/UDP بدون پنهان‌سازی استفاده کرده و توسط سیستم‌های فیلترینگ (TSPU) مسدود می‌شود. برای اتصال پایدار استفاده از AmneziaWG (AWG) توصیه می‌شود.</string>
-    <string name="vpn_protocol_masque_action_use_awg">انتخاب AWG (توصیه می‌شود)</string>
-    <string name="vpn_protocol_masque_action_continue">ادامه با MASQUE</string>
     <string name="settings_warp_reg_via_worker_title">ثبت‌نام از طریق Worker Relay</string>
     <string name="settings_warp_reg_via_worker_desc">استفاده از Cloudflare Worker برای ثبت‌نام و به‌روزرسانی پروفایل. در صورت غیرفعال بودن، درخواست‌ها مستقیماً به API تلفن همراه Anycast ارسال می‌شوند.</string>
 
@@ -2198,8 +2222,6 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="onboarding_vpn_feature_independent_desc">پروتکل‌های MTProto و SOCKS5 به صورت مستقل از VPN کار می‌کنند و تداخلی ندارند. می‌توانید از VPN برای کل سیستم یا از پروکسی فقط برای تلگرام استفاده کنید.</string>
     <string name="onboarding_vpn_feature_awg_title">وارپ AWG (آمنزیا)</string>
     <string name="onboarding_vpn_feature_awg_desc">ضد فیلترینگ پیشرفته (DPI) برای مناطقی که کلودفلر مسدود است (ایران، روسیه). هدرهای بسته‌های وایرگارد را مخفی می‌کند.</string>
-    <string name="onboarding_vpn_feature_masque_title">وارپ MASQUE (HTTP/3)</string>
-    <string name="onboarding_vpn_feature_masque_desc">تونل پرسرعت نسل جدید بر پایه QUIC/HTTP/3 برای کشورهایی که کلودفلر در دسترس است، با حداقل تأخیر.</string>
     <string name="onboarding_vpn_feature_split_title">تونل‌بندی تفکیک‌شده</string>
     <string name="onboarding_vpn_feature_split_desc">انتخاب دلخواه برنامه‌ها: هدایت تنها برنامه‌های مورد نیاز از طریق تونل بدون کند شدن سرویس‌های داخلی.</string>
     <string name="info_footnote_badge">توضیح اصطلاحات</string>
@@ -2377,90 +2399,21 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="vpn_import_success_toast">نمایه سفارشی با موفقیت ذخیره شد</string>
     <string name="vpn_import_key_success_toast">کلید WARP+ ذخیره و برای حساب اعمال شد</string>
     <string name="vpn_import_guide_title">از کجا نمایه یا کلید تهیه کنیم؟</string>
-    <string name="vpn_import_guide_p1">۱. ربات‌های تلگرام: ربات‌های توزیع پیکربندی‌های آماده WARP، WireGuard و AmneziaWG.</string>
+    <string name="vpn_import_guide_p1">۱. پیکربندی‌های AmneziaWG و WireGuard: از وارد کردن فایل‌های .conf و متن تنظیمات پشتیبانی می‌شود.</string>
     <string name="vpn_import_guide_p2">۲. کلیدهای WARP+: کلید مجوز ۲۶ نویسه‌ای با ترافیک نامحدود در ربات‌های عمومی.</string>
     <string name="vpn_import_guide_p3">۳. ابزار WGCF: تولیدکننده متن‌باز نمایه‌های کلودفلر در گیت‌هاب (ViRb3/wgcf).</string>
     <string name="vpn_import_guide_p4">۴. سرورهای مستقل: هرگونه فایل .conf شخصی WireGuard یا AmneziaWG.</string>
 
-    <string name="vpn_onboard_badge">راهنما • حالت VPN</string>
-    <string name="vpn_onboard_title">حالت VPN در میرلی</string>
-    <string name="vpn_onboard_subtitle">شروع سریع و پیکربندی تونل</string>
-    <string name="vpn_onboard_step1_title">۱. رمزگذاری کامل</string>
-    <string name="vpn_onboard_step1_desc">برخلاف پروکسی، حالت VPN تمام ترافیک اینترنت دستگاه را در سطح هسته اندروید از طریق سرویس VpnService هدایت و محافظت می‌کند.</string>
-    <string name="vpn_onboard_step2_title">۲. انتخاب پروتکل</string>
-    <string name="vpn_onboard_step2_desc">• WARP AWG: پروتکل AmneziaWG با پنهان‌سازی بسته‌ها.\n• WARP MASQUE: پروتکل سریع مبتنی بر HTTP/3 QUIC با کمترین تأخیر.</string>
-    <string name="vpn_onboard_step3_title">۳. نمایه اتصال</string>
-    <string name="vpn_onboard_step3_desc">برای کارکرد نیاز به نمایه است. می‌توانید بلافاصله با یک لمس نمایه خودکار بسازید یا پیکربندی سفارشی WireGuard / AmneziaWG یا کلید WARP+ را وارد کنید.</string>
-    <string name="vpn_onboard_btn_auto_create">ایجاد نمایه (خودکار)</string>
-    <string name="vpn_onboard_btn_import">ورود نمایه سفارشی</string>
-    <string name="vpn_onboard_btn_continue">متوجه شدم</string>
-    <string name="vpn_onboard_internal_gen_title">ایجاد مستقیم در برنامه</string>
-    <string name="vpn_onboard_internal_gen_subtitle">ژنراتور داخلی WARP AWG / WireGuard</string>
-    <string name="vpn_onboard_external_gen_title">ژنراتورهای خارجی جایگزین:</string>
-    <string name="vpn_onboard_gen_warp_reg_name">Warp-Reg (تولیدکننده وب)</string>
-    <string name="vpn_onboard_gen_warp_reg_note">ابزار تحت وب تولید</string>
-    <string name="vpn_onboard_gen_wgcf_name">wgcf (ابزار خط فرمان گیت‌هاب)</string>
-    <string name="vpn_onboard_gen_wgcf_note">کد منبع رسمی</string>
-    <string name="vpn_onboard_gen_bot1_name">@generatewarpbot (تلگرام)</string>
-    <string name="vpn_onboard_gen_bot2_name">@warp_generator_bot (تلگرام)</string>
-    <string name="vpn_onboard_gen_bot_note">ربات تلگرام</string>
     <string name="vpn_action_dns">DNS</string>
     <string name="vpn_action_import_profile">ورود نمایه سفارشی</string>
     <string name="vpn_action_guide">راهنمای VPN</string>
     <string name="settings_vpn_import_custom">ورود</string>
-    <string name="warp_gen_btn_short">ژنراتور</string>
     <string name="settings_vpn_import_custom_desc">افزودن فایل .conf، JSON یا کلید سفارشی</string>
     <string name="settings_warp_license_field_title">کلید مجوز WARP+</string>
     <string name="settings_warp_license_field_desc">کلید ۲۶ نویسه‌ای برای ترافیک نامحدود</string>
     <string name="settings_vpn_onboarding_replay">راهنمای VPN</string>
     <string name="settings_vpn_onboarding_replay_desc">مشاهده دوباره راهنمای مقدماتی رمزگذاری و پروتکل‌ها</string>
 
-    <!-- WARP Generator & Multi-Profile Manager -->
-    <string name="warp_gen_title">تولیدکننده نمایه WARP</string>
-    <string name="warp_gen_subtitle">تولید و صدور نمایه‌های WireGuard و AmneziaWG</string>
-    <string name="warp_gen_mode_simple">ساده</string>
-    <string name="warp_gen_mode_advanced">پیشرفته</string>
-    <string name="warp_gen_mode_simple_desc">صدور خودکار نمایه رسمی با تنظیمات بهینه AmneziaWG</string>
-    <string name="warp_gen_mode_adv_desc">انتخاب قالب‌ها، نقاط پایانی، سرورهای DNS و تنظیم پارامترهای پنهان‌سازی</string>
-    <string name="warp_gen_section_formats">قالب‌های نمایه</string>
-    <string name="warp_gen_section_endpoints">نقاط پایانی کلودفلر</string>
-    <string name="warp_gen_section_dns">سرورهای DNS</string>
-    <string name="warp_gen_section_awg_params">پارامترهای AmneziaWG</string>
-    <string name="warp_gen_section_account">حساب کاربری WARP</string>
-    <string name="warp_gen_section_actions">عملیات</string>
-    <string name="warp_gen_acc_new">صدور حساب جدید</string>
-    <string name="warp_gen_acc_reuse">استفاده از حساب فعلی</string>
-    <string name="warp_gen_acc_plus">اتصال مجوز WARP+</string>
-    <string name="warp_gen_param_jc">تعداد بسته‌های اضافی (Jc)</string>
-    <string name="warp_gen_param_jmin">حداقل اندازه بسته اضافی (Jmin)</string>
-    <string name="warp_gen_param_jmax">حداکثر اندازه بسته اضافی (Jmax)</string>
-    <string name="warp_gen_param_i1">امضای دست‌تکانی (I1)</string>
-    <string name="warp_gen_param_padding">فاصله‌گذاری محتوا (ContentPaddingAddition)</string>
-    <string name="warp_gen_param_rekey">فاصله زمانی تولید کلید مجدد (RekeyAfterTime)</string>
-    <string name="warp_gen_param_keepalive">مهلت اتصال زنده (Keepalive)</string>
-    <string name="warp_gen_param_cookies">غیرفعال‌سازی کوکی‌ها (DisableCookies)</string>
-    <string name="warp_gen_param_randomize">مقادیر تصادفی در بازه‌ها</string>
-    <string name="warp_gen_include_ipv6">شامل نشانی IPv6</string>
-    <string name="warp_gen_mtu">اندازه MTU</string>
-    <string name="warp_gen_btn_generate">تولید نمایه‌ها</string>
-    <string name="warp_gen_btn_ping_endpoints">بررسی تأخیر نقاط پایانی</string>
-    <string name="warp_gen_btn_import_all">ورود همه نمایه‌ها</string>
-    <string name="warp_gen_btn_import_selected">ورود نمایه انتخابی</string>
-    <string name="warp_gen_btn_set_active">تنظیم به‌عنوان فعال</string>
-    <string name="warp_gen_btn_export_zip">صدور همه در قالب ZIP</string>
-    <string name="warp_gen_btn_export_file">ذخیره فایل</string>
-    <string name="warp_gen_btn_qr">کد QR</string>
-    <string name="warp_gen_btn_copy">کپی پیکربندی</string>
-    <string name="warp_gen_btn_view">مشاهده</string>
-    <string name="warp_gen_status_idle">آماده برای تولید</string>
-    <string name="warp_gen_status_registering">ثبت حساب در کلودفلر...</string>
-    <string name="warp_gen_status_activating">فعال‌سازی نشست WireGuard...</string>
-    <string name="warp_gen_status_binding_license">اتصال کلید مجوز WARP+...</string>
-    <string name="warp_gen_status_scanning_endpoints">آزمایش تأخیر نقاط پایانی...</string>
-    <string name="warp_gen_status_building">ساخت پیکربندی‌ها...</string>
-    <string name="warp_gen_status_success">تولید موفق: %1$d نمایه</string>
-    <string name="warp_gen_status_error">خطای تولید: %1$s</string>
-    <string name="warp_gen_err_export_only_format">این قالب برای کلاینت‌های خارجی است. برای VPN سیستم، AmneziaWG یا WireGuard را انتخاب کنید.</string>
     <string name="warp_profiles_title">نمایه‌های WARP</string>
     <string name="warp_profiles_empty">نمایه ذخیره‌شده‌ای وجود ندارد</string>
     <string name="warp_profiles_active_badge">فعال</string>
@@ -2471,21 +2424,11 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="warp_profiles_all_imported_toast">نمایه‌های وارد شده: %1$d</string>
     <string name="warp_profiles_zip_exported_toast">بایگانی ZIP با موفقیت ذخیره شد</string>
     <string name="warp_profiles_file_exported_toast">فایل با موفقیت ذخیره شد</string>
-    <string name="warp_gen_qr_title">کد QR پیکربندی</string>
-    <string name="warp_gen_qr_desc">کد را در برنامه AmneziaWG یا WireGuard اسکن کنید</string>
-    <string name="warp_gen_masked_key_hint">کلید خصوصی برای امنیت پنهان شده است</string>
-    <string name="warp_gen_show_secret">نمایش کلید</string>
-    <string name="warp_gen_hide_secret">پنهان‌سازی کلید</string>
-    <string name="warp_gen_custom_endpoint_label">نقطه پایانی سفارشی (میزبان:درگاه)</string>
-    <string name="warp_gen_custom_dns_label">سرورهای DNS سفارشی (با کاما)</string>
-    <string name="warp_gen_license_label">کلید مجوز WARP+ (اختیاری)</string>
-    <string name="warp_gen_terminal_title">گزارش تولید</string>
-    <string name="warp_gen_results_title">نمایه‌های تولیدشده</string>
     <string name="vpn_auto_profile_title">انتخاب خودکار نمایه VPN</string>
-    <string name="vpn_auto_profile_desc">انتخاب خودکار بهترین سرور از میان نمایه‌های ذخیره‌شده (با اولویت نمایه‌های ساخته‌شده یا واردشده). در صورت غیرفعال بودن، نمایه انتخابی کاربر استفاده می‌شود.</string>
+    <string name="vpn_auto_profile_desc">انتخاب خودکار بهترین سرور از میان نمایه‌های ذخیره‌شده. در صورت غیرفعال بودن، نمایه انتخابی کاربر استفاده می‌شود.</string>
     <string name="vpn_auto_profile_badge">خودکار</string>
     <string name="vpn_priority_badge">اصلی</string>
-    <string name="vpn_auto_profile_active_hint">انتخاب خودکار فعال است: اولویت با نمایه‌های ژنراتور و وارداتی</string>
+    <string name="vpn_auto_profile_active_hint">انتخاب خودکار فعال است: جابجایی خودکار به بهترین سرور</string>
     <string name="vpn_auto_profile_manual_hint">انتخاب خودکار غیرفعال است: استفاده از نمایه انتخابی</string>
     <string name="vpn_maintenance_notice_title">حالت VPN در حال بازطراحی است</string>
     <string name="vpn_maintenance_notice_desc">ممکن است به طور موقت قطع شود یا برای همه کاربران کار نکند.</string>
@@ -2544,7 +2487,7 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_customization_wallpaper_active">والپیپر سفارشی فعال است</string>
     <string name="settings_customization_wallpaper_active_image">تصویر دلخواه فعال است</string>
     <string name="settings_customization_wallpaper_active_video">ویدیوی پس‌زمینه فعال است</string>
-    <string name="settings_customization_wallpaper_default">مشکی AMOLED (پیش‌فرض)</string>
+    <string name="settings_customization_wallpaper_default">مشکی AMOLED · پیش‌فرض</string>
     <string name="settings_customization_wallpaper_choose">انتخاب والپیپر</string>
     <string name="settings_customization_wallpaper_choose_image">انتخاب عکس</string>
     <string name="settings_customization_wallpaper_choose_video">انتخاب ویدیو</string>
@@ -2610,14 +2553,22 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_dial_throttling_desc">محدود کردن تلاش‌های اتصال موازی برای جلوگیری از اشباع مودم و هات‌اسپات</string>
     <string name="settings_dial_throttling_card_title">محافظت از بافر و مودم هات‌اسپات</string>
     <string name="settings_dial_throttling_card_desc">در صورت فعال بودن، تعداد تلاش‌های اتصال همزمان در شبکه همراه را به ۲ محدود می‌کند تا از اشباع جدول NAT و بافر هات‌اسپات‌های ضعیف جلوگیری شود.\n\nبه صورت پیش‌فرض غیرفعال است.</string>
+
+    <!-- Transport TLS Control -->
+    <string name="settings_tls_enabled_title">رمزنگاری TLS 1.2 و 1.3</string>
+    <string name="settings_tls_enabled_desc">تنظیم حیاتی که مستقیما بر پایداری و برقراری اتصال پروکسی تاثیر می‌گذارد</string>
+    <string name="settings_tls_enabled_card_title">TLS فعال · ریسک مسدودسازی دست‌تکانی</string>
+    <string name="settings_tls_enabled_card_desc">ترافیک از سوکت‌های TLS روی پورت ۴۴۳ همراه با دور زدن DPI استفاده می‌کند. در برخی اپراتورها فیلترینگ دست‌تکانی TLS و SNI را مسدود می‌کند و پروکسی از کار می‌افتد؛ اما در شبکه‌هایی که هدرهای ساده مسدود می‌شوند، فعال کردن TLS در برخی موارد می‌تواند به بازیابی شبکه کمک کند.</string>
+    <string name="settings_tls_disabled_card_title">TLS غیرفعال · ریسک انتقال متن ساده</string>
+    <string name="settings_tls_disabled_card_desc">ترافیک بدون TLS و FakeTLS از طریق WebSocket ساده روی پورت ۸۰ منتقل می‌شود. هدرهای انتقال بدون رمزنگاری هستند و ممکن است مسدود شوند، اما رمزنگاری داخلی MTProto حفظ می‌گردد. هنگام مسدودسازی TLS و SNI، غیرفعال کردن TLS در برخی موارد به بازیابی شبکه کمک می‌کند.</string>
 <!-- SOCKS5 Routing Uplink -->
     <string name="settings_socks5_uplink_title">آپلینک مسیریابی SOCKS5</string>
     <string name="settings_socks5_uplink_desc">انتخاب ترانسپورت خروجی برای انتقال ترافیک تلگرام</string>
     <string name="settings_socks5_uplink_worker_title">Cloudflare Worker</string>
     <string name="settings_socks5_uplink_worker_subtitle">تونل‌سازی از طریق WSS Worker کلودفلر</string>
-    <string name="settings_socks5_uplink_flowseal_title">Anycast CDN Flowseal [بتا]</string>
+    <string name="settings_socks5_uplink_flowseal_title">Anycast CDN Flowseal</string>
     <string name="settings_socks5_uplink_flowseal_subtitle">شبکه توزیع‌شده Anycast CDN بدون محدودیت سهمیه ورکر</string>
-    <string name="settings_socks5_uplink_footnote">Anycast CDN Flowseal [بتا] امکان فعالیت چت‌ها، کانال‌ها و دانلود رسانه را بدون نیاز به ورکر شخصی فراهم می‌کند؛ برای تماس‌های صوتی Cloudflare Worker پیشنهاد می‌شود.</string>
+    <string name="settings_socks5_uplink_footnote">Anycast CDN Flowseal امکان فعالیت چت‌ها، کانال‌ها و دانلود رسانه را بدون نیاز به ورکر شخصی فراهم می‌کند؛ برای تماس‌های صوتی Cloudflare Worker پیشنهاد می‌شود.</string>
     <string name="uplink_socks5_flowseal_badge">Flowseal Anycast CDN</string>
     <string name="uplink_socks5_flowseal_secured">امن شده از طریق Anycast CDN Flowseal</string>
     <string name="home_uplink_button_label">آپلینک</string>
@@ -2720,6 +2671,8 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_ai_onboarding_replay">راهنمای هوش مصنوعی</string>
     <string name="settings_ai_onboarding_replay_desc">راهنمای گام به گام اتصال مدلڇای هوش مصنوعی ، کلیدوa و عیبیاتی</string>
     <string name="onboarding_step_wallpaper_title">SELECT BACKGROUND THEME</string>
+    <string name="settings_security_advisory_title">Security Advisory</string>
+    <string name="settings_security_advisory_desc">Authenticity verification, counterfeit protection, and official sources</string>
     <string name="onboarding_step_wallpaper_desc">Choose visual interface styling. You can customize dimming, blur, or upload custom media anytime in settings.</string>
     <string name="onboarding_wallpaper_space_toilet_desc">Video wallpaper · 70% dimming</string>
     <string name="onboarding_wallpaper_grass_desc">Photo wallpaper · Soft focus</string>
@@ -2777,7 +2730,7 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_customization_particles_size">Particle size</string>
     <string name="settings_customization_particles_size_desc">Scale of glowing micro-spheres, matrix pulses, and starfield warp dots</string>
     <string name="settings_customization_dimensions_reset">Reset all dimensions</string>
-    <string name="settings_customization_dimensions_reset_desc">Restore baseline proportions (1.00x)</string>
+    <string name="settings_customization_dimensions_reset_desc">Restore baseline proportions 1.00x</string>
     <string name="settings_customization_particles_disabled">Disabled</string>
     <string name="settings_customization_dimensions_standard">Baseline proportions</string>
     <!-- Customization Info Dialogs -->
@@ -2792,7 +2745,7 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_theme_brightness">روشنایی</string>
     <string name="settings_theme_brightness_desc">تنظیم شدت درخشش و روشنایی رنگ‌ها</string>
     <string name="settings_theme_saturation">اشباع رنگ</string>
-    <string name="settings_theme_saturation_desc">عمق رنگ (۰٪ حالت تک‌رنگ است)</string>
+    <string name="settings_theme_saturation_desc">عمق رنگ · حالت تک‌رنگ ۰٪</string>
     <string name="settings_theme_alpha">شفافیت</string>
     <string name="settings_theme_alpha_desc">میزان ماتی المان‌های تأکیدی و حاشیه‌ها</string>
     <string name="settings_theme_adjustments_reset">بازنشانی تنظیمات</string>
@@ -2847,4 +2800,237 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_customization_haptic_test">آزمایش لرزش</string>
     <string name="settings_customization_haptic_info_title">پروفایل‌های بازخورد لمسی</string>
     <string name="settings_customization_haptic_info_desc">پروفایل‌های بازخورد لمسی MirrlyUI با استفاده از محرک‌های لرزشی فرکانس پایین و موتورهای پیشرفته اندروید. امکان انتخاب بین کلیک مکانیکی، پالس بم عمیق، دابل‌تیک سایبرنتیک یا حالت بی‌صدا.</string>
+
+    <!-- Snake Game Strings -->
+    <string name="snake_title">مار</string>
+    <string name="snake_mode_manual">دستی</string>
+    <string name="snake_mode_ai">هوش مصنوعی</string>
+    <string name="snake_apples">سیب‌ها</string>
+    <string name="snake_record">رکورد</string>
+    <string name="snake_generation">نسل هوش مصنوعی</string>
+    <string name="snake_fitness">برازش</string>
+    <string name="snake_btn_rank">رتبه</string>
+    <string name="snake_btn_game">بازی</string>
+    <string name="snake_btn_snd">صدا</string>
+    <string name="snake_btn_hap">لرزش</string>
+    <string name="snake_btn_off">خاموش</string>
+    <string name="snake_game_over">پایان بازی</string>
+    <string name="snake_game_over_desc">امتیاز: %1$d · سیب‌ها: %1$d</string>
+    <string name="snake_game_over_ai_desc">نسل #%1$d به پایان رسید. برای تکامل ضربه بزنید.</string>
+    <string name="snake_btn_retry">تلاش دوباره</string>
+    <string name="snake_btn_evolve">تکامل و ادامه</string>
+    <string name="snake_leaderboard_title">جدول امتیازات</string>
+    <string name="snake_leaderboard_status">محلی • آماده همگام‌سازی</string>
+    <string name="snake_leaderboard_empty">هنوز امتیازی ثبت نشده</string>
+    <string name="snake_leaderboard_close">بستن</string>
+    <string name="snake_pts">امتیاز</string>
+    <string name="snake_settings_title">تنظیمات</string>
+    <string name="snake_settings_train_title">آموزش سریع</string>
+    <string name="snake_settings_train_10">+10 نسل</string>
+    <string name="snake_settings_train_50">+50 نسل</string>
+    <string name="snake_settings_pop_title">اندازه جمعیت</string>
+    <string name="snake_settings_pop_50">50 عضو</string>
+    <string name="snake_settings_pop_100">100 عضو</string>
+    <string name="snake_settings_pop_200">200 عضو</string>
+    <string name="snake_settings_mutation_title">نرخ جهش ژنوم</string>
+    <string name="snake_settings_mutation_low">3% پایدار</string>
+    <string name="snake_settings_mutation_mid">5% عادی</string>
+    <string name="snake_settings_mutation_high">10% تهاجمی</string>
+    <string name="snake_settings_reset_title">بازنشانی شبکه عصبی</string>
+    <string name="snake_settings_reset_random">تصادفی</string>
+    <string name="snake_settings_reset_baseline">هوش اولیه</string>
+    <string name="snake_settings_speed">سرعت بازی</string>
+    <string name="snake_settings_speed_norm">عادی</string>
+    <string name="snake_settings_speed_fast">سریع</string>
+    <string name="snake_settings_speed_turbo">توربو</string>
+    <string name="snake_settings_particles">ذرات گرافیکی</string>
+    <string name="snake_settings_particles_max">3000 · حداکثر</string>
+    <string name="snake_settings_particles_opt">1500 · بهینه</string>
+    <string name="snake_settings_particles_eco">500 · سبک</string>
+    <string name="snake_settings_arena_title">حالت مرز میدان</string>
+    <string name="snake_mode_torus">درگاه عبوری</string>
+    <string name="snake_mode_walls_kill">دیوارهای مرگبار</string>
+    <string name="snake_btn_walls_kill">دیوارها</string>
+    <string name="snake_btn_torus">درگاه</string>
+
+    <!-- ========================================================================= -->
+    <!-- VPN Mode Complete Localization (Onboarding, Servers, Profiles, DNS, Main) -->
+    <!-- ========================================================================= -->
+    <string name="vpn_onboard_mode_simple">حالت ساده · سرورهای داخلی</string>
+    <string name="vpn_onboard_replay_status">مشاهده مجدد · ناوبری آزاد</string>
+    <string name="vpn_onboard_timer_status">بررسی مرحله: %1$d ثانیه</string>
+    <string name="vpn_onboard_completed_status">بررسی کامل شد</string>
+    <string name="vpn_onboard_btn_back">بازگشت</string>
+    <string name="vpn_onboard_warn_wait_timer">لطفاً اطلاعات مرحله را بررسی کنید: %1$d ثانیه باقی مانده</string>
+    <string name="vpn_onboard_btn_start">شروع کار</string>
+    <string name="vpn_onboard_btn_reviewing">در حال بررسی · %1$d ث</string>
+    <string name="vpn_onboard_btn_next">بعدی</string>
+    <string name="vpn_onboard_s2_simple_badge">مرحله ۲ · سرورها و پینگ</string>
+    <string name="vpn_onboard_s2_simple_title">سرورهای داخلی AmneziaWG</string>
+    <string name="vpn_onboard_s2_simple_sub">شبکه سرورهای آماده بدون نیاز به ثبت‌نام</string>
+    <string name="vpn_onboard_s2_simple_c1_title">۱۴ سرور داخلی آماده</string>
+    <string name="vpn_onboard_s2_simple_c1_sum">هلند، آلمان، آمریکا، فنلاند و سایر نقاط</string>
+    <string name="vpn_onboard_s2_simple_c1_desc">تمام ۱۴ پروفایل در برنامه تعبیه شده‌اند. نیازی به API کلودفلر ندارند و فوراً متصل می‌شوند.</string>
+    <string name="vpn_onboard_s2_simple_c2_title">برگه پروفایل‌های سفارشی</string>
+    <string name="vpn_onboard_s2_simple_c2_sum">وارد کردن فایل‌های خارجی با نام‌های دلخواه</string>
+    <string name="vpn_onboard_s2_simple_c2_desc">فایل WireGuard یا AmneziaWG دارید؟ در صفحه اصلی به \'پروفایل‌های سفارشی\' بروید. نام‌گذاری، تغییر نام و حذف مستقیماً در لیست انجام می‌شود.</string>
+    <string name="vpn_onboard_s2_simple_c2_chip3">نام‌های سفارشی</string>
+    <string name="vpn_onboard_s2_simple_note_title">نکته مهم درباره سرعت</string>
+    <string name="vpn_onboard_s2_simple_note_lead">سرعت اتصال به پینگ و بار ترافیک فعلی سرور بستگی دارد.</string>
+    <string name="vpn_onboard_s2_simple_note_detail">باز کردن لیست سرورها پینگ خودکار را اجرا می‌کند. برای پخش 4K و دانلود، گره‌هایی با کمترین پینگ (نشانگر سبز) را انتخاب کنید.</string>
+    <string name="vpn_onboard_s3_simple_badge">مرحله ۳ · امنیت و سرعت</string>
+    <string name="vpn_onboard_s3_simple_title">دی‌ان‌اس و استثنائات برنامه‌ها</string>
+    <string name="vpn_onboard_s3_simple_sub">محافظت از درخواست‌ها و سرعت محلی برای بانکداری</string>
+    <string name="vpn_onboard_s3_simple_dns_title">انتخاب سرور DNS در VPN</string>
+    <string name="vpn_onboard_s3_simple_dns_sum">کلودفلر، گوگل و مسدودسازی تبلیغات ادگارد</string>
+    <string name="vpn_onboard_s3_simple_dns_intro">درخواست‌های DNS از داخل تونل WARP عبور می‌کنند تا از دستکاری اپراتور جلوگیری شود:</string>
+    <string name="vpn_onboard_s3_simple_dns_cf">دی‌ان‌اس کلودفلر (1.1.1.1) — کمترین تاخیر و قابلیت اطمینان</string>
+    <string name="vpn_onboard_s3_simple_dns_goog">دی‌ان‌اس گوگل (8.8.8.8) — پایداری جهانی</string>
+    <string name="vpn_onboard_s3_simple_dns_adg">دی‌ان‌اس ادگارد — مسدودسازی خودکار تبلیغات و ردیاب‌ها</string>
+    <string name="vpn_onboard_s3_simple_split_title">تونل‌سازی مجزا · استثنائات برنامه‌ها</string>
+    <string name="vpn_onboard_s3_simple_split_sum">دسترسی مستقیم برای برنامه‌های بانکی و سرویس‌های محلی</string>
+    <string name="vpn_onboard_s3_simple_split_intro">سرویس‌های محلی ممکن است آی‌پی‌های خارجی را مسدود کنند. دکمه \'استثنائات\' این مشکل را فوراً حل می‌کند:</string>
+    <string name="vpn_onboard_s3_simple_split_direct_title">مستقیم از طریق اپراتور</string>
+    <string name="vpn_onboard_s3_simple_split_direct_sub">بانکداری، خدمات عمومی، تاکسی، خرید آنلاین</string>
+    <string name="vpn_onboard_s3_simple_split_direct_tag">دسترسی مستقیم</string>
+    <string name="vpn_onboard_s3_simple_split_vpn_title">از طریق تونل امن</string>
+    <string name="vpn_onboard_s3_simple_split_vpn_sub">یوتیوب، تلگرام، اینستاگرام، سایت‌های جهانی</string>
+    <string name="vpn_onboard_s3_simple_split_vpn_tag">رمزگذاری‌شده</string>
+    <string name="vpn_onboard_s3_simple_split_tip">برنامه‌های بانکی را علامت بزنید — آن‌ها با حداکثر سرعت اینترنت محلی متصل می‌شوند.</string>
+    <string name="vpn_onboard_s4_simple_badge">مرحله ۴ · شروع و مدیریت</string>
+    <string name="vpn_onboard_s4_simple_title">آماده اتصال</string>
+    <string name="vpn_onboard_s4_simple_sub">نحوه مدیریت تونل در صفحه اصلی</string>
+    <string name="vpn_onboard_s4_simple_c1_title">اتصال با یک لمس</string>
+    <string name="vpn_onboard_s4_simple_c1_desc">دکمه مرکزی صفحه را لمس کنید. اندروید مجوز استاندارد وی‌پی‌ان را می‌خواهد. روی \'تایید\' بزنید.</string>
+    <string name="vpn_onboard_s4_simple_c2_title">انتخاب سرور و مسیریابی خودکار</string>
+    <string name="vpn_onboard_s4_simple_c2_desc">موقعیت مکانی را به صورت دستی انتخاب کنید یا از انتخاب خودکار استفاده کنید: برنامه گره با کمترین تاخیر را انتخاب می‌کند.</string>
+    <string name="vpn_onboard_s4_simple_rule_title">اصل اساسی</string>
+    <string name="vpn_onboard_s4_simple_rule_lead">کار را ساده نگه دارید.</string>
+    <string name="vpn_onboard_s4_simple_rule_desc">تمامی تنظیمات و سرورها از قبل برای بالاترین کارایی بهینه‌سازی شده‌اند. متصل شوید و لذت ببرید.</string>
+    <string name="vpn_server_selector_title">انتخاب سرور</string>
+    <string name="vpn_ping_measuring">در حال تست...</string>
+    <string name="vpn_ping_refresh">بروزرسانی پینگ</string>
+    <string name="vpn_speed_ping_notice">سرعت اتصال به پینگ و ترافیک همزمان سرور بستگی دارد</string>
+    <string name="vpn_server_tab_all">همه</string>
+    <string name="vpn_server_tab_telegram">برای تلگرام</string>
+    <string name="vpn_server_tab_anycast">انی‌کست</string>
+    <string name="vpn_auto_select_badge">انتخاب خودکار</string>
+    <string name="vpn_auto_select_configure">تنظیمات</string>
+    <string name="vpn_auto_measuring">اندازه‌گیری تاخیر سرورها...</string>
+    <string name="vpn_auto_route_format">مسیر: %1$s</string>
+    <string name="vpn_auto_best_fallback">انتخاب خودکار بهترین گره</string>
+    <string name="vpn_server_desc_telegram">تلگرام بدون پروکسی • تماس‌ها</string>
+    <string name="vpn_server_desc_anycast">مسیریابی انی‌کست</string>
+    <string name="vpn_server_desc_dedicated">گره اختصاصی</string>
+    <string name="vpn_server_load_waiting">در انتظار</string>
+    <string name="vpn_server_load_format">بار %1$d%%</string>
+    <string name="vpn_server_toast_switched">تغییر به %1$s...</string>
+    <string name="vpn_server_toast_selected">سرور انتخاب شد: %1$s</string>
+    <string name="vpn_auto_toast_switched">انتخاب خودکار: تغییر به %1$s...</string>
+    <string name="vpn_auto_toast_enabled">حالت انتخاب خودکار سرور فعال شد</string>
+    <string name="vpn_auto_settings_title">تنظیمات انتخاب خودکار</string>
+    <string name="vpn_auto_settings_sub">اولویت‌های اتصال خودکار</string>
+    <string name="vpn_auto_settings_desc">الگوریتم به طور مداوم تاخیر را بررسی کرده و بهترین گره را بر اساس اولویت‌های شما انتخاب می‌کند.</string>
+    <string name="vpn_auto_sec_strategy">استراتژی اتصال</string>
+    <string name="vpn_auto_sec_categories">ترتیب اولویت دسته‌ها</string>
+    <string name="vpn_auto_custom_active_badge">فعال در \'ترتیب سفارشی\'</string>
+    <string name="vpn_auto_sec_pool">سرورهای استخر انتخاب خودکار (%1$d / %2$d)</string>
+    <string name="vpn_auto_btn_enable_all">فعال‌سازی همه</string>
+    <string name="vpn_auto_btn_tel_only">فقط تلگرام (%1$d)</string>
+    <string name="vpn_auto_toast_reset">تنظیمات انتخاب خودکار بازنشانی شد</string>
+    <string name="vpn_auto_toast_applied">تنظیمات انتخاب خودکار اعمال شد</string>
+    <string name="vpn_auto_btn_reset">پیش‌فرض</string>
+    <string name="vpn_auto_btn_apply">اعمال</string>
+    <string name="vpn_auto_strat_tel_title">برای تلگرام (Tel)</string>
+    <string name="vpn_auto_strat_tel_sub">اولویت با گره‌های مستقیم و تماس‌ها</string>
+    <string name="vpn_auto_strat_ping_title">کمترین تاخیر</string>
+    <string name="vpn_auto_strat_ping_sub">انتخاب هر گره در دسترس با کمترین تاخیر</string>
+    <string name="vpn_auto_strat_anycast_title">مسیریابی انی‌کست</string>
+    <string name="vpn_auto_strat_anycast_sub">اولویت با گره‌های انی‌کست کلودفلر</string>
+    <string name="vpn_auto_strat_custom_title">ترتیب سفارشی</string>
+    <string name="vpn_auto_strat_custom_sub">مسیریابی بر اساس فهرست اولویت شما</string>
+    <string name="vpn_auto_cat_tel_title">تلگرام مستقیم (Tel)</string>
+    <string name="vpn_auto_cat_tel_desc">فنلاند، آلمان، لهستان (تا ۲۵ مگابایت/ث)</string>
+    <string name="vpn_auto_cat_anycast_title">مسیریابی انی‌کست</string>
+    <string name="vpn_auto_cat_anycast_desc">انی‌کست کلودفلر (گره‌های ۵۰۰ و ۲۴۰۸)</string>
+    <string name="vpn_auto_cat_dedicated_title">سرورهای اختصاصی</string>
+    <string name="vpn_auto_cat_dedicated_desc">۹ گره اروپایی (DE, FI, PL, NL, GB, FR)</string>
+    <string name="vpn_custom_sheet_badge">پروفایل‌های سفارشی</string>
+    <string name="vpn_custom_sheet_title">پروفایل‌های کاربر</string>
+    <string name="vpn_custom_sheet_count">%1$d مورد</string>
+    <string name="vpn_custom_sheet_import_btn">وارد کردن پروفایل</string>
+    <string name="vpn_custom_sheet_empty_title">پروفایلی وارد نشده است</string>
+    <string name="vpn_custom_sheet_empty_desc">برای چسباندن کانفیگ .conf یا کلید روی دکمه بالا ضربه بزنید</string>
+    <string name="vpn_custom_sheet_toast_deleted">پروفایل حذف شد</string>
+    <string name="vpn_custom_sheet_toast_renamed">نام پروفایل بروزرسانی شد</string>
+    <string name="vpn_custom_sheet_action_rename">تغییر نام</string>
+    <string name="vpn_custom_sheet_action_delete">حذف</string>
+    <string name="vpn_custom_sheet_delete_confirm">پروفایل «%1$s» حذف شود؟ این عمل غیرقابل بازگشت است.</string>
+    <string name="vpn_tile_servers">سرورها</string>
+    <string name="vpn_tile_custom_profiles">پروفایل‌های سفارشی</string>
+    <string name="vpn_tile_profile">پروفایل</string>
+    <string name="vpn_tile_protocol">پروتکل</string>
+    <string name="vpn_tile_not_selected">انتخاب نشده</string>
+    <string name="vpn_tile_auto_select">انتخاب خودکار</string>
+    <string name="vpn_tile_default">پیش‌فرض</string>
+    <string name="vpn_beta_badge">بتا · در حال توسعه</string>
+    <string name="vpn_packets_format">بسته‌ها: %1$s</string>
+    <string name="vpn_proto_awg_desc">وایردگارد مبهم‌سازی‌شده • مقاومت در برابر فیلترینگ عمیق [پیشنهادی]</string>
+    <string name="vpn_byok_title">لایسنس (BYOK)</string>
+    <string name="vpn_byok_free">رایگان (Free)</string>
+    <string name="vpn_byok_desc">پشتیبانی از کلید لایسنس اختصاصی WARP+ یا Cloudflare Zero Trust</string>
+    <string name="vpn_dns_sub_cloudflare">انی‌کست پیش‌فرض با پشتیبانی IPv6</string>
+    <string name="vpn_dns_sub_comss">رفع فیلتر ابزارهای هوش مصنوعی (ChatGPT، Claude، Gemini)</string>
+    <string name="vpn_dns_sub_google">دی‌ان‌اس جهانی سریع گوگل</string>
+    <string name="vpn_dns_sub_quad9">دی‌ان‌اس امن و خصوصی بدون ثبت داده‌ها</string>
+    <string name="vpn_dns_title_custom">دی‌ان‌اس اختصاصی</string>
+    <string name="vpn_dns_sub_custom">آدرس‌های IPv4 سفارشی</string>
+    <string name="vpn_dns_mode_google">دی‌ان‌اس گوگل · 8.8.8.8</string>
+    <string name="vpn_dns_mode_quad9">دی‌ان‌اس Quad9 · 9.9.9.9</string>
+    <string name="vpn_dns_mode_custom_format">دی‌ان‌اس اختصاصی (%1$s)</string>
+    <string name="vpn_import_err_read_file">خطا در خواندن فایل</string>
+    <string name="vpn_import_clipboard_empty">کلیپ‌بورد خالی است</string>
+    <string name="vpn_import_lbl_client_ip">آی‌پی کلاینت</string>
+    <string name="vpn_import_lbl_endpoint">آدرس مقصد</string>
+    <string name="vpn_import_lbl_peer_key">کلید سرور</string>
+    <string name="vpn_import_lbl_obfuscation">مبهم‌سازی AWG</string>
+    <string name="vpn_import_val_obfuscation_active">فعال (Jc/Jmin/H)</string>
+    <string name="vpn_import_lbl_profile_name">نام پروفایل</string>
+    <string name="vpn_import_placeholder_awg">پروفایل AWG</string>
+    <string name="vpn_import_placeholder_wg">پروفایل WG</string>
+    <string name="vpn_import_placeholder_clash">پروفایل Clash</string>
+    <string name="vpn_import_placeholder_warp">پروفایل WARP</string>
+    <string name="vpn_import_placeholder_default">پروفایل من</string>
+    <string name="vpn_import_lbl_key">کلید</string>
+    <string name="vpn_import_key_ready_desc">کلید لایسنس آماده فعال‌سازی روی حساب جاری است</string>
+    <string name="vpn_import_btn_close">بستن</string>
+    <string name="vpn_import_toast_applied">پروفایل %1$s فعال شد</string>
+    <string name="common_warning_caps">هشدار</string>
+    <string name="action_cancel_caps">لغو</string>
+    <string name="action_delete_caps">حذف</string>
+    <string name="vpn_packets_label">بسته‌ها: %1$s</string>
+    <string name="vpn_protocol_desc_awg">انتقال مبهم WireGuard • محافظت در برابر فیلترینگ و DPI [پیشنهادی]</string>
+    <string name="vpn_byok_free_tier">طرح رایگان (Free 1.1.1.1)</string>
+    <string name="vpn_byok_warp_plus">WARP+ نامحدود</string>
+    <string name="vpn_byok_manage">مدیریت مجوز Cloudflare WARP+</string>
+    <string name="vpn_byok_key_active">کلید فعال است</string>
+    <string name="vpn_byok_free_badge">رایگان</string>
+    <string name="vpn_dns_label_format">دی‌ان‌اس: %1$s</string>
+    <string name="vpn_dns_default_cf">Anycast 1.1.1.1</string>
+    <string name="vpn_onboard_header_title">راهنمای آشنایی با وی‌پی‌ان</string>
+    <string name="vpn_country_netherlands">هلند</string>
+    <string name="vpn_country_germany">آلمان</string>
+    <string name="vpn_country_usa">ایالات متحده</string>
+    <string name="vpn_country_finland">فنلاند</string>
+    <string name="vpn_server_name_default">پیش‌فرض</string>
+    <string name="vpn_server_name_alt">جایگزین</string>
+    <string name="vpn_country_poland">لهستان</string>
+    <string name="vpn_country_russia">روسیه</string>
+    <string name="vpn_country_estonia">استونی</string>
+    <string name="vpn_country_latvia">لتونی</string>
+    <string name="vpn_server_frankfurt_1">فرانکفورت ۱</string>
+    <string name="vpn_server_frankfurt_2">فرانکفورت ۲</string>
+    <string name="vpn_server_tel_germany">TEL آلمان</string>
+    <string name="vpn_server_tel_poland">TEL لهستان</string>
+    <string name="vpn_server_tel_finland">TEL فنلاند</string>
 </resources>

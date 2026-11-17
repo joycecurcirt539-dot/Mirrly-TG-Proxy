@@ -247,7 +247,8 @@ class SocketBufferTuningTest {
 
         // 3. config.rs limits and baseline
         assertTrue(rustConfig.contains("MIN_SOCKET_BUFFER: i32 = 32 * 1024"))
-        assertTrue(rustConfig.contains("MAX_SOCKET_BUFFER: i32 = 1024 * 1024"))
+        assertTrue(rustConfig.contains("DEFAULT_MAX_SOCKET_BUFFER: i32 = 2 * 1024 * 1024"))
+        assertTrue(rustConfig.contains("MAX_SOCKET_BUFFER: i32 = DEFAULT_MAX_SOCKET_BUFFER"))
         assertTrue(rustConfig.contains("autotune_baseline"))
 
         // 4. Kotlin declarations

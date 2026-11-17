@@ -40,7 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -229,8 +229,8 @@ fun CloudflareAccountManageSheet(
                                     fontSize = 11.5.sp,
                                     fontFamily = FontFamily.Monospace
                                 )
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_copy),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_copy,
                                     contentDescription = null,
                                     tint = CfOrange,
                                     modifier = Modifier.size(13.dp)

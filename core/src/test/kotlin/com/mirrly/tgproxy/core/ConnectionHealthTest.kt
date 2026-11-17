@@ -127,4 +127,41 @@ class ConnectionHealthTest {
         assertEquals("No connection", report.mosGrade)
         assertFalse(report.isCallRecommended)
     }
+
+    @Test
+    fun testCalibratingReportStartsHonestAtZeroInsteadOfFakeHundred() {
+        val cal = ConnectionHealthEngine.calibratingReport()
+        assertTrue(cal.isCalibrating)
+        assertEquals(0, cal.score)
+        assertEquals("Calibrating", cal.verdict)
+        assertFalse(cal.isExcellent)
+    }
+
+    @Test
+    fun testLiveTrafficFloorPreventsZeroScoreCrashOnProbeTimeout() {
+        val liveSli = EngineSliSnapshot(
+            transport = "mtproto",
+            tlsEnabled = false,
+            activeConns = 4,
+            rxBytes = 128_000L,
+            deltaRxBytes = 8192L,
+            deltaUsefulSuccess = 3L,
+            deltaWsErrors = 0L,
+            balancerMedianRttMs = 95L,
+            balancerUsefulSuccessCount = 12L
+        )
+        val report = ConnectionHealthEngine.computeHealth(
+            smoothedPingMs = -1L,
+            jitterMs = 12L,
+            successRatePercent = 0,
+            lastFailureType = FailureType.CONNECT_TIMEOUT,
+            isSocks5 = false,
+            sliSnapshot = liveSli,
+            isTlsEnabled = false,
+            isFlowseal = true
+        )
+        assertTrue(report.isLiveTrafficActive)
+        assertTrue(report.score >= 60, "Live Telegram session must not drop to 0%, got ${report.score}")
+        assertEquals(95L, report.pingMs)
+    }
 }

@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.os.Build
 import android.view.WindowManager
@@ -24,13 +25,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -108,8 +109,8 @@ fun HistoryScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.staggeredEntrance(index = 1)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_history),
+                    MirrlyIcon(
+                        id = R.drawable.ic_history,
                         contentDescription = null,
                         tint = TextMuted.copy(alpha = 0.5f),
                         modifier = Modifier.size(54.dp)
@@ -193,8 +194,8 @@ fun HistoryScreen(
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onBack()
                         }) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_arrow_left),
+                            MirrlyIcon(
+                                id = R.drawable.ic_arrow_left,
                                 contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
                                 modifier = Modifier.size(22.dp)
@@ -207,8 +208,8 @@ fun HistoryScreen(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 showClearDialog = true
                             }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_trash),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_trash,
                                     contentDescription = stringResource(R.string.history_action_clear),
                                     tint = Color(0xFFFF5252).copy(alpha = 0.85f),
                                     modifier = Modifier.size(20.dp)
@@ -428,8 +429,8 @@ fun HistoryScreen(
                         modifier = Modifier.size(38.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_arrow_left),
+                            MirrlyIcon(
+                                id = R.drawable.ic_arrow_left,
                                 contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
                                 modifier = Modifier.size(18.dp)
@@ -496,19 +497,6 @@ private fun SessionCard(
     val endTimeStr = remember(session.endTimeMs, isActive, timeNow) {
         if (isActive) timeNow else formatSessionDate(session.endTimeMs)
     }
-
-    // Glowing dot animation for active session
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val alphaAnim by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = Color.White.copy(alpha = 0.02f),
@@ -555,14 +543,9 @@ private fun SessionCard(
                         fontWeight = FontWeight.Medium
                     )
 
-                    // Active dot
+                    // Active dot (isolated transition, zero parent recomposition)
                     if (isActive) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(protoAccent.copy(alpha = alphaAnim))
-                        )
+                        ActiveHistorySessionDot(protoAccent = protoAccent)
                     }
                 }
 
@@ -630,5 +613,26 @@ private fun formatDurationShort(seconds: Long): String {
     val hours = minutes / 60
     val remMin = minutes % 60
     return if (remMin > 0) stringResource(R.string.duration_hr_min_short, hours, remMin) else stringResource(R.string.duration_hr_short, hours)
+}
+
+@Composable
+private fun ActiveHistorySessionDot(protoAccent: Color) {
+    val infiniteTransition = rememberInfiniteTransition(label = "historyActivePulse")
+    val alphaAnim = infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "historyAlpha"
+    )
+    Box(
+        modifier = Modifier
+            .size(6.dp)
+            .graphicsLayer { alpha = alphaAnim.value }
+            .clip(CircleShape)
+            .background(protoAccent)
+    )
 }
 

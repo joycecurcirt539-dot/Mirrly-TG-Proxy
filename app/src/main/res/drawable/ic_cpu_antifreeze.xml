@@ -1,0 +1,54 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- CPU chip package outline -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M7,5 L17,5 C18.1,5 19,5.9 19,7 L19,17 C19,18.1 18.1,19 17,19 L7,19 C5.9,19 5,18.1 5,17 L5,7 C5,5.9 5.9,5 7,5 Z" />
+    <!-- CPU inner crystal die -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M10,10 L14,10 L14,14 L10,14 Z" />
+    <!-- Top bus pins -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M9,5 L9,2 M12,5 L12,2 M15,5 L15,2" />
+    <!-- Bottom bus pins -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M9,19 L9,22 M12,19 L12,22 M15,19 L15,22" />
+    <!-- Left bus pins -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M5,9 L2,9 M5,12 L2,12 M5,15 L2,15" />
+    <!-- Right bus pins -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M19,9 L22,9 M19,12 L22,12 M19,15 L22,15" />
+</vector>

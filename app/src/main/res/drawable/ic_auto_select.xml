@@ -1,0 +1,35 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- MirrlyUI Auto-Selection Icon (/mirrly-icons standard: Outline-Only 1.5dp) -->
+    <!-- Top dynamic auto-routing arc with arrow -->
+    <path
+        android:pathData="M5,11.5 A7,7 0 0,1 19,10.5 M19,7 L19,11 L15,11"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Bottom dynamic auto-routing arc with arrow -->
+    <path
+        android:pathData="M19,12.5 A7,7 0 0,1 5,13.5 M5,17 L5,13 L9,13"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Central locator reticle & target ticks -->
+    <path
+        android:pathData="M12,9 L12,10.2 M12,13.8 L12,15 M9,12 L10.2,12 M13.8,12 L15,12"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Quantum center focus point -->
+    <path
+        android:pathData="M12,11.9 L12,12.1"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

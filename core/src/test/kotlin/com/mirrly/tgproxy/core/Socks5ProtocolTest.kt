@@ -147,7 +147,7 @@ class Socks5ProtocolTest {
         // In MTProto mode, ping target must be Flowseal Anycast domain with DC prefix (e.g. kws2.pclead.co.uk)
         assertEquals("kws2.pclead.co.uk", mtprotoServer.pingEngine.target)
 
-        val socks5Config = ProxyConfig(proxyModeName = ProxyMode.SOCKS5.name, customCfDomain = "custom.worker.dev")
+        val socks5Config = ProxyConfig(proxyModeName = ProxyMode.SOCKS5.name, socks5UplinkMode = 0, customCfDomain = "custom.worker.dev")
         val socks5Server = LocalProxyServer(socks5Config)
         // In SOCKS5 mode, ping target must be the configured custom worker
         assertEquals("custom.worker.dev", socks5Server.pingEngine.target)
@@ -178,6 +178,7 @@ class Socks5ProtocolTest {
     fun testLocalProxyServerSocks5WorkerIntegration() {
         val configWithWorker = ProxyConfig(
             proxyModeName = ProxyMode.SOCKS5.name,
+            socks5UplinkMode = 0,
             customCfDomain = "custom-socks5.workers.dev"
         )
         val server = LocalProxyServer(configWithWorker)
@@ -187,6 +188,7 @@ class Socks5ProtocolTest {
 
         val configDirect = ProxyConfig(
             proxyModeName = ProxyMode.SOCKS5.name,
+            socks5UplinkMode = 1,
             customCfDomain = ""
         )
         val directServer = LocalProxyServer(configDirect)

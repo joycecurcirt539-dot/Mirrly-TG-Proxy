@@ -31,7 +31,7 @@ jobs:
         uses: android-actions/setup-android@v4
         with:
           api-level: 35
-          ndk: '27.1.12297006'
+          ndk: '28.2.13676358'
 
       - name: Cache Cargo & Rust dependencies
         uses: actions/cache@v4
@@ -72,10 +72,10 @@ jobs:
       - name: Run Unit Tests
         run: ./gradlew test --no-daemon --stacktrace
 
-      - name: Build APKs (assembleRelease & assembleDebug)
+      - name: Build Release APKs (or Debug check when keystore is absent)
         run: |
           if [ -f "release.jks" ]; then
-            ./gradlew assembleRelease assembleDebug --no-daemon --stacktrace
+            ./gradlew assembleRelease --no-daemon --stacktrace
           else
             ./gradlew assembleDebug --no-daemon --stacktrace
           fi
@@ -85,13 +85,19 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
-      - name: Verify and Print SHA-256 Hashes
+      - name: Verify Alignment and Print SHA-256 Hashes
         run: |
           echo "============================================="
           echo "Generated Release APKs SHA-256 Checksums"
           echo "============================================="
           if [ -d "app/build/outputs/apk/release" ]; then
             sha256sum app/build/outputs/apk/release/*.apk
+            ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1 || true)"
+            if [ -n "$ZIPALIGN" ]; then
+              for apk in app/build/outputs/apk/release/*.apk; do
+                "$ZIPALIGN" -c -P 16 4 "$apk"
+              done
+            fi
           fi
 
       - name: Upload Release APKs Artifacts
@@ -100,12 +106,4 @@ jobs:
         with:
           name: mirrly-proxy-release-apks
           path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: warn
-
-      - name: Upload Debug APKs Artifacts
-        uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: mirrly-proxy-debug-apks
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
+          if-no-files-found: ignore

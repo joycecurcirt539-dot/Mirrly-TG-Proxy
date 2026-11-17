@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -26,9 +27,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -73,7 +76,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -252,8 +254,8 @@ fun SettingsWallpaperCard(
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_info_circle),
+                            MirrlyIcon(
+                                id = R.drawable.ic_info_circle,
                                 contentDescription = null,
                                 tint = TextMuted,
                                 modifier = Modifier.size(14.dp)
@@ -305,7 +307,11 @@ fun SettingsWallpaperCard(
                     lineHeight = 16.sp
                 )
 
-                if (errorMessage != null) {
+                AnimatedVisibility(
+                    visible = errorMessage != null,
+                    enter = expandVertically(tween(220)) + fadeIn(tween(200)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(180))
+                ) {
                     Text(
                         text = errorMessage.orEmpty(),
                         fontSize = 11.sp,
@@ -370,8 +376,13 @@ fun SettingsWallpaperCard(
                 }
 
                 // ── MODE 1: ФОТО ───────────────────────────────────────
-                if (selectedTab == WallpaperMediaType.PHOTO) {
-                    if (isPhoto && wallpaperImage != null) {
+                AnimatedVisibility(
+                    visible = selectedTab == WallpaperMediaType.PHOTO,
+                    enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        if (isPhoto && wallpaperImage != null) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -434,8 +445,8 @@ fun SettingsWallpaperCard(
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_refresh,
                                     contentDescription = null,
                                     tint = TextWhite,
                                     modifier = Modifier.size(14.dp)
@@ -464,8 +475,8 @@ fun SettingsWallpaperCard(
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_trash),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_trash,
                                     contentDescription = null,
                                     tint = Color(0xFFEF4444),
                                     modifier = Modifier.size(14.dp)
@@ -591,11 +602,17 @@ fun SettingsWallpaperCard(
                             )
                         }
                     }
+                    }
                 }
 
                 // ── MODE 2: ВИДЕО ───────────────────────────────────────
-                if (selectedTab == WallpaperMediaType.VIDEO) {
-                    if (isVideo && wallpaperImage != null) {
+                AnimatedVisibility(
+                    visible = selectedTab == WallpaperMediaType.VIDEO,
+                    enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        if (isVideo && wallpaperImage != null) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -668,8 +685,8 @@ fun SettingsWallpaperCard(
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_refresh,
                                     contentDescription = null,
                                     tint = TextWhite,
                                     modifier = Modifier.size(14.dp)
@@ -698,8 +715,8 @@ fun SettingsWallpaperCard(
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_trash),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_trash,
                                     contentDescription = null,
                                     tint = Color(0xFFEF4444),
                                     modifier = Modifier.size(14.dp)
@@ -846,8 +863,8 @@ fun SettingsWallpaperCard(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_video),
+                            MirrlyIcon(
+                                id = R.drawable.ic_video,
                                 contentDescription = null,
                                 tint = accentColor,
                                 modifier = Modifier.size(18.dp)
@@ -861,41 +878,37 @@ fun SettingsWallpaperCard(
                             )
                         }
                     }
+                    }
                 }
 
                 // ── MODE 3: ПРОЦЕДУРНЫЙ ШЕЙДЕР (Android 13+ / API 33+) ──
-                if (selectedTab == WallpaperMediaType.SHADER) {
+                AnimatedVisibility(
+                    visible = selectedTab == WallpaperMediaType.SHADER,
+                    enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
+                ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(Color.White.copy(alpha = 0.03f))
                                 .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
                                 text = stringResource(R.string.settings_customization_wallpaper_shader_title),
-                                fontSize = 12.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextWhite
                             )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .border(1.dp, (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) accentColor else TextMuted).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 7.dp, vertical = 2.5.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.settings_customization_wallpaper_shader_notice),
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) accentColor else TextMuted
-                                )
-                            }
+                            Text(
+                                text = stringResource(R.string.settings_customization_wallpaper_shader_notice),
+                                fontSize = 10.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) accentColor else TextMuted
+                            )
                         }
 
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
@@ -962,8 +975,13 @@ fun SettingsWallpaperCard(
                             }
                         }
 
-                        if (isShader) {
-                            Box(
+                        AnimatedVisibility(
+                            visible = isShader,
+                            enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                            exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(130.dp)
@@ -1016,8 +1034,8 @@ fun SettingsWallpaperCard(
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_trash),
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_trash,
                                         contentDescription = null,
                                         tint = Color(0xFFEF4444),
                                         modifier = Modifier.size(14.dp)
@@ -1113,90 +1131,97 @@ fun SettingsWallpaperCard(
                                     )
                                 }
                             }
+                            }
                         }
                     }
                 }
 
                 // ── GYROSCOPIC 3D PARALLAX ENGINE ───────────────────
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                AnimatedVisibility(
+                    visible = selectedTab != WallpaperMediaType.SHADER,
+                    enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.settings_customization_wallpaper_parallax_depth),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_customization_wallpaper_parallax_depth_desc),
-                                fontSize = 10.5.sp,
-                                color = TextMuted
-                            )
-                        }
-                        InertialSpringSwitch(
-                            checked = parallaxEnabled,
-                            onCheckedChange = { checked ->
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                prefs.setWallpaperParallaxEnabled(checked)
-                            },
-                            activeColor = accentColor
-                        )
-                    }
-
-                    AnimatedVisibility(
-                        visible = parallaxEnabled,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Амплитуда параллакса",
-                                    fontSize = 11.sp,
+                                    text = stringResource(R.string.settings_customization_wallpaper_parallax_depth),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_customization_wallpaper_parallax_depth_desc),
+                                    fontSize = 10.5.sp,
                                     color = TextMuted
                                 )
-                                Text(
-                                    text = String.format(Locale.US, "%.1fx", sliderParallaxDepth),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = accentColor
+                            }
+                            InertialSpringSwitch(
+                                checked = parallaxEnabled,
+                                onCheckedChange = { checked ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    prefs.setWallpaperParallaxEnabled(checked)
+                                },
+                                activeColor = accentColor
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = parallaxEnabled,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Амплитуда параллакса",
+                                        fontSize = 11.sp,
+                                        color = TextMuted
+                                    )
+                                    Text(
+                                        text = String.format(Locale.US, "%.1fx", sliderParallaxDepth),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = accentColor
+                                    )
+                                }
+                                Slider(
+                                    value = sliderParallaxDepth,
+                                    onValueChange = {
+                                        sliderParallaxDepth = it
+                                        prefs.setWallpaperParallaxDepth(it, persist = false)
+                                    },
+                                    onValueChangeFinished = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        prefs.setWallpaperParallaxDepth(sliderParallaxDepth, persist = true)
+                                    },
+                                    valueRange = PreferencesManager.WALLPAPER_PARALLAX_DEPTH_MIN..PreferencesManager.WALLPAPER_PARALLAX_DEPTH_MAX,
+                                    steps = 22,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = accentColor,
+                                        activeTrackColor = accentColor,
+                                        inactiveTrackColor = AmoledBorder
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                            Slider(
-                                value = sliderParallaxDepth,
-                                onValueChange = {
-                                    sliderParallaxDepth = it
-                                    prefs.setWallpaperParallaxDepth(it, persist = false)
-                                },
-                                onValueChangeFinished = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    prefs.setWallpaperParallaxDepth(sliderParallaxDepth, persist = true)
-                                },
-                                valueRange = PreferencesManager.WALLPAPER_PARALLAX_DEPTH_MIN..PreferencesManager.WALLPAPER_PARALLAX_DEPTH_MAX,
-                                steps = 22,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = accentColor,
-                                    activeTrackColor = accentColor,
-                                    inactiveTrackColor = AmoledBorder
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            )
                         }
                     }
                 }
@@ -1298,7 +1323,11 @@ fun SettingsWallpaperCard(
                             color = TextWhite
                         )
 
-                        if (hasCustomWallpaper) {
+                        AnimatedVisibility(
+                            visible = hasCustomWallpaper,
+                            enter = fadeIn(tween(200)) + expandHorizontally(tween(200)),
+                            exit = fadeOut(tween(160)) + shrinkHorizontally(tween(160))
+                        ) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = Color.Transparent,

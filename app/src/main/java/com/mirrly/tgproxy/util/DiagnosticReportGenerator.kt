@@ -19,7 +19,6 @@ import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.FailureType
 import com.mirrly.tgproxy.core.NativeProxy
 import com.mirrly.tgproxy.core.VpnSocketProtector
-import com.mirrly.tgproxy.core.WarpPipelineProfiler
 import com.mirrly.tgproxy.service.MirrlyVpnService
 import com.mirrly.tgproxy.service.WorkerFailoverManager
 import org.json.JSONObject
@@ -129,34 +128,27 @@ object DiagnosticReportGenerator {
             } else {
                 sb.append("- **Выбранный Worker**: `не используется в MTProto`\n")
             }
+            val transportWire = if (config.isTlsEnabled) "WSS TLS 1.2/1.3 (:443)" else "WS Plain (:80)"
+            sb.append("- **Протокол транспорта**: `").append(transportWire).append("`\n")
             sb.append("- **Активный транспорт**: `").append(stats.activeCascadeStage).append("`\n")
             sb.append("- **Алгоритм Нагла**: `").append(if (!config.tcpNoDelay) "Включен (Nagle ON)" else "Выключен (TCP_NODELAY ON)").append("`\n")
             sb.append("- **Пресет скорости**: `").append(config.speedPresetName).append("`\n\n")
 
             sb.append("#### 4. Метрики качества канала связи (SQI)\n")
-            sb.append("- **Оценка канала (Health Score)**: `").append(stats.healthScore).append(" / 100`\n")
+            sb.append("- **Оценка канала (Health Score)**: `").append(stats.healthScore).append(" / 100").append(if (stats.isCalibrating) " (калибровка)" else "").append("`\n")
             sb.append("- **Вердикт**: `").append(stats.healthVerdict).append("`\n")
+            sb.append("- **Живой трафик**: `").append(if (stats.isLiveTrafficActive) "АКТИВЕН" else "ожидание").append("`\n")
+            sb.append("- **Warm Pool**: `").append(stats.warmReady).append(" / ").append(stats.warmTarget).append(" (hits=").append(stats.poolHits).append(", misses=").append(stats.poolMisses).append(")`\n")
+            if (stats.activeEdgeDomain.isNotBlank() || stats.totalDomainsCount > 0) {
+                sb.append("- **Активный Edge / Домены**: `").append(stats.activeEdgeDomain.ifBlank { "auto" }).append(" (здоровых: ").append(stats.healthyDomainsCount).append("/").append(stats.totalDomainsCount).append(")`\n")
+            }
+            sb.append("- **Ошибки WS / 429**: `").append(stats.wsErrors).append(" / ").append(stats.quota429Hits).append("`\n")
             sb.append("- **RTT (пинг)**: `").append(server.currentPingMs).append(" мс`\n")
             sb.append("- **Джиттер**: `").append(stats.jitterMs).append(" мс`\n")
             sb.append("- **Успешность доставки проб**: `").append(stats.healthSuccessRate).append("%`\n")
             sb.append("- **Последний сбой**: `").append(stats.lastFailureType.description).append("`\n\n")
 
-            val warpMetrics = WarpPipelineProfiler.getLatestMetrics()
-            if (warpMetrics != null) {
-                sb.append("#### 5. Профилирование этапов запуска WARP\n")
-                sb.append("- **Итог**: `").append(if (warpMetrics.isSuccess) "Успешно" else "Сбой").append("`\n")
-                sb.append("- **Общее время (t_total)**: `").append(warpMetrics.tTotalMs).append(" мс`\n")
-                sb.append("- **Фаза 1 (Конфиг)**: `").append(warpMetrics.tConfigMs).append(" мс`\n")
-                sb.append("- **Фаза 2 (DNS Anycast)**: `").append(warpMetrics.tDnsMs).append(" мс`\n")
-                sb.append("- **Фаза 3 (Handshake)**: `").append(warpMetrics.tHandshakeMs).append(" мс`\n")
-                sb.append("- **Фаза 4 (Туннель)**: `").append(warpMetrics.tTunnelMs).append(" мс`\n")
-                if (!warpMetrics.isSuccess) {
-                    sb.append("- **Фаза сбоя**: `").append(warpMetrics.failurePhase?.name ?: "UNKNOWN").append("`\n")
-                }
-                sb.append("\n")
-            }
-
-            sb.append("#### 6. Статус отказоустойчивости (Failover)\n")
+            sb.append("#### 5. Статус отказоустойчивости (Failover)\n")
             if (effectiveRoute.usesWorker) {
                 val failover = WorkerFailoverManager.failoverState.value
                 val activeWorker = app.prefsManager.getActiveWorker()
@@ -231,34 +223,27 @@ object DiagnosticReportGenerator {
             } else {
                 sb.append("- **Selected Worker**: `not used by MTProto`\n")
             }
+            val transportWireEn = if (config.isTlsEnabled) "WSS TLS 1.2/1.3 (:443)" else "WS Plain (:80)"
+            sb.append("- **Wire Transport**: `").append(transportWireEn).append("`\n")
             sb.append("- **Active Transport**: `").append(stats.activeCascadeStage).append("`\n")
             sb.append("- **Nagle\'s Algorithm**: `").append(if (!config.tcpNoDelay) "Enabled (Nagle ON)" else "Disabled (TCP_NODELAY ON)").append("`\n")
             sb.append("- **Speed Preset**: `").append(config.speedPresetName).append("`\n\n")
 
             sb.append("#### 4. Signal Quality Indicators (SQI)\n")
-            sb.append("- **Channel Health Score**: `").append(stats.healthScore).append(" / 100`\n")
+            sb.append("- **Channel Health Score**: `").append(stats.healthScore).append(" / 100").append(if (stats.isCalibrating) " (calibrating)" else "").append("`\n")
             sb.append("- **Verdict**: `").append(stats.healthVerdict).append("`\n")
+            sb.append("- **Live Traffic**: `").append(if (stats.isLiveTrafficActive) "ACTIVE" else "idle").append("`\n")
+            sb.append("- **Warm Pool**: `").append(stats.warmReady).append(" / ").append(stats.warmTarget).append(" (hits=").append(stats.poolHits).append(", misses=").append(stats.poolMisses).append(")`\n")
+            if (stats.activeEdgeDomain.isNotBlank() || stats.totalDomainsCount > 0) {
+                sb.append("- **Active Edge / Domains**: `").append(stats.activeEdgeDomain.ifBlank { "auto" }).append(" (healthy: ").append(stats.healthyDomainsCount).append("/").append(stats.totalDomainsCount).append(")`\n")
+            }
+            sb.append("- **WS Errors / 429**: `").append(stats.wsErrors).append(" / ").append(stats.quota429Hits).append("`\n")
             sb.append("- **RTT (Ping)**: `").append(server.currentPingMs).append(" ms`\n")
             sb.append("- **Jitter**: `").append(stats.jitterMs).append(" ms`\n")
             sb.append("- **Probe Success Rate**: `").append(stats.healthSuccessRate).append("%`\n")
             sb.append("- **Last Failure**: `").append(stats.lastFailureType.description).append("`\n\n")
 
-            val warpMetrics = WarpPipelineProfiler.getLatestMetrics()
-            if (warpMetrics != null) {
-                sb.append("#### 5. WARP Launch Profiling\n")
-                sb.append("- **Result**: `").append(if (warpMetrics.isSuccess) "Success" else "Failure").append("`\n")
-                sb.append("- **Total Time (t_total)**: `").append(warpMetrics.tTotalMs).append(" ms`\n")
-                sb.append("- **Phase 1 (Config)**: `").append(warpMetrics.tConfigMs).append(" ms`\n")
-                sb.append("- **Phase 2 (DNS Anycast)**: `").append(warpMetrics.tDnsMs).append(" ms`\n")
-                sb.append("- **Phase 3 (Handshake)**: `").append(warpMetrics.tHandshakeMs).append(" ms`\n")
-                sb.append("- **Phase 4 (Tunnel)**: `").append(warpMetrics.tTunnelMs).append(" ms`\n")
-                if (!warpMetrics.isSuccess) {
-                    sb.append("- **Failure Phase**: `").append(warpMetrics.failurePhase?.name ?: "UNKNOWN").append("`\n")
-                }
-                sb.append("\n")
-            }
-
-            sb.append("#### 6. Failover Status\n")
+            sb.append("#### 5. Failover Status\n")
             if (effectiveRoute.usesWorker) {
                 val failover = WorkerFailoverManager.failoverState.value
                 val activeWorker = app.prefsManager.getActiveWorker()

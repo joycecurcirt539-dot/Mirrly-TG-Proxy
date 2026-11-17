@@ -7,7 +7,7 @@
 
 package com.mirrly.tgproxy.service
 
-import com.mirrly.tgproxy.core.WarpGeneratorFormat
+import com.mirrly.tgproxy.core.ImportedProfileType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -20,7 +20,7 @@ class WarpAutoProfileSelectionTest {
     fun testProfilePriorityAttributes() {
         val configProfile = WarpSavedProfile(
             name = "Config 1",
-            format = WarpGeneratorFormat.AWG_1_0,
+            format = ImportedProfileType.AMNEZIA_WG_CONF,
             endpoint = "162.159.192.1:500",
             dnsLine = "1.1.1.1",
             content = "[Interface]\nPrivateKey = aaaa\n",
@@ -30,7 +30,7 @@ class WarpAutoProfileSelectionTest {
 
         val importedProfile = WarpSavedProfile(
             name = "Import 1",
-            format = WarpGeneratorFormat.WARP_MASQUE,
+            format = ImportedProfileType.CLASH_META_YAML,
             endpoint = "162.159.192.2:500",
             dnsLine = "1.1.1.1",
             content = "[Interface]\nPrivateKey = bbbb\n",
@@ -44,7 +44,7 @@ class WarpAutoProfileSelectionTest {
         val original = WarpSavedProfile(
             id = UUID.randomUUID().toString(),
             name = "Imported AWG",
-            format = WarpGeneratorFormat.AWG_1_0,
+            format = ImportedProfileType.AMNEZIA_WG_CONF,
             endpoint = "162.159.192.10:8095",
             dnsLine = "1.1.1.1",
             content = "PrivateKey = test",
@@ -65,7 +65,7 @@ class WarpAutoProfileSelectionTest {
         val original = WarpSavedProfile(
             id = UUID.randomUUID().toString(),
             name = "Old Profile",
-            format = WarpGeneratorFormat.AWG_1_0,
+            format = ImportedProfileType.AMNEZIA_WG_CONF,
             endpoint = "162.159.192.10:8095",
             dnsLine = "1.1.1.1",
             content = "PrivateKey = old",
@@ -86,7 +86,7 @@ class WarpAutoProfileSelectionTest {
         val importP = WarpSavedProfile(
             id = "imp-1",
             name = "Imported Profile",
-            format = WarpGeneratorFormat.AWG_1_0,
+            format = ImportedProfileType.AMNEZIA_WG_CONF,
             endpoint = "1.1.1.1:500",
             dnsLine = "1.1.1.1",
             content = "p1",
@@ -96,7 +96,7 @@ class WarpAutoProfileSelectionTest {
         val configP = WarpSavedProfile(
             id = "cfg-1",
             name = "Generator Profile",
-            format = WarpGeneratorFormat.AWG_1_0,
+            format = ImportedProfileType.AMNEZIA_WG_CONF,
             endpoint = "2.2.2.2:500",
             dnsLine = "1.1.1.1",
             content = "p2",
@@ -115,7 +115,7 @@ class WarpAutoProfileSelectionTest {
         val configNormal = WarpSavedProfile(
             id = "cfg-normal",
             name = "Normal Gen",
-            format = WarpGeneratorFormat.AWG_1_0,
+            format = ImportedProfileType.AMNEZIA_WG_CONF,
             endpoint = "1.1.1.1:500",
             dnsLine = "1.1.1.1",
             content = "p1",
@@ -126,7 +126,7 @@ class WarpAutoProfileSelectionTest {
         val importedFav = WarpSavedProfile(
             id = "imp-fav",
             name = "Fav Import",
-            format = WarpGeneratorFormat.AWG_1_0,
+            format = ImportedProfileType.AMNEZIA_WG_CONF,
             endpoint = "2.2.2.2:500",
             dnsLine = "1.1.1.1",
             content = "p2",
@@ -154,7 +154,7 @@ class WarpAutoProfileSelectionTest {
         val newGen = WarpSavedProfile(
             id = "new-gen-1",
             name = "AWG Gen 1",
-            format = WarpGeneratorFormat.AWG_1_0,
+            format = ImportedProfileType.AMNEZIA_WG_CONF,
             endpoint = "188.114.96.1:8095",
             dnsLine = "1.1.1.1",
             content = "[Interface]\nPrivateKey = abcdef\n",
@@ -169,7 +169,7 @@ class WarpAutoProfileSelectionTest {
         val newImport = WarpSavedProfile(
             id = "new-imp-1",
             name = "AWG Import 1",
-            format = WarpGeneratorFormat.AWG_1_0,
+            format = ImportedProfileType.AMNEZIA_WG_CONF,
             endpoint = "162.159.192.1:500",
             dnsLine = "1.1.1.1",
             content = "[Interface]\nPrivateKey = 123456\n",
@@ -185,13 +185,42 @@ class WarpAutoProfileSelectionTest {
     @Test
     fun testOnlyConfiguratorAndImportedOriginsSupported() {
         val origins = WarpProfileOrigin.values()
-        assertEquals(2, origins.size)
+        assertEquals(3, origins.size)
         assertTrue(origins.contains(WarpProfileOrigin.CONFIGURATOR))
         assertTrue(origins.contains(WarpProfileOrigin.IMPORTED))
+        assertTrue(origins.contains(WarpProfileOrigin.BUILTIN))
 
         val emptyPool = emptyList<WarpSavedProfile>()
         val resolved = emptyPool.firstOrNull()
         assertTrue(resolved == null)
+    }
+
+    @Test
+    fun testBuiltinAutoServerConstants() {
+        assertEquals("builtin_auto", com.mirrly.tgproxy.core.BuiltinVpnServers.ID_AUTO)
+        assertTrue(com.mirrly.tgproxy.core.BuiltinVpnServers.isAuto("builtin_auto"))
+        assertFalse(com.mirrly.tgproxy.core.BuiltinVpnServers.isAuto("builtin_default"))
+        val fallback = com.mirrly.tgproxy.core.BuiltinVpnServers.getById(com.mirrly.tgproxy.core.BuiltinVpnServers.ID_AUTO)
+        assertEquals(com.mirrly.tgproxy.core.BuiltinVpnServers.SERVER_BUILTIN_DEFAULT, fallback)
+    }
+
+    @Test
+    fun testVpnAutoSelectStrategyValues() {
+        val strategies = VpnAutoSelectStrategy.values()
+        assertEquals(4, strategies.size)
+        assertTrue(strategies.contains(VpnAutoSelectStrategy.TEL_FIRST))
+        assertTrue(strategies.contains(VpnAutoSelectStrategy.LOWEST_PING))
+        assertTrue(strategies.contains(VpnAutoSelectStrategy.ANYCAST_FIRST))
+        assertTrue(strategies.contains(VpnAutoSelectStrategy.CUSTOM_ORDER))
+    }
+
+    @Test
+    fun testVpnAutoCategoryValues() {
+        val categories = VpnAutoCategory.values()
+        assertEquals(3, categories.size)
+        assertTrue(categories.contains(VpnAutoCategory.TEL))
+        assertTrue(categories.contains(VpnAutoCategory.ANYCAST))
+        assertTrue(categories.contains(VpnAutoCategory.DEDICATED))
     }
 }
 

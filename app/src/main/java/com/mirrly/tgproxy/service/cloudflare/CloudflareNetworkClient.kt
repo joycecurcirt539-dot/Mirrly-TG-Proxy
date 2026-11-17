@@ -19,8 +19,8 @@
 package com.mirrly.tgproxy.service.cloudflare
 
 import com.mirrly.tgproxy.core.AppLogger
-import com.mirrly.tgproxy.core.DohOkHttpDns
 import com.mirrly.tgproxy.core.TlsFragmentingSocketFactory
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit
  * High-resilience HTTP client for Cloudflare OAuth, Token exchange, and API operations.
  *
  * Features:
- * 1. Secure DoH resolution (DohOkHttpDns) + TLS ClientHello fragmentation (TlsFragmentingSocketFactory)
+ * 1. System DNS + TLS ClientHello fragmentation (TlsFragmentingSocketFactory)
  *    to bypass ISP / TSPU SNI filtering without requiring external proxying.
  * 2. Direct connection fallback for non-censored networks.
  * 3. Dedicated zero-proxy client for loopback health checks and self-tests.
@@ -58,11 +58,11 @@ object CloudflareNetworkClient {
     }
 
     /**
-     * Client utilizing encrypted DoH and TCP-level TLS ClientHello fragmentation to bypass TSPU.
+     * Client utilizing system DNS and TCP-level TLS ClientHello fragmentation to bypass TSPU.
      */
-    private val dohTlsHttpClient: OkHttpClient by lazy {
+    private val tlsFragmentHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .dns(DohOkHttpDns.INSTANCE)
+            .dns(Dns.SYSTEM)
             .socketFactory(TlsFragmentingSocketFactory())
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -103,19 +103,19 @@ object CloudflareNetworkClient {
 
     /**
      * Executes an HTTP request using an anti-censorship fallback pipeline:
-     * Tier 1: DoH + TLS ClientHello fragmentation (bypasses ISP/TSPU DPI blocks directly).
+     * Tier 1: System DNS + TLS ClientHello fragmentation (bypasses ISP/TSPU DPI blocks directly).
      * Tier 2: Direct connection fallback.
      */
     @Throws(IOException::class)
     fun executeWithFallback(request: Request): Response {
         var lastException: IOException? = null
 
-        // 1. DoH + TLS fragmentation (Bypasses Russian ISP / TSPU blocks)
+        // 1. TLS fragmentation (Bypasses Russian ISP / TSPU blocks)
         try {
-            AppLogger.d(TAG, "Executing Cloudflare request via DoH + TLS fragmentation: ${request.url}")
-            return dohTlsHttpClient.newCall(request).execute()
+            AppLogger.d(TAG, "Executing Cloudflare request via TLS fragmentation: ${request.url}")
+            return tlsFragmentHttpClient.newCall(request).execute()
         } catch (e: IOException) {
-            AppLogger.w(TAG, "DoH+TLS request to Cloudflare failed (${e.message}), falling back to direct connection")
+            AppLogger.w(TAG, "TLS-fragmented request to Cloudflare failed (${e.message}), falling back to direct connection")
             lastException = e
         }
 

@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 
 import androidx.compose.animation.AnimatedVisibility
@@ -139,8 +140,8 @@ fun DonationBanner(
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
                         )
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_dalink),
+                        MirrlyIcon(
+                            id = R.drawable.ic_dalink,
                             contentDescription = "DaLink",
                             tint = Color.Unspecified,
                             modifier = Modifier.size(16.dp)
@@ -181,8 +182,8 @@ fun DonationBanner(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_donate),
+                        MirrlyIcon(
+                            id = R.drawable.ic_donate,
                             contentDescription = null,
                             tint = ActiveGreenLed,
                             modifier = Modifier.size(16.dp)

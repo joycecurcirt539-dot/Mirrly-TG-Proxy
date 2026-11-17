@@ -3,16 +3,12 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+
+    <!-- Planetary Horizon Breach & Skyward Update Arrow -->
     <path
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M9,14.35V17l2,-2M9,11v1M9,17l-2,-2M2,9c0,-5 2,-7 7,-7h5" />
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M22,10v5c0,5 -2,7 -7,7H9c-5,0 -7,-2 -7,-7v-2.02M18,10c-3,0 -4,-1 -4,-4V2l8,8" />
+        android:pathData="M3.5,15 C5.5,12.5 7.5,11.2 9.5,11 M14.5,11 C16.5,11.2 18.5,12.5 20.5,15 M9.5,20.5 H14.5 M12,20.5 V3.5 M7,8.5 L12,3.5 L17,8.5" />
 </vector>

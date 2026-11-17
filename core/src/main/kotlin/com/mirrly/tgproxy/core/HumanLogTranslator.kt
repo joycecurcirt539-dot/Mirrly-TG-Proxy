@@ -23,8 +23,6 @@ object HumanLogTranslator {
         "debounce",
         "power save mode active",
         "WakeLock refreshed",
-        "DNS [scope=",
-        "DnsScope",
         "successfully resolved",
         "Dual-Stack, Provider:"
     )

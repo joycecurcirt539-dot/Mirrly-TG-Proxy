@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 
 import android.content.Intent
@@ -22,7 +23,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,8 +89,8 @@ fun ValueStarBanner(
                         .background(ActiveGreenLed.copy(alpha = 0.15f))
                         .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), CircleShape)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_github),
+                    MirrlyIcon(
+                        id = R.drawable.ic_github,
                         contentDescription = null,
                         tint = ActiveGreenLed,
                         modifier = Modifier.size(20.dp)
@@ -136,8 +136,8 @@ fun ValueStarBanner(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_github),
+                        MirrlyIcon(
+                            id = R.drawable.ic_github,
                             contentDescription = null,
                             tint = Color.Black,
                             modifier = Modifier.size(16.dp)

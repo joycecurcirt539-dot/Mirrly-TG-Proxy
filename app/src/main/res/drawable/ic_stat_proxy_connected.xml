@@ -3,16 +3,17 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+
+    <!-- Mirrly Shield-Glider Contour & Beam Guide Rays -->
     <path
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M9.05,11.87l1.61,1.61 4.3,-4.3" />
+        android:pathData="M12,2.5 L19.5,5.5 V12 C19.5,16.5 15.5,19.8 12,21.5 C8.5,19.8 4.5,16.5 4.5,12 V5.5 Z M12,6.5 V8.5 M12,14.5 V16.5" />
+
+    <!-- Central Beam Capture Point -->
     <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M20.59,7.12c0,-1.23 -0.94,-2.59 -2.09,-3.02l-4.99,-1.87c-0.83,-0.31 -2.19,-0.31 -3.02,0L5.5,4.11c-1.15,0.43 -2.09,1.79 -2.09,3.01v7.43c0,1.18 0.78,2.73 1.73,3.44l4.3,3.21c1.41,1.06 3.73,1.06 5.14,0l4.3,-3.21c0.95,-0.71 1.73,-2.26 1.73,-3.44v-3.52" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,11.5m-1.25,0a1.25,1.25 0 1,0 2.5,0a1.25,1.25 0 1,0 -2.5,0" />
 </vector>

@@ -45,7 +45,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -314,8 +314,8 @@ fun CloudflareManualTokenSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_stat_proxy_error),
+                        MirrlyIcon(
+                            id = R.drawable.ic_stat_proxy_error,
                             contentDescription = null,
                             tint = Color(0xFFEF4444),
                             modifier = Modifier.size(16.dp)
@@ -463,8 +463,8 @@ fun CloudflareManualTokenSheet(
                                     .border(BorderStroke(1.dp, CfOrange.copy(alpha = 0.5f)), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_check),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_check,
                                     contentDescription = null,
                                     tint = CfOrange,
                                     modifier = Modifier.size(8.dp)
@@ -525,8 +525,8 @@ fun CloudflareManualTokenSheet(
                         )
                     }
 
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                    MirrlyIcon(
+                        id = R.drawable.ic_chevron_right,
                         contentDescription = null,
                         tint = TextMuted,
                         modifier = Modifier.size(16.dp)

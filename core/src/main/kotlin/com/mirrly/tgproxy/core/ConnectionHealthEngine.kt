@@ -39,10 +39,33 @@ data class ConnectionHealthReport(
     val pingMs: Long,
     val jitterMs: Long,
     val successRate: Int,
-    val isExcellent: Boolean
+    val isExcellent: Boolean,
+    val isCalibrating: Boolean = false,
+    val isLiveTrafficActive: Boolean = false
 )
 
 object ConnectionHealthEngine {
+
+    fun calibratingReport(): ConnectionHealthReport = ConnectionHealthReport(
+        score = 0,
+        chatScore = 0,
+        chatVerdict = "Checking",
+        callScore = 0,
+        mosScore = 1.00,
+        mosGrade = "Calibrating",
+        isCallRecommended = false,
+        verdict = "Calibrating",
+        detail = "Checking transport route...",
+        operatorLatencyGrade = "Awaiting",
+        workerStatusGrade = "Awaiting",
+        packetReliabilityGrade = "—",
+        pingMs = -1L,
+        jitterMs = 0L,
+        successRate = 0,
+        isExcellent = false,
+        isCalibrating = true,
+        isLiveTrafficActive = false
+    )
 
     fun computeHealth(
         smoothedPingMs: Long,
@@ -50,9 +73,28 @@ object ConnectionHealthEngine {
         successRatePercent: Int,
         lastFailureType: FailureType = FailureType.NONE,
         isFailoverActive: Boolean = false,
-        isSocks5: Boolean = false
+        isSocks5: Boolean = false,
+        sliSnapshot: EngineSliSnapshot? = null,
+        isTlsEnabled: Boolean = false,
+        isFlowseal: Boolean = false,
+        isVpn: Boolean = false
     ): ConnectionHealthReport {
-        if (smoothedPingMs <= 0L && successRatePercent <= 0) {
+        val hasLiveTraffic = sliSnapshot?.hasFreshLiveTraffic() == true
+        val balancerRtt = sliSnapshot?.effectiveBalancerRttMs ?: -1L
+        val effectiveSmoothedPing = when {
+            smoothedPingMs > 0L -> smoothedPingMs
+            hasLiveTraffic && balancerRtt > 0L -> balancerRtt
+            hasLiveTraffic -> 140L
+            else -> -1L
+        }
+
+        val effectiveFailure = when {
+            lastFailureType == FailureType.NONE && (sliSnapshot?.delta429Hits ?: 0L) > 0L -> FailureType.RATE_LIMITED_429
+            lastFailureType == FailureType.TLS_HANDSHAKE_FAILED && !isTlsEnabled && sliSnapshot != null -> FailureType.DPI_BLOCKED
+            else -> lastFailureType
+        }
+
+        if (effectiveSmoothedPing <= 0L && successRatePercent <= 0 && !hasLiveTraffic) {
             return ConnectionHealthReport(
                 score = 0,
                 chatScore = 0,
@@ -69,16 +111,21 @@ object ConnectionHealthEngine {
                 pingMs = -1L,
                 jitterMs = 0L,
                 successRate = 0,
-                isExcellent = false
+                isExcellent = false,
+                isCalibrating = false,
+                isLiveTrafficActive = false
             )
         }
 
-        val ping = if (smoothedPingMs > 0L) smoothedPingMs else 300L
+        val ping = if (effectiveSmoothedPing > 0L) effectiveSmoothedPing else 260L
         val jitter = jitterMs.coerceAtLeast(0L)
-        val success = successRatePercent.coerceIn(0, 100)
+        val success = if (hasLiveTraffic) {
+            maxOf(successRatePercent.coerceIn(0, 100), sliSnapshot!!.liveSessionSuccessFloorPercent)
+        } else {
+            successRatePercent.coerceIn(0, 100)
+        }
 
-        // 1. Quality calculation for CHATS & MEDIA (TCP/TLS traffic)
-        // High delivery reliability priority, soft tolerance to RTT up to 250ms
+        // 1. Quality calculation for CHATS & MEDIA (TCP/WS/AWG traffic)
         val chatRttDelta = max(0.0, (ping - 30).toDouble())
         val chatRttScore = (100.0 / (1.0 + (chatRttDelta / 650.0).pow(1.40))).coerceIn(5.0, 100.0)
 
@@ -89,26 +136,39 @@ object ConnectionHealthEngine {
         var chatComposite = ((chatRttScore * 0.25) + (chatJitterScore * 0.25) + (success.toDouble() * 0.50)) * chatDeliveryFactor
 
         // 2. Quality calculation for CALLS & VIDEO (RTP/UDP Opus, ITU-T G.107 MOS)
-        val (mosScore, mosGrade, isCallRecommended) = calculateMos(ping, jitter, success, lastFailureType)
+        val (mosScore, mosGrade, isCallRecommended) = calculateMos(ping, jitter, success, effectiveFailure)
         val callScore = (((mosScore - 1.0) / 3.5) * 100.0).roundToInt().coerceIn(0, 100)
 
-        // Penalties for failures and blocks
-        if (lastFailureType == FailureType.DPI_BLOCKED || lastFailureType == FailureType.TLS_HANDSHAKE_FAILED) {
-            chatComposite -= 35.0
-        } else if (lastFailureType == FailureType.RATE_LIMITED_429) {
+        // Penalties for failures and blocks (softened if live Telegram sessions continue transferring data cleanly)
+        if (effectiveFailure == FailureType.DPI_BLOCKED || effectiveFailure == FailureType.TLS_HANDSHAKE_FAILED) {
+            chatComposite -= if (hasLiveTraffic && (sliSnapshot?.deltaWsErrors ?: 0L) == 0L) 15.0 else 35.0
+        } else if (effectiveFailure == FailureType.RATE_LIMITED_429) {
             chatComposite -= 25.0
-        } else if (lastFailureType != FailureType.NONE) {
-            chatComposite -= 15.0
+        } else if (effectiveFailure != FailureType.NONE) {
+            chatComposite -= if (hasLiveTraffic && (sliSnapshot?.deltaWsErrors ?: 0L) == 0L) 5.0 else 15.0
+        }
+
+        if (sliSnapshot != null) {
+            if (sliSnapshot.warmTarget > 0 && sliSnapshot.warmReady >= sliSnapshot.warmTarget && effectiveFailure == FailureType.NONE) {
+                chatComposite += 2.0
+            } else if (sliSnapshot.warmTarget > 0 && sliSnapshot.warmReady == 0 && sliSnapshot.activeConns > 0 && sliSnapshot.deltaWsErrors > 0L) {
+                chatComposite -= 6.0
+            }
+            if (isTlsEnabled && sliSnapshot.deltaTlsFailures > 0L && !hasLiveTraffic) {
+                chatComposite -= 12.0
+            }
         }
         if (isFailoverActive) {
             chatComposite -= 5.0
         }
 
-        val finalChatScore = chatComposite.roundToInt().coerceIn(0, 100)
+        val minFloor = if (hasLiveTraffic && (sliSnapshot?.delta429Hits ?: 0L) == 0L && (sliSnapshot?.deltaWsErrors ?: 0L) == 0L) 60 else 0
+        val finalChatScore = chatComposite.roundToInt().coerceIn(minFloor, 100)
 
-        // 3. Overall combined scoring (SOCKS5 accounts for 20% calls; MTProto is 100% chats/media)
-        val finalTotalScore = if (isSocks5) {
-            ((finalChatScore * 0.80) + (callScore * 0.20)).roundToInt().coerceIn(0, 100)
+        // 3. Overall combined scoring (SOCKS5 Worker accounts for 20% calls; Flowseal/MTProto is 100% chats/media)
+        val includeCallWeight = isSocks5 && !isFlowseal
+        val finalTotalScore = if (includeCallWeight) {
+            ((finalChatScore * 0.80) + (callScore * 0.20)).roundToInt().coerceIn(minFloor, 100)
         } else {
             finalChatScore
         }
@@ -121,22 +181,31 @@ object ConnectionHealthEngine {
             else -> "Delivery failures"
         }
 
+        val optimalDetail = when {
+            isVpn -> "Minimal latency and stable WARP AmneziaWG tunnel"
+            isFlowseal && !isTlsEnabled -> "Low latency over Flowseal WS :80 Anycast CDN"
+            isFlowseal && isTlsEnabled -> "Low latency over Flowseal WSS TLS Anycast CDN"
+            !isFlowseal && !isTlsEnabled -> "Low latency over Worker WS :80 tunnel"
+            else -> "Minimal latency and stable Worker WSS TLS tunnel"
+        }
+
         val (verdict, detail) = when {
-            lastFailureType == FailureType.DPI_BLOCKED -> Pair(
+            effectiveFailure == FailureType.RATE_LIMITED_429 -> Pair(
+                "Worker Quota 429",
+                "Cloudflare Worker daily request quota exceeded"
+            )
+            effectiveFailure == FailureType.DPI_BLOCKED && !hasLiveTraffic -> Pair(
                 "Operator DPI Block",
                 "TCP/ClientHello packet reset detected by middlebox"
             )
-            lastFailureType == FailureType.TLS_HANDSHAKE_FAILED -> Pair(
+            effectiveFailure == FailureType.TLS_HANDSHAKE_FAILED && !hasLiveTraffic -> Pair(
                 "Secure TLS Failure",
                 "TLS handshake aborted or invalid server certificate"
             )
-            finalTotalScore >= 90 -> Pair(
-                "Optimal Connection",
-                "Minimal latency and stable direct WSS tunnel"
-            )
+            finalTotalScore >= 90 -> Pair("Optimal Connection", optimalDetail)
             finalTotalScore >= 75 -> Pair(
                 "Good Connection",
-                "Minor latency variation (mobile or Wi-Fi jitter)"
+                if (hasLiveTraffic) "Live session active with minor latency variation" else "Minor latency variation (mobile or Wi-Fi jitter)"
             )
             finalTotalScore >= 50 -> Pair(
                 "Operator Delays",
@@ -159,12 +228,12 @@ object ConnectionHealthEngine {
             else -> "Delays"
         }
 
-        val workerGrade = when (lastFailureType) {
-            FailureType.DPI_BLOCKED -> "DPI Block"
-            FailureType.TLS_HANDSHAKE_FAILED -> "TLS Failure"
+        val workerGrade = when (effectiveFailure) {
+            FailureType.DPI_BLOCKED -> if (hasLiveTraffic) "Reachable" else "DPI Block"
+            FailureType.TLS_HANDSHAKE_FAILED -> if (hasLiveTraffic) "Reachable" else "TLS Failure"
             FailureType.RATE_LIMITED_429 -> "Limit 429"
             FailureType.NONE -> if (ping <= 500L) "Stable" else "Reachable"
-            else -> "Failures"
+            else -> if (hasLiveTraffic) "Reachable" else "Failures"
         }
 
         val reliabilityGrade = "$success%"
@@ -185,7 +254,9 @@ object ConnectionHealthEngine {
             pingMs = ping,
             jitterMs = jitter,
             successRate = success,
-            isExcellent = finalTotalScore >= 90
+            isExcellent = finalTotalScore >= 90,
+            isCalibrating = false,
+            isLiveTrafficActive = hasLiveTraffic
         )
     }
 

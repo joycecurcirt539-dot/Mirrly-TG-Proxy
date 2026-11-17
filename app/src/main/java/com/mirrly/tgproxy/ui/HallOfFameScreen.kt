@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -892,8 +893,8 @@ fun DigitalFingerprintCanvas(
     animated: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "fpRotation")
-    val rotation by if (animated) {
+    val rotationState: State<Float> = if (animated) {
+        val infiniteTransition = rememberInfiniteTransition(label = "fpRotation")
         infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = 360f,
@@ -907,7 +908,8 @@ fun DigitalFingerprintCanvas(
         remember { mutableFloatStateOf(0f) }
     }
 
-    val pulseScale by if (animated) {
+    val pulseScaleState: State<Float> = if (animated) {
+        val infiniteTransition = rememberInfiniteTransition(label = "fpPulse")
         infiniteTransition.animateFloat(
             initialValue = 0.94f,
             targetValue = 1.06f,
@@ -926,6 +928,8 @@ fun DigitalFingerprintCanvas(
             .size(size)
             .clip(CircleShape)
     ) {
+        val rotation = rotationState.value
+        val pulseScale = pulseScaleState.value
         val w = this.size.width
         val h = this.size.height
         val center = Offset(w / 2f, h / 2f)
@@ -1271,8 +1275,8 @@ fun HallOfFameScreen(
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onBack()
                         }) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_arrow_left),
+                            MirrlyIcon(
+                                id = R.drawable.ic_arrow_left,
                                 contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
                                 modifier = Modifier.size(22.dp)
@@ -1337,8 +1341,8 @@ private fun HeroHallOfFameCard(
                             .background(Color.Transparent)
                             .border(1.dp, Color(0xFFFFBD22).copy(alpha = 0.40f), CircleShape)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_hall_of_fame),
+                        MirrlyIcon(
+                            id = R.drawable.ic_hall_of_fame,
                             contentDescription = null,
                             tint = Color(0xFFFFBD22),
                             modifier = Modifier.size(20.dp)
@@ -1375,8 +1379,8 @@ private fun HeroHallOfFameCard(
                         .springPress(onClick = onBannerClick)
                         .padding(horizontal = 8.dp, vertical = 5.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_fingerprint_badge),
+                    MirrlyIcon(
+                        id = R.drawable.ic_fingerprint_badge,
                         contentDescription = null,
                         tint = TextMuted,
                         modifier = Modifier.size(12.dp)
@@ -1514,8 +1518,8 @@ private fun CategoryFilterBar(
                     .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    painter = painterResource(id = filter.iconRes),
+                MirrlyIcon(
+                    id = filter.iconRes,
                     contentDescription = stringResource(filter.labelRes),
                     tint = iconTint,
                     modifier = Modifier.size(17.dp)
@@ -1545,8 +1549,8 @@ private fun FameSectionHeader(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(1f)
         ) {
-            Icon(
-                painter = painterResource(id = iconRes),
+            MirrlyIcon(
+                id = iconRes,
                 contentDescription = null,
                 tint = accentColor,
                 modifier = Modifier.size(16.dp)
@@ -1668,8 +1672,8 @@ private fun PioneerLegendCard(
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_shield),
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_shield,
                                         contentDescription = null,
                                         tint = Color(0xFFFF2A6D),
                                         modifier = Modifier.size(8.dp)
@@ -1713,8 +1717,8 @@ private fun PioneerLegendCard(
                 )
             }
 
-            Icon(
-                painter = painterResource(id = R.drawable.ic_chevron_right),
+            MirrlyIcon(
+                id = R.drawable.ic_chevron_right,
                 contentDescription = null,
                 tint = TextMuted,
                 modifier = Modifier.size(16.dp)
@@ -1918,8 +1922,8 @@ private fun BugHunterMinimalRow(
                                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_shield),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_shield,
                                     contentDescription = null,
                                     tint = Color(0xFFFF2A6D),
                                     modifier = Modifier.size(8.dp)
@@ -1962,8 +1966,8 @@ private fun BugHunterMinimalRow(
             )
         }
 
-        Icon(
-            painter = painterResource(id = R.drawable.ic_chevron_right),
+        MirrlyIcon(
+            id = R.drawable.ic_chevron_right,
             contentDescription = null,
             tint = TextMuted,
             modifier = Modifier.size(14.dp)
@@ -2169,8 +2173,8 @@ private fun CommunityMemberCard(
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                                     modifier = Modifier.padding(horizontal = 3.5.dp, vertical = 0.5.dp)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_shield),
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_shield,
                                         contentDescription = null,
                                         tint = Color(0xFFFF2A6D),
                                         modifier = Modifier.size(7.dp)
@@ -2268,8 +2272,8 @@ private fun ContributorPassportSheet(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_shield),
+                            MirrlyIcon(
+                                id = R.drawable.ic_shield,
                                 contentDescription = null,
                                 tint = Color(0xFFFF2A6D),
                                 modifier = Modifier.size(11.dp)
@@ -2330,8 +2334,8 @@ private fun ContributorPassportSheet(
                                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_shield),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_shield,
                                     contentDescription = null,
                                     tint = Color(0xFFFF2A6D),
                                     modifier = Modifier.size(10.dp)
@@ -2401,8 +2405,8 @@ private fun ContributorPassportSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_fingerprint_badge),
+                            MirrlyIcon(
+                                id = R.drawable.ic_fingerprint_badge,
                                 contentDescription = null,
                                 tint = tier.primaryColor,
                                 modifier = Modifier.size(13.dp)
@@ -2452,8 +2456,8 @@ private fun ContributorPassportSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_copy),
+                            MirrlyIcon(
+                                id = R.drawable.ic_copy,
                                 contentDescription = null,
                                 tint = TextWhite,
                                 modifier = Modifier.size(14.dp)
@@ -2488,8 +2492,8 @@ private fun ContributorPassportSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_github),
+                        MirrlyIcon(
+                            id = R.drawable.ic_github,
                             contentDescription = null,
                             tint = TextWhite,
                             modifier = Modifier.size(15.dp)

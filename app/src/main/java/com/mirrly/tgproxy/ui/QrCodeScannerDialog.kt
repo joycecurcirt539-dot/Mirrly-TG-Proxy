@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 
 import android.Manifest
@@ -57,7 +58,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -285,8 +285,8 @@ fun QrCodeScannerDialog(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_diag_worker),
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_diag_worker,
                                         contentDescription = null,
                                         tint = activeAccentColor,
                                         modifier = Modifier.size(16.dp)
@@ -372,8 +372,8 @@ fun QrCodeScannerDialog(
                                     .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(20.dp))
                                     .padding(20.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_diag_worker),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_diag_worker,
                                     contentDescription = null,
                                     tint = TextMuted,
                                     modifier = Modifier.size(44.dp)
@@ -474,7 +474,7 @@ fun CameraQrScannerView(
 
     // Scanning laser sweep animation
     val infiniteTransition = rememberInfiniteTransition(label = "LaserSweep")
-    val laserProgress by infiniteTransition.animateFloat(
+    val laserProgress = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -586,7 +586,7 @@ fun CameraQrScannerView(
             drawLine(bracketColor, Offset(frameRight, frameBottom), Offset(frameRight, frameBottom - cornerLength), strokeWidth, StrokeCap.Round)
 
             // Laser sweep line
-            val laserY = frameTop + (frameSize * laserProgress)
+            val laserY = frameTop + (frameSize * laserProgress.value)
             drawLine(
                 brush = Brush.horizontalGradient(
                     colors = listOf(
@@ -619,10 +619,8 @@ fun CameraQrScannerView(
                     }
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        painter = painterResource(
-                            id = if (isTorchOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
-                        ),
+                    MirrlyIcon(
+                        id = if (isTorchOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off,
                         contentDescription = if (isTorchOn) stringResource(R.string.qr_scanner_torch_off) else stringResource(R.string.qr_scanner_torch_on),
                         tint = if (isTorchOn) activeAccentColor else TextWhite,
                         modifier = Modifier.size(19.dp)

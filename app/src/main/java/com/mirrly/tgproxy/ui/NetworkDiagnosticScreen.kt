@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -50,7 +51,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -104,6 +104,15 @@ fun NetworkDiagnosticScreen(
     var rttHistory by remember { mutableStateOf<List<PingHistoryPoint>>(if (server.isRunning) server.stats.rttHistory else emptyList()) }
     var poolSize by remember { mutableIntStateOf(if (server.isRunning) server.config.mtprotoStandbyPerActiveSlot else 1) }
     var lastFailureType by remember { mutableStateOf(if (server.isRunning) server.stats.lastFailureType else FailureType.NONE) }
+    var isCalibrating by remember { mutableStateOf(if (server.isRunning) server.stats.isCalibrating else false) }
+    var isLiveTraffic by remember { mutableStateOf(if (server.isRunning) server.stats.isLiveTrafficActive else false) }
+    var warmReady by remember { mutableIntStateOf(if (server.isRunning) server.stats.warmReady else 0) }
+    var warmTarget by remember { mutableIntStateOf(if (server.isRunning) server.stats.warmTarget else 0) }
+    var activeEdgeDomain by remember { mutableStateOf(if (server.isRunning) server.stats.activeEdgeDomain else "") }
+    var healthyDomainsCount by remember { mutableIntStateOf(if (server.isRunning) server.stats.healthyDomainsCount else 0) }
+    var totalDomainsCount by remember { mutableIntStateOf(if (server.isRunning) server.stats.totalDomainsCount else 0) }
+    var quota429Hits by remember { mutableLongStateOf(if (server.isRunning) server.stats.quota429Hits else 0L) }
+    val isTlsEnabled = MirrlyApplication.instance.config.isTlsEnabled
 
     LaunchedEffect(isProxyActive) {
         while (isActive) {
@@ -127,6 +136,14 @@ fun NetworkDiagnosticScreen(
                 rttHistory = server.stats.rttHistory
                 poolSize = server.config.mtprotoStandbyPerActiveSlot
                 lastFailureType = server.stats.lastFailureType
+                isCalibrating = server.stats.isCalibrating
+                isLiveTraffic = server.stats.isLiveTrafficActive
+                warmReady = server.stats.warmReady
+                warmTarget = server.stats.warmTarget
+                activeEdgeDomain = server.stats.activeEdgeDomain
+                healthyDomainsCount = server.stats.healthyDomainsCount
+                totalDomainsCount = server.stats.totalDomainsCount
+                quota429Hits = server.stats.quota429Hits
             } else {
                 healthScore = 0
                 chatScore = 0
@@ -144,6 +161,14 @@ fun NetworkDiagnosticScreen(
                 rttHistory = emptyList()
                 poolSize = 1
                 lastFailureType = FailureType.NONE
+                isCalibrating = false
+                isLiveTraffic = false
+                warmReady = 0
+                warmTarget = 0
+                activeEdgeDomain = ""
+                healthyDomainsCount = 0
+                totalDomainsCount = 0
+                quota429Hits = 0L
             }
             kotlinx.coroutines.delay(500)
         }
@@ -210,6 +235,7 @@ fun NetworkDiagnosticScreen(
             ) {
                 // 1. LEFT HERO CARD: CHATS & MEDIA
                 val chatColor = when {
+                    isProxyActive && isCalibrating -> Color(0xFF38BDF8)
                     chatScore >= 90 -> Color(0xFF00FF87)
                     chatScore >= 75 -> Color(0xFF00E676)
                     chatScore >= 50 -> Color(0xFFFFB703)
@@ -252,6 +278,7 @@ fun NetworkDiagnosticScreen(
                             score = chatScore,
                             isProxyActive = isProxyActive,
                             isSocks5 = isSocks5,
+                            isCalibrating = isProxyActive && isCalibrating,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 infoKey = "chats_sqi"
@@ -261,7 +288,11 @@ fun NetworkDiagnosticScreen(
 
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = if (isProxyActive) "$chatScore%" else "—",
+                                text = when {
+                                    !isProxyActive -> "—"
+                                    isCalibrating -> "…"
+                                    else -> "$chatScore%"
+                                },
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
                                 color = TextWhite
@@ -324,6 +355,7 @@ fun NetworkDiagnosticScreen(
                                 score = callScore,
                                 isProxyActive = isProxyActive,
                                 isSocks5 = true,
+                                isCalibrating = isProxyActive && isCalibrating,
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     infoKey = "mos"
@@ -333,7 +365,7 @@ fun NetworkDiagnosticScreen(
 
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = if (isProxyActive) String.format(java.util.Locale.US, "%.2f MOS", mosScore) else "—",
+                                    text = if (isProxyActive && !isCalibrating) String.format(java.util.Locale.US, "%.2f MOS", mosScore) else "—",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Black,
                                     color = TextWhite
@@ -343,17 +375,27 @@ fun NetworkDiagnosticScreen(
                                     text = if (isProxyActive) mosGrade else stringResource(R.string.nd_stopped),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium,
-                                    color = mosColor,
+                                    color = if (isProxyActive && isCalibrating) Color(0xFF38BDF8) else mosColor,
                                     maxLines = 1
                                 )
                             }
                         } else {
-                            val poolScore = if (isProxyActive) (poolSize * 25).coerceIn(25, 100) else 0
-                            val poolColor = if (isProxyActive) (if (isCustomTheme) customAccentColor else Color(0xFF00FF87)) else TextMuted
+                            val poolScore = when {
+                                !isProxyActive -> 0
+                                warmTarget > 0 -> ((warmReady * 100) / warmTarget).coerceIn(if (warmReady > 0) 25 else 10, 100)
+                                else -> (poolSize * 25).coerceIn(25, 100)
+                            }
+                            val poolColor = when {
+                                !isProxyActive -> TextMuted
+                                warmTarget > 0 && warmReady == 0 -> Color(0xFF38BDF8)
+                                isCustomTheme -> customAccentColor
+                                else -> Color(0xFF00FF87)
+                            }
                             LiquidWaveQualityCircle(
                                 score = poolScore,
                                 isProxyActive = isProxyActive,
                                 isSocks5 = false,
+                                isCalibrating = isProxyActive && warmTarget == 0 && isCalibrating,
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     infoKey = "mtproto_pool"
@@ -363,14 +405,22 @@ fun NetworkDiagnosticScreen(
 
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = if (isProxyActive) stringResource(R.string.nd_hero_mtproto_slots_val, poolSize) else "—",
+                                    text = when {
+                                        !isProxyActive -> "—"
+                                        warmTarget > 0 -> stringResource(R.string.nd_hero_warm_pool_val, warmReady, warmTarget)
+                                        else -> stringResource(R.string.nd_hero_mtproto_slots_val, poolSize)
+                                    },
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Black,
                                     color = TextWhite
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = if (isProxyActive) stringResource(R.string.nd_hero_mtproto_slots_desc) else stringResource(R.string.nd_stopped),
+                                    text = when {
+                                        !isProxyActive -> stringResource(R.string.nd_stopped)
+                                        totalDomainsCount > 0 -> stringResource(R.string.nd_hero_flowseal_domains_val, healthyDomainsCount, totalDomainsCount)
+                                        else -> stringResource(R.string.nd_hero_mtproto_slots_desc)
+                                    },
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = poolColor,
@@ -415,8 +465,8 @@ fun NetworkDiagnosticScreen(
                                     .background(speedTestAccent.copy(alpha = 0.15f))
                                     .border(1.dp, speedTestAccent.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_refresh,
                                     contentDescription = null,
                                     tint = speedTestAccent,
                                     modifier = Modifier.size(19.dp)
@@ -494,6 +544,7 @@ fun NetworkDiagnosticScreen(
                 poolSize = poolSize,
                 isProxyActive = isProxyActive,
                 isSocks5 = isSocks5,
+                isCalibrating = isProxyActive && isCalibrating,
                 onItemClick = { key -> infoKey = key },
                 onInfoClick = { infoKey = "readiness_grid" }
             )
@@ -555,9 +606,19 @@ fun NetworkDiagnosticScreen(
                             iconRes = R.drawable.ic_diag_delivery,
                             iconColor = Color(0xFF00FF87),
                             title = stringResource(R.string.nd_delivery_title),
-                            value = "$successRate%",
-                            badgeText = if (successRate >= 95) stringResource(R.string.nd_badge_100_norm) else if (successRate >= 75) stringResource(R.string.nd_badge_packet_loss) else stringResource(R.string.nd_badge_failures),
-                            badgeColor = if (successRate >= 95) Color(0xFF00FF87) else if (successRate >= 75) Color(0xFFFFB703) else Color(0xFFFF0055),
+                            value = if (isProxyActive && isCalibrating) "—" else "$successRate%",
+                            badgeText = when {
+                                isProxyActive && isCalibrating -> stringResource(R.string.nd_badge_waiting)
+                                successRate >= 95 -> stringResource(R.string.nd_badge_100_norm)
+                                successRate >= 75 -> stringResource(R.string.nd_badge_packet_loss)
+                                else -> stringResource(R.string.nd_badge_failures)
+                            },
+                            badgeColor = when {
+                                isProxyActive && isCalibrating -> Color(0xFF38BDF8)
+                                successRate >= 95 -> Color(0xFF00FF87)
+                                successRate >= 75 -> Color(0xFFFFB703)
+                                else -> Color(0xFFFF0055)
+                            },
                             onInfoClick = { infoKey = "delivery" }
                         )
 
@@ -610,6 +671,9 @@ fun NetworkDiagnosticScreen(
                     lastFailureType = lastFailureType,
                     isProxyActive = isProxyActive,
                     isSocks5 = isSocks5,
+                    isTlsEnabled = isTlsEnabled,
+                    isCalibrating = isProxyActive && isCalibrating,
+                    quota429Hits = quota429Hits,
                     onInfoClick = { infoKey = "bottleneck_radar" },
                     onHopClick = { key -> infoKey = key }
                 )
@@ -634,13 +698,35 @@ fun NetworkDiagnosticScreen(
 
                         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
 
+                        val cfValue = when {
+                            quota429Hits > 0L && lastFailureType == FailureType.RATE_LIMITED_429 -> stringResource(R.string.verdict_quota_429)
+                            activeEdgeDomain.isNotBlank() && (pingMs > 0 || isLiveTraffic) -> {
+                                val wire = if (isTlsEnabled) "WSS TLS" else "WS :80"
+                                "$activeEdgeDomain · $wire"
+                            }
+                            pingMs > 0 || isLiveTraffic -> if (isTlsEnabled) stringResource(R.string.nd_wss_tunnel_active) else stringResource(R.string.nd_ws_tunnel_active)
+                            else -> stringResource(R.string.nd_waiting_probe)
+                        }
+                        val cfBadge = when {
+                            lastFailureType == FailureType.RATE_LIMITED_429 -> "429"
+                            isProxyActive && isCalibrating && !isLiveTraffic -> stringResource(R.string.nd_badge_waiting)
+                            pingMs in 1..250 || isLiveTraffic -> stringResource(R.string.nd_badge_available)
+                            pingMs > 250 -> stringResource(R.string.nd_badge_lag)
+                            else -> stringResource(R.string.nd_badge_fail)
+                        }
+                        val cfColor = when {
+                            lastFailureType == FailureType.RATE_LIMITED_429 -> Color(0xFFFF0055)
+                            isProxyActive && isCalibrating && !isLiveTraffic -> Color(0xFF38BDF8)
+                            pingMs in 1..250 || isLiveTraffic -> Color(0xFF00FF87)
+                            else -> Color(0xFFFFB703)
+                        }
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_cloudflare,
                             iconColor = Color(0xFF38BDF8),
                             title = stringResource(R.string.nd_cf_segment_title),
-                            value = if (pingMs > 0) stringResource(R.string.nd_wss_tunnel_active) else stringResource(R.string.nd_waiting_probe),
-                            badgeText = if (pingMs in 1..250) stringResource(R.string.nd_badge_available) else if (pingMs > 250) stringResource(R.string.nd_badge_lag) else stringResource(R.string.nd_badge_fail),
-                            badgeColor = if (pingMs in 1..250) Color(0xFF00FF87) else Color(0xFFFFB703),
+                            value = cfValue,
+                            badgeText = cfBadge,
+                            badgeColor = cfColor,
                             onInfoClick = { infoKey = "cf_edge" }
                         )
 
@@ -696,11 +782,27 @@ fun NetworkDiagnosticScreen(
                         .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(20.dp))
                 ) {
                     Column {
+                        val usesFlowsealUplink = if (isSocks5) {
+                            MirrlyApplication.instance.config.socks5UplinkMode == 1 ||
+                                MirrlyApplication.instance.config.getEffectiveCfDomain().isBlank()
+                        } else {
+                            !MirrlyApplication.instance.config.useWorkerMtproto ||
+                                MirrlyApplication.instance.config.getEffectiveCfDomain().isBlank()
+                        }
                         // In developer worker: do NOT print internal CF worker domain!
-                        val workerDisplayValue = if (activeWorker.isDeveloperWorker) {
+                        val workerDisplayValue = if (usesFlowsealUplink) {
+                            activeEdgeDomain.ifBlank { "Flowseal Anycast CDN" }
+                        } else if (activeWorker.isDeveloperWorker) {
                             activeWorker.name
                         } else {
                             "${activeWorker.name} (${activeWorker.domain})"
+                        }
+                        val workerBadgeText = if (usesFlowsealUplink && totalDomainsCount > 0) {
+                            "$healthyDomainsCount/$totalDomainsCount"
+                        } else if (usesFlowsealUplink || activeWorker.isDeveloperWorker) {
+                            stringResource(R.string.nd_badge_builtin)
+                        } else {
+                            stringResource(R.string.nd_badge_custom)
                         }
 
                         DiagnosticMetricRow(
@@ -708,7 +810,7 @@ fun NetworkDiagnosticScreen(
                             iconColor = Color(0xFFB388FF),
                             title = stringResource(R.string.nd_active_worker_title),
                             value = workerDisplayValue,
-                            badgeText = if (activeWorker.isDeveloperWorker) stringResource(R.string.nd_badge_builtin) else stringResource(R.string.nd_badge_custom),
+                            badgeText = workerBadgeText,
                             badgeColor = Color(0xFF38BDF8),
                             onInfoClick = { infoKey = "active_worker" }
                         )
@@ -719,8 +821,14 @@ fun NetworkDiagnosticScreen(
                             iconRes = R.drawable.ic_diag_protocol,
                             iconColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
                             title = stringResource(R.string.nd_protocol_port_title),
-                            value = if (isSocks5) "SOCKS5 TCP Relay (:10888)" else "MTProto TLS Relay (:1443)",
-                            badgeText = "WSS TLS 1.3",
+                            value = if (isSocks5) {
+                                "SOCKS5 TCP Relay (:10888)"
+                            } else if (MirrlyApplication.instance.config.isTlsEnabled) {
+                                "MTProto TLS Relay (:1443)"
+                            } else {
+                                "MTProto Obfuscated2 (:1443)"
+                            },
+                            badgeText = if (MirrlyApplication.instance.config.isTlsEnabled) "WSS TLS 1.3" else "WS PLAIN :80",
                             badgeColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
                             onInfoClick = { infoKey = "protocol_mode" }
                         )
@@ -862,8 +970,8 @@ private fun NetworkDiagnosticTopBar(
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onBack()
                 }) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_arrow_left),
+                    MirrlyIcon(
+                        id = R.drawable.ic_arrow_left,
                         contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
@@ -879,8 +987,8 @@ private fun NetworkDiagnosticTopBar(
                         },
                         modifier = Modifier.padding(end = 4.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_bug),
+                        MirrlyIcon(
+                            id = R.drawable.ic_bug,
                             contentDescription = stringResource(R.string.diagnostic_report_title),
                             tint = TextWhite,
                             modifier = Modifier.size(20.dp)
@@ -951,8 +1059,8 @@ fun DiagnosticMetricRow(
                     .background(iconColor.copy(alpha = 0.12f))
                     .border(1.dp, iconColor.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
             ) {
-                Icon(
-                    painter = painterResource(id = iconRes),
+                MirrlyIcon(
+                    id = iconRes,
                     contentDescription = null,
                     tint = iconColor,
                     modifier = Modifier.size(16.dp)
@@ -1348,6 +1456,7 @@ fun ContentReadinessGrid(
     poolSize: Int,
     isProxyActive: Boolean,
     isSocks5: Boolean,
+    isCalibrating: Boolean = false,
     onItemClick: (String) -> Unit,
     onInfoClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1355,6 +1464,7 @@ fun ContentReadinessGrid(
     // 1. Text chats
     val textStatus = when {
         !isProxyActive -> stringResource(R.string.nd_proxy_stopped)
+        isCalibrating -> stringResource(R.string.verdict_calibrating)
         pingMs in 1..80 -> stringResource(R.string.nd_ready_instant)
         pingMs in 81..180 -> stringResource(R.string.nd_ready_fast_norm)
         pingMs > 180 -> stringResource(R.string.nd_ready_delayed)
@@ -1362,12 +1472,14 @@ fun ContentReadinessGrid(
     }
     val textBadge = when {
         !isProxyActive -> stringResource(R.string.nd_stopped)
+        isCalibrating -> stringResource(R.string.nd_badge_waiting)
         pingMs in 1..80 -> stringResource(R.string.nd_ready_zero_delay)
         pingMs in 81..180 -> stringResource(R.string.nd_badge_norm)
         else -> stringResource(R.string.nd_badge_lag)
     }
     val textBadgeColor = when {
         !isProxyActive -> TextMuted
+        isCalibrating -> Color(0xFF38BDF8)
         pingMs in 1..80 -> Color(0xFF00FF87)
         pingMs in 81..180 -> Color(0xFF38BDF8)
         else -> Color(0xFFFFB703)
@@ -1376,18 +1488,21 @@ fun ContentReadinessGrid(
     // 2. Photos and media
     val mediaStatus = when {
         !isProxyActive -> stringResource(R.string.nd_proxy_stopped)
+        isCalibrating -> stringResource(R.string.verdict_calibrating)
         successRate >= 95 && jitterMs <= 25 -> stringResource(R.string.nd_ready_high_speed)
         successRate >= 75 -> stringResource(R.string.nd_ready_stable_download)
         else -> stringResource(R.string.nd_badge_packet_loss)
     }
     val mediaBadge = when {
         !isProxyActive -> stringResource(R.string.nd_stopped)
+        isCalibrating -> stringResource(R.string.nd_badge_waiting)
         successRate >= 95 -> stringResource(R.string.nd_ready_lossless)
         successRate >= 75 -> stringResource(R.string.nd_ready_buffering)
         else -> stringResource(R.string.nd_badge_failures)
     }
     val mediaBadgeColor = when {
         !isProxyActive -> TextMuted
+        isCalibrating -> Color(0xFF38BDF8)
         successRate >= 95 -> Color(0xFF00FF87)
         successRate >= 75 -> Color(0xFFFFB703)
         else -> Color(0xFFFF0055)
@@ -1561,8 +1676,8 @@ private fun ContentReadinessItem(
                         .background(iconColor.copy(alpha = 0.12f))
                         .border(0.8.dp, iconColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
                 ) {
-                    Icon(
-                        painter = painterResource(id = iconRes),
+                    MirrlyIcon(
+                        id = iconRes,
                         contentDescription = null,
                         tint = iconColor,
                         modifier = Modifier.size(15.dp)
@@ -1614,6 +1729,9 @@ fun HopByHopBottleneckRadar(
     lastFailureType: FailureType,
     isProxyActive: Boolean,
     isSocks5: Boolean,
+    isTlsEnabled: Boolean = false,
+    isCalibrating: Boolean = false,
+    quota429Hits: Long = 0L,
     onInfoClick: () -> Unit,
     onHopClick: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -1628,6 +1746,7 @@ fun HopByHopBottleneckRadar(
 
     val hop2State = when {
         !isProxyActive -> 0
+        isCalibrating -> 1
         jitterMs > 45L || bufferbloatMs >= 150L -> 2
         jitterMs > 25L || bufferbloatMs >= 75L -> 2
         else -> 1
@@ -1635,6 +1754,7 @@ fun HopByHopBottleneckRadar(
 
     val hop3State = when {
         !isProxyActive -> 0
+        isCalibrating -> 1
         lastFailureType == FailureType.DPI_BLOCKED -> 3
         successRate < 75 -> 2
         else -> 1
@@ -1642,22 +1762,26 @@ fun HopByHopBottleneckRadar(
 
     val hop4State = when {
         !isProxyActive -> 0
+        quota429Hits > 0L && lastFailureType == FailureType.RATE_LIMITED_429 -> 3
         lastFailureType == FailureType.TLS_HANDSHAKE_FAILED || lastFailureType == FailureType.RATE_LIMITED_429 -> 3
+        isCalibrating -> 1
         pingMs > 250L -> 2
         else -> 1
     }
 
     val hop5State = when {
         !isProxyActive -> 0
+        isCalibrating -> 1
         lastFailureType != FailureType.NONE -> 2
         else -> 1
     }
 
     val (bottleneckTitle, bottleneckColor) = when {
         !isProxyActive -> Pair(stringResource(R.string.nd_proxy_stopped), TextMuted)
+        lastFailureType == FailureType.RATE_LIMITED_429 -> Pair(stringResource(R.string.nd_bn_429), Color(0xFFFF0055))
+        isCalibrating -> Pair(stringResource(R.string.verdict_calibrating_desc), Color(0xFF38BDF8))
         lastFailureType == FailureType.DPI_BLOCKED -> Pair(stringResource(R.string.nd_bn_dpi), Color(0xFFFF0055))
         lastFailureType == FailureType.TLS_HANDSHAKE_FAILED -> Pair(stringResource(R.string.nd_bn_tls), Color(0xFFFF0055))
-        lastFailureType == FailureType.RATE_LIMITED_429 -> Pair(stringResource(R.string.nd_bn_429), Color(0xFFFF0055))
         jitterMs > 40L -> Pair(stringResource(R.string.nd_bn_radio, jitterMs), Color(0xFFFFB703))
         bufferbloatMs >= 100L -> Pair(stringResource(R.string.nd_bn_bufferbloat, bufferbloatMs), Color(0xFFFFB703))
         pingMs > 250L -> Pair(stringResource(R.string.nd_bn_rtt, pingMs), Color(0xFFFFB703))
@@ -1742,7 +1866,11 @@ fun HopByHopBottleneckRadar(
                     HopLink(isActive = isProxyActive, isAlert = hop4State >= 2)
                     HopNode(
                         label = "Cloudflare",
-                        subLabel = if (isProxyActive && pingMs > 0) "${pingMs}ms" else "WSS",
+                        subLabel = when {
+                            isProxyActive && pingMs > 0 -> "${pingMs}ms"
+                            isTlsEnabled -> "WSS TLS"
+                            else -> "WS :80"
+                        },
                         state = hop4State,
                         primaryColor = primaryColor,
                         onClick = { onHopClick("cf_edge") }
@@ -1960,8 +2088,8 @@ fun SmartNetworkInsightsCard(
                     .background(accentColor.copy(alpha = 0.15f))
                     .border(0.8.dp, accentColor.copy(alpha = 0.40f), RoundedCornerShape(10.dp))
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_speed_auto),
+                MirrlyIcon(
+                    id = R.drawable.ic_speed_auto,
                     contentDescription = null,
                     tint = accentColor,
                     modifier = Modifier.size(16.dp)

@@ -41,6 +41,34 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
 /**
+ * Семейство IP-адресов (MOB-022 / MOB-024).
+ */
+enum class AddressFamily {
+    IPV4,
+    IPV6,
+    DUAL_STACK,
+    NONE;
+
+    companion object {
+        fun fromAddresses(addresses: List<InetAddress>): AddressFamily {
+            if (addresses.isEmpty()) return NONE
+            var hasV4 = false
+            var hasV6 = false
+            for (addr in addresses) {
+                if (addr is java.net.Inet4Address) hasV4 = true
+                if (addr is java.net.Inet6Address) hasV6 = true
+            }
+            return when {
+                hasV4 && hasV6 -> DUAL_STACK
+                hasV4 -> IPV4
+                hasV6 -> IPV6
+                else -> NONE
+            }
+        }
+    }
+}
+
+/**
  * Стадии установления соединения (MOB-001 / MOB-024).
  */
 enum class EstablishmentStage(val level: Int, val isReady: Boolean) {

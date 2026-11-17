@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -42,7 +43,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -89,6 +89,13 @@ fun Socks5OnboardingDialog(
     var currentCfSubdomain by remember {
         mutableStateOf(app.prefsManager.getCloudflareSubdomain().orEmpty())
     }
+    val cloudflareSubdomain by app.prefsManager.cloudflareSubdomainFlow.collectAsState()
+    LaunchedEffect(cloudflareSubdomain) {
+        if (cloudflareSubdomain.isNotBlank()) {
+            currentCfSubdomain = cloudflareSubdomain
+        }
+    }
+    val isAuthed by app.prefsManager.isCloudflareAuthorizedFlow.collectAsState()
 
     var showAuthDialog by remember { mutableStateOf(false) }
     var showSubdomainDialog by remember { mutableStateOf(false) }
@@ -271,8 +278,8 @@ fun Socks5OnboardingDialog(
                     )
             ) {
                 IconButton(onClick = onDismiss) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_arrow_left),
+                    MirrlyIcon(
+                        id = R.drawable.ic_arrow_left,
                         contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
@@ -430,8 +437,8 @@ fun Socks5OnboardingDialog(
                                                 )
                                             }
                                             if (isSelected) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.ic_check),
+                                                MirrlyIcon(
+                                                    id = R.drawable.ic_check,
                                                     contentDescription = null,
                                                     tint = ActiveGreenLed,
                                                     modifier = Modifier.size(18.dp)
@@ -484,7 +491,6 @@ fun Socks5OnboardingDialog(
                             }
                         }
                     } else {
-                        val isAuthed = app.prefsManager.isCloudflareAuthorized()
                         if (!isAuthed) {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
@@ -524,8 +530,8 @@ fun Socks5OnboardingDialog(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.ic_info_circle),
+                                            MirrlyIcon(
+                                                id = R.drawable.ic_info_circle,
                                                 contentDescription = null,
                                                 tint = CloudflareOrangeDim,
                                                 modifier = Modifier.size(16.dp)
@@ -635,8 +641,8 @@ fun Socks5OnboardingDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_check),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_check,
                                     contentDescription = null,
                                     tint = ActiveGreenLed,
                                     modifier = Modifier.size(16.dp)
@@ -706,8 +712,8 @@ fun Socks5OnboardingDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_arrow_left),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_arrow_left,
                                     contentDescription = null,
                                     tint = Color(0xFF00F5D4),
                                     modifier = Modifier.size(18.dp)
@@ -835,8 +841,8 @@ fun Socks5OnboardingDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_refresh),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_refresh,
                                     contentDescription = null,
                                     tint = CloudflareOrangeDim,
                                     modifier = Modifier.size(18.dp)

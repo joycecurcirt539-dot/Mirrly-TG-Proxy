@@ -13,14 +13,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.foundation.border
@@ -277,149 +283,225 @@ private val EndFadeColors = listOf(Color.Black, Color.Transparent)
 /**
  * Universal Smooth Fading Edges extension modifier.
  * Dissolves top & bottom content edges when scrolling instead of hard clipping.
- * Optimized with zero-allocation draw passes for butter-smooth 120 FPS performance.
+ * Optimized with zero-allocation draw passes and tight fillrate bounding for butter-smooth 120 FPS performance.
  */
 fun Modifier.fadingEdges(
     topFadeHeight: Dp = 32.dp,
     bottomFadeHeight: Dp = 32.dp
-): Modifier = this
-    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-    .drawWithContent {
-        drawContent()
-        val h = size.height
-        val w = size.width
-        if (h <= 0f || w <= 0f) return@drawWithContent
+): Modifier = composed {
+    val density = LocalDensity.current
+    val topPx = with(density) { topFadeHeight.toPx() }
+    val bottomPx = with(density) { bottomFadeHeight.toPx() }
 
-        val topPx = topFadeHeight.toPx().coerceAtMost(h / 2f)
-        val bottomPx = bottomFadeHeight.toPx().coerceAtMost(h / 2f)
+    if (topPx <= 0f && bottomPx <= 0f) return@composed this
 
-        if (topPx > 0f) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = TopFadeColors,
-                    startY = 0f,
-                    endY = topPx
-                ),
-                blendMode = BlendMode.DstIn
-            )
-        }
-        if (bottomPx > 0f) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = BottomFadeColors,
-                    startY = h - bottomPx,
-                    endY = h
-                ),
-                blendMode = BlendMode.DstIn
-            )
-        }
+    val topBrush = remember(topPx) {
+        if (topPx > 0f) Brush.verticalGradient(TopFadeColors, startY = 0f, endY = topPx) else null
     }
+
+    var cachedHeight by remember { mutableFloatStateOf(-1f) }
+    var cachedBottomBrush by remember { mutableStateOf<Brush?>(null) }
+
+    this
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val h = size.height
+            val w = size.width
+            if (h <= 0f || w <= 0f) return@drawWithContent
+
+            val effTopPx = topPx.coerceAtMost(h / 2f)
+            val effBottomPx = bottomPx.coerceAtMost(h / 2f)
+
+            if (topBrush != null && effTopPx > 0f) {
+                drawRect(
+                    brush = topBrush,
+                    topLeft = Offset.Zero,
+                    size = Size(w, effTopPx),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+            if (effBottomPx > 0f) {
+                if (cachedHeight != h || cachedBottomBrush == null) {
+                    cachedHeight = h
+                    cachedBottomBrush = Brush.verticalGradient(
+                        colors = BottomFadeColors,
+                        startY = h - effBottomPx,
+                        endY = h
+                    )
+                }
+                cachedBottomBrush?.let { brush ->
+                    drawRect(
+                        brush = brush,
+                        topLeft = Offset(0f, h - effBottomPx),
+                        size = Size(w, effBottomPx),
+                        blendMode = BlendMode.DstIn
+                    )
+                }
+            }
+        }
+}
 
 /**
  * Universal Smooth Horizontal Fading Edges extension modifier.
  * Dissolves start & end content edges when scrolling horizontally instead of hard clipping.
- * Optimized with zero-allocation draw passes for butter-smooth 120 FPS performance.
+ * Optimized with zero-allocation draw passes and tight fillrate bounding for butter-smooth 120 FPS performance.
  */
 fun Modifier.horizontalFadingEdges(
     startFadeWidth: Dp = 20.dp,
     endFadeWidth: Dp = 24.dp
-): Modifier = this
-    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-    .drawWithContent {
-        drawContent()
-        val h = size.height
-        val w = size.width
-        if (h <= 0f || w <= 0f) return@drawWithContent
+): Modifier = composed {
+    val density = LocalDensity.current
+    val startPx = with(density) { startFadeWidth.toPx() }
+    val endPx = with(density) { endFadeWidth.toPx() }
 
-        val startPx = startFadeWidth.toPx().coerceAtMost(w / 3f)
-        val endPx = endFadeWidth.toPx().coerceAtMost(w / 3f)
+    if (startPx <= 0f && endPx <= 0f) return@composed this
 
-        if (startPx > 0f) {
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    colors = StartFadeColors,
-                    startX = 0f,
-                    endX = startPx
-                ),
-                blendMode = BlendMode.DstIn
-            )
-        }
-        if (endPx > 0f) {
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    colors = EndFadeColors,
-                    startX = w - endPx,
-                    endX = w
-                ),
-                blendMode = BlendMode.DstIn
-            )
-        }
+    val startBrush = remember(startPx) {
+        if (startPx > 0f) Brush.horizontalGradient(StartFadeColors, startX = 0f, endX = startPx) else null
     }
+
+    var cachedWidth by remember { mutableFloatStateOf(-1f) }
+    var cachedEndBrush by remember { mutableStateOf<Brush?>(null) }
+
+    this
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val h = size.height
+            val w = size.width
+            if (h <= 0f || w <= 0f) return@drawWithContent
+
+            val effStartPx = startPx.coerceAtMost(w / 3f)
+            val effEndPx = endPx.coerceAtMost(w / 3f)
+
+            if (startBrush != null && effStartPx > 0f) {
+                drawRect(
+                    brush = startBrush,
+                    topLeft = Offset.Zero,
+                    size = Size(effStartPx, h),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+            if (effEndPx > 0f) {
+                if (cachedWidth != w || cachedEndBrush == null) {
+                    cachedWidth = w
+                    cachedEndBrush = Brush.horizontalGradient(
+                        colors = EndFadeColors,
+                        startX = w - effEndPx,
+                        endX = w
+                    )
+                }
+                cachedEndBrush?.let { brush ->
+                    drawRect(
+                        brush = brush,
+                        topLeft = Offset(w - effEndPx, 0f),
+                        size = Size(effEndPx, h),
+                        blendMode = BlendMode.DstIn
+                    )
+                }
+            }
+        }
+}
 
 /**
  * Universal 4-Way Smooth Fading Edges extension modifier (Top, Bottom, Start, End).
  * Softly dissolves content along all 4 viewport borders into dark vignette.
- * Optimized with zero-allocation draw passes for butter-smooth 120 FPS performance.
+ * Optimized with zero-allocation draw passes and tight fillrate bounding for butter-smooth 120 FPS performance.
  */
 fun Modifier.fourWayFadingEdges(
     topFadeHeight: Dp = 24.dp,
     bottomFadeHeight: Dp = 44.dp,
     startFadeWidth: Dp = 14.dp,
     endFadeWidth: Dp = 14.dp
-): Modifier = this
-    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-    .drawWithContent {
-        drawContent()
-        val h = size.height
-        val w = size.width
-        if (h <= 0f || w <= 0f) return@drawWithContent
+): Modifier = composed {
+    val density = LocalDensity.current
+    val topPx = with(density) { topFadeHeight.toPx() }
+    val bottomPx = with(density) { bottomFadeHeight.toPx() }
+    val startPx = with(density) { startFadeWidth.toPx() }
+    val endPx = with(density) { endFadeWidth.toPx() }
 
-        val topPx = topFadeHeight.toPx().coerceAtMost(h / 2f)
-        val bottomPx = bottomFadeHeight.toPx().coerceAtMost(h / 2f)
-        val startPx = startFadeWidth.toPx().coerceAtMost(w / 3f)
-        val endPx = endFadeWidth.toPx().coerceAtMost(w / 3f)
+    if (topPx <= 0f && bottomPx <= 0f && startPx <= 0f && endPx <= 0f) return@composed this
 
-        if (topPx > 0f) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = TopFadeColors,
-                    startY = 0f,
-                    endY = topPx
-                ),
-                blendMode = BlendMode.DstIn
-            )
-        }
-        if (bottomPx > 0f) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = BottomFadeColors,
-                    startY = h - bottomPx,
-                    endY = h
-                ),
-                blendMode = BlendMode.DstIn
-            )
-        }
-        if (startPx > 0f) {
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    colors = StartFadeColors,
-                    startX = 0f,
-                    endX = startPx
-                ),
-                blendMode = BlendMode.DstIn
-            )
-        }
-        if (endPx > 0f) {
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    colors = EndFadeColors,
-                    startX = w - endPx,
-                    endX = w
-                ),
-                blendMode = BlendMode.DstIn
-            )
-        }
+    val topBrush = remember(topPx) {
+        if (topPx > 0f) Brush.verticalGradient(TopFadeColors, startY = 0f, endY = topPx) else null
     }
+    val startBrush = remember(startPx) {
+        if (startPx > 0f) Brush.horizontalGradient(StartFadeColors, startX = 0f, endX = startPx) else null
+    }
+
+    var cachedHeight by remember { mutableFloatStateOf(-1f) }
+    var cachedBottomBrush by remember { mutableStateOf<Brush?>(null) }
+    var cachedWidth by remember { mutableFloatStateOf(-1f) }
+    var cachedEndBrush by remember { mutableStateOf<Brush?>(null) }
+
+    this
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val h = size.height
+            val w = size.width
+            if (h <= 0f || w <= 0f) return@drawWithContent
+
+            val effTopPx = topPx.coerceAtMost(h / 2f)
+            val effBottomPx = bottomPx.coerceAtMost(h / 2f)
+            val effStartPx = startPx.coerceAtMost(w / 3f)
+            val effEndPx = endPx.coerceAtMost(w / 3f)
+
+            if (topBrush != null && effTopPx > 0f) {
+                drawRect(
+                    brush = topBrush,
+                    topLeft = Offset.Zero,
+                    size = Size(w, effTopPx),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+            if (effBottomPx > 0f) {
+                if (cachedHeight != h || cachedBottomBrush == null) {
+                    cachedHeight = h
+                    cachedBottomBrush = Brush.verticalGradient(
+                        colors = BottomFadeColors,
+                        startY = h - effBottomPx,
+                        endY = h
+                    )
+                }
+                cachedBottomBrush?.let { brush ->
+                    drawRect(
+                        brush = brush,
+                        topLeft = Offset(0f, h - effBottomPx),
+                        size = Size(w, effBottomPx),
+                        blendMode = BlendMode.DstIn
+                    )
+                }
+            }
+            if (startBrush != null && effStartPx > 0f) {
+                drawRect(
+                    brush = startBrush,
+                    topLeft = Offset.Zero,
+                    size = Size(effStartPx, h),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+            if (effEndPx > 0f) {
+                if (cachedWidth != w || cachedEndBrush == null) {
+                    cachedWidth = w
+                    cachedEndBrush = Brush.horizontalGradient(
+                        colors = EndFadeColors,
+                        startX = w - effEndPx,
+                        endX = w
+                    )
+                }
+                cachedEndBrush?.let { brush ->
+                    drawRect(
+                        brush = brush,
+                        topLeft = Offset(w - effEndPx, 0f),
+                        size = Size(effEndPx, h),
+                        blendMode = BlendMode.DstIn
+                    )
+                }
+            }
+        }
+}
 
 /**
  * Universal 4-Way Screen Perimeter Vignette Modifier.
@@ -560,7 +642,7 @@ fun Modifier.springPress(
     val sourcePressed by internalInteractionSource.collectIsPressedAsState()
     val isPressed = pointerPressed || sourcePressed
 
-    val scale by animateFloatAsState(
+    val scaleState = animateFloatAsState(
         targetValue = if (isPressed) pressScale else 1.0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -571,8 +653,9 @@ fun Modifier.springPress(
 
     this
         .graphicsLayer {
-            scaleX = scale
-            scaleY = scale
+            val s = scaleState.value
+            scaleX = s
+            scaleY = s
         }
         .then(
             if (onLongClick != null && onClick != null) {
@@ -616,9 +699,22 @@ fun Modifier.lightSweep(
 ): Modifier = composed {
     if (!isEnabled) return@composed this
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isAppResumed by remember {
+        mutableStateOf<Boolean>(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            isAppResumed = event == Lifecycle.Event.ON_RESUME ||
+                lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val effectiveSweepColor = sweepColor ?: LocalProtocolColors.current.primary
     val infiniteTransition = rememberInfiniteTransition(label = "lightSweepTransition")
-    val progress by infiniteTransition.animateFloat(
+    val progress = infiniteTransition.animateFloat(
         initialValue = 0.0f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
@@ -628,24 +724,38 @@ fun Modifier.lightSweep(
         label = "lightSweepProgress"
     )
 
+    val sweepColors = remember(effectiveSweepColor) {
+        listOf(
+            Color.Transparent,
+            effectiveSweepColor.copy(alpha = 0.85f),
+            Color.Transparent
+        )
+    }
+
+    var cachedSize by remember { mutableStateOf(Size.Zero) }
+    var cachedOutline by remember { mutableStateOf<Outline?>(null) }
+
     this.drawWithContent {
         drawContent()
+        if (!isAppResumed) return@drawWithContent
+
         val strokeWidthPx = borderWidth.toPx()
         val beamWidthPx = size.width * 0.45f + 100.dp.toPx()
         val totalTravel = size.width + beamWidthPx * 2
-        val currentCenterX = -beamWidthPx + totalTravel * progress
+        val currentCenterX = -beamWidthPx + totalTravel * progress.value
 
         val brush = Brush.linearGradient(
-            colors = listOf(
-                Color.Transparent,
-                effectiveSweepColor.copy(alpha = 0.85f),
-                Color.Transparent
-            ),
+            colors = sweepColors,
             start = Offset(currentCenterX - beamWidthPx * 0.5f, 0f),
             end = Offset(currentCenterX + beamWidthPx * 0.5f, size.height)
         )
 
-        when (val outline = shape.createOutline(size, layoutDirection, this)) {
+        if (cachedSize != size || cachedOutline == null) {
+            cachedSize = size
+            cachedOutline = shape.createOutline(size, layoutDirection, this)
+        }
+
+        when (val outline = cachedOutline) {
             is Outline.Rectangle -> {
                 drawRect(brush = brush, style = Stroke(width = strokeWidthPx))
             }
@@ -662,6 +772,7 @@ fun Modifier.lightSweep(
             is Outline.Generic -> {
                 drawPath(path = outline.path, brush = brush, style = Stroke(width = strokeWidthPx))
             }
+            null -> {}
         }
     }
 }

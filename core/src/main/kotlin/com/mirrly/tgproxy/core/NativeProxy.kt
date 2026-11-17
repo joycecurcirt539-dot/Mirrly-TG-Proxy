@@ -37,11 +37,14 @@ interface ProxyLibrary : Library {
     fun StopProxy(): Int
     fun ResetNetworkSockets()
     fun ResetVpnSockets()
+    fun NotifyVpnReconnect()
     fun EmergencyKillAllSockets()
     fun SetPoolSize(size: Int): Int
     fun SetTcpNoDelay(enabled: Int)
     fun SetCfProxyCacheDir(cacheDir: String)
     fun SetCfProxyConfig(enabled: Int, userDomain: String)
+    fun SetTlsEnabled(enabled: Int)
+    fun IsTlsEnabled(): Int
     fun SetTlsRecordPaddingEnabled(enabled: Int)
     fun IsTlsRecordPaddingEnabled(): Int
     fun SetTlsClientHelloSplitEnabled(enabled: Int)
@@ -51,33 +54,9 @@ interface ProxyLibrary : Library {
     fun SetSocks5UplinkMode(mode: Int)
     fun GetSocks5UplinkMode(): Int
     fun PromoteCfproxyDomainForDc(dcId: Int, isMedia: Int, domain: String): Int
-    fun SetWorkerProtocol(domain: String, proto: Int)
     fun SetSecret(secret: String)
     fun SetSocks5Auth(username: String, password: String)
-    fun SetDohEndpoints(endpoints: String)
     fun SetUplinkMode(mode: Int)
-    fun SetWarpConfig(endpoint: String, sni: String, authToken: String, clientIpv4: String, clientIpv6: String)
-    fun SetWarpCrypto(p256Priv: String, clientCert: String, peerPub: String)
-    fun SetWarpUriTemplate(uriTemplate: String)
-    fun SetWarpFullConfig(
-        endpoint: String,
-        sni: String,
-        authToken: String,
-        clientIpv4: String,
-        clientIpv6: String,
-        p256Priv: String,
-        clientCert: String,
-        peerPub: String,
-        uriTemplate: String
-    )
-    fun ClearWarpCrypto()
-    fun GetWarpConfigGeneration(): Long
-    fun GetWarpStatus(): Pointer?
-    fun GetWarpStickyEndpoint(): Pointer?
-    fun SetWarpStickyEndpoint(endpoint: String)
-    fun ClearWarpStickyProfile()
-    fun RecordWarpStickySuccess()
-    fun RecordWarpStickyTimeout(): Boolean
     fun GetSecretWithPrefix(): Pointer?
     fun GetStats(): Pointer?
     fun SetAwgConfig(ini: String): Int
@@ -101,7 +80,7 @@ interface ProxyLibrary : Library {
     fun IsDialThrottlingEnabled(): Int
     fun WarmupWsPool()
     fun OnScreenWakeup()
-    fun SetTrustPolicy(isPrivateNode: Int, allowPublicRelayFallback: Int, allowOperaDirectExit: Int, allowOperaTransportHop: Int)
+    fun SetTrustPolicy(isPrivateNode: Int, allowPublicRelayFallback: Int)
     fun GetUsefulRxSliJson(): Pointer?
     fun GetDialBudgetStatsJson(): Pointer?
     fun GetDomainBalancerStatusJson(): Pointer?
@@ -112,11 +91,10 @@ interface ProxyLibrary : Library {
     fun GetVpnStatusJson(): Pointer?
     fun SetVpnUplinkMode(mode: Int): Int
     fun SetProtectSocketCallback(cb: ProtectCallback?): Unit
-    fun ResolveDns(domain: String, scope: Int): Pointer?
-    fun ClearDnsCache()
     fun ProbeWarpEndpoints(endpointsCsv: String, protocol: Int, timeoutMs: Int): Pointer?
     fun PingHost(host: String, port: Int, timeoutMs: Int): Pointer?
     fun PingWorker(domain: String, timeoutMs: Int): Pointer?
+    fun ProbeTransportHealth(mode: Int, domain: String, timeoutMs: Int): Pointer?
     fun GetEngineSecurityState(): Int
     fun GetSecurityPostureReportJson(): Pointer?
 }
@@ -187,6 +165,14 @@ object NativeProxy {
         }
     }
 
+    fun notifyVpnReconnect() {
+        try {
+            ProxyLibrary.INSTANCE.NotifyVpnReconnect()
+        } catch (t: Throwable) {
+            resetVpnSockets()
+        }
+    }
+
     fun getVpnStatusJson(): String? {
         return try {
             val ptr = ProxyLibrary.INSTANCE.GetVpnStatusJson() ?: return null
@@ -202,7 +188,6 @@ object NativeProxy {
     fun setVpnUplinkMode(mode: UplinkMode): Int {
         val nativeMode = when (mode) {
             UplinkMode.AWG -> 0
-            UplinkMode.MASQUE -> 1
             else -> 0
         }
         return try {
@@ -210,38 +195,6 @@ object NativeProxy {
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [SetVpnUplinkMode]: ${t.message}", t)
             -1
-        }
-    }
-
-    fun resolveDns(domain: String, scope: Int = 0): List<String> {
-        return try {
-            val ptr = ProxyLibrary.INSTANCE.ResolveDns(domain, scope) ?: return emptyList()
-            val jsonStr = try {
-                ptr.getString(0, "UTF-8")
-            } finally {
-                ProxyLibrary.INSTANCE.FreeString(ptr)
-            }
-            val json = JSONObject(jsonStr)
-            val ipsArr = json.optJSONArray("ips") ?: return emptyList()
-            val result = ArrayList<String>(ipsArr.length())
-            for (i in 0 until ipsArr.length()) {
-                val ip = ipsArr.optString(i)
-                if (!ip.isNullOrBlank()) {
-                    result.add(ip)
-                }
-            }
-            result
-        } catch (t: Throwable) {
-            AppLogger.d("NativeProxy", "FFI [ResolveDns] error: ${t.message}")
-            emptyList()
-        }
-    }
-
-    fun clearDnsCache() {
-        try {
-            ProxyLibrary.INSTANCE.ClearDnsCache()
-        } catch (t: Throwable) {
-            AppLogger.d("NativeProxy", "FFI [ClearDnsCache] error: ${t.message}")
         }
     }
 
@@ -292,6 +245,25 @@ object NativeProxy {
         } catch (t: Throwable) {
             AppLogger.d("NativeProxy", "FFI [PingWorker] error: ${t.message}")
             Pair("ERR_EXCEPTION", null)
+        }
+    }
+
+    fun probeTransportHealth(
+        mode: Int,
+        domain: String = "",
+        timeoutMs: Int = 2500
+    ): TransportProbeOutcome? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.ProbeTransportHealth(mode, domain, timeoutMs) ?: return null
+            val jsonStr = try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+            TransportProbeOutcome.fromJson(jsonStr)
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [ProbeTransportHealth] error: ${t.message}")
+            null
         }
     }
 
@@ -411,14 +383,6 @@ object NativeProxy {
         }
     }
 
-    fun setWorkerProtocol(domain: String, proto: Int) {
-        try {
-            ProxyLibrary.INSTANCE.SetWorkerProtocol(domain, proto)
-        } catch (t: Throwable) {
-            AppLogger.w("NativeProxy", "Сбой вызова FFI [setWorkerProtocol]: ${t.message}")
-        }
-    }
-
     fun setSecret(secret: String) {
         if (!isStarted) return
         try {
@@ -468,19 +432,10 @@ object NativeProxy {
         }
     }
 
-    fun setDohEndpoints(endpoints: String) {
-        try {
-            ProxyLibrary.INSTANCE.SetDohEndpoints(endpoints)
-        } catch (t: Throwable) {
-            AppLogger.d("NativeProxy", "FFI [setDohEndpoints] не доступен: ${t.message}")
-        }
-    }
-
     fun setUplinkMode(mode: UplinkMode) {
         try {
             val modeInt = when (mode) {
                 UplinkMode.WORKER -> 0
-                UplinkMode.MASQUE -> 1
                 UplinkMode.AWG -> 4
                 else -> 0
             }
@@ -548,7 +503,7 @@ object NativeProxy {
     /**
      * Возвращает активный этап каскадного аплинка:
      * 0 = Нет данных / прямой режим
-     * 1 = WARP MASQUE (HTTP/3 CONNECT-IP)
+     * 1 = Reserved
      * 2 = WARP AmneziaWG (Обфусцированный WireGuard)
      * 3 = Cloudflare Worker WSS (Гарантированный TCP 443)
      */
@@ -558,150 +513,6 @@ object NativeProxy {
             ProxyLibrary.INSTANCE.GetActiveCascadeStage()
         } catch (_: Throwable) {
             0
-        }
-    }
-
-    fun setWarpConfig(
-        endpoint: String,
-        sni: String,
-        authToken: String,
-        clientIpv4: String,
-        clientIpv6: String
-    ) {
-        try {
-            ProxyLibrary.INSTANCE.SetWarpConfig(
-                endpoint,
-                sni,
-                authToken,
-                clientIpv4,
-                clientIpv6
-            )
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setWarpConfig]: ${t.message}", t)
-        }
-    }
-
-    fun setWarpCrypto(
-        p256PrivateKey: String,
-        clientCert: String,
-        peerPublicKey: String
-    ) {
-        try {
-            ProxyLibrary.INSTANCE.SetWarpCrypto(
-                p256PrivateKey,
-                clientCert,
-                peerPublicKey
-            )
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setWarpCrypto]: ${t.message}", t)
-        }
-    }
-
-    fun setWarpUriTemplate(uriTemplate: String) {
-        try {
-            ProxyLibrary.INSTANCE.SetWarpUriTemplate(uriTemplate)
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setWarpUriTemplate]: ${t.message}", t)
-        }
-    }
-
-    fun setWarpFullConfig(
-        endpoint: String,
-        sni: String,
-        authToken: String,
-        clientIpv4: String,
-        clientIpv6: String,
-        p256PrivateKey: String,
-        clientCert: String,
-        peerPublicKey: String,
-        uriTemplate: String
-    ) {
-        try {
-            ProxyLibrary.INSTANCE.SetWarpFullConfig(
-                endpoint,
-                sni,
-                authToken,
-                clientIpv4,
-                clientIpv6,
-                p256PrivateKey,
-                clientCert,
-                peerPublicKey,
-                uriTemplate
-            )
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setWarpFullConfig]: ${t.message}", t)
-        }
-    }
-
-    fun clearWarpCrypto() {
-        try {
-            ProxyLibrary.INSTANCE.ClearWarpCrypto()
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [clearWarpCrypto]: ${t.message}", t)
-        }
-    }
-
-    fun getWarpConfigGeneration(): Long {
-        return try {
-            ProxyLibrary.INSTANCE.GetWarpConfigGeneration()
-        } catch (t: Throwable) {
-            -1L
-        }
-    }
-
-    fun getWarpStatus(): String? {
-        if (!isStarted) return null
-        return try {
-            val ptr = ProxyLibrary.INSTANCE.GetWarpStatus() ?: return null
-            val res = ptr.getString(0)
-            ProxyLibrary.INSTANCE.FreeString(ptr)
-            res
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [getWarpStatus]: ${t.message}", t)
-            null
-        }
-    }
-
-    fun getWarpStickyEndpoint(): String? {
-        return try {
-            val ptr = ProxyLibrary.INSTANCE.GetWarpStickyEndpoint() ?: return null
-            val res = ptr.getString(0)
-            ProxyLibrary.INSTANCE.FreeString(ptr)
-            res
-        } catch (t: Throwable) {
-            null
-        }
-    }
-
-    fun setWarpStickyEndpoint(endpoint: String) {
-        try {
-            ProxyLibrary.INSTANCE.SetWarpStickyEndpoint(endpoint)
-        } catch (t: Throwable) {
-            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetWarpStickyEndpoint]: ${t.message}")
-        }
-    }
-
-    fun clearWarpStickyProfile() {
-        try {
-            ProxyLibrary.INSTANCE.ClearWarpStickyProfile()
-        } catch (t: Throwable) {
-            AppLogger.w("NativeProxy", "Сбой вызова FFI [ClearWarpStickyProfile]: ${t.message}")
-        }
-    }
-
-    fun recordWarpStickySuccess() {
-        try {
-            ProxyLibrary.INSTANCE.RecordWarpStickySuccess()
-        } catch (t: Throwable) {
-            AppLogger.w("NativeProxy", "Сбой вызова FFI [RecordWarpStickySuccess]: ${t.message}")
-        }
-    }
-
-    fun recordWarpStickyTimeout(): Boolean {
-        return try {
-            ProxyLibrary.INSTANCE.RecordWarpStickyTimeout()
-        } catch (t: Throwable) {
-            false
         }
     }
 
@@ -894,9 +705,7 @@ object NativeProxy {
         try {
             ProxyLibrary.INSTANCE.SetTrustPolicy(
                 if (isPrivateNode) 1 else 0,
-                if (allowPublicRelayFallback) 1 else 0,
-                0,
-                0
+                if (allowPublicRelayFallback) 1 else 0
             )
         } catch (t: Throwable) {
             AppLogger.w("NativeProxy", "Сбой вызова FFI [SetTrustPolicy]: ${t.message}")
@@ -918,6 +727,11 @@ object NativeProxy {
         } catch (t: Throwable) {
             null
         }
+    }
+
+    fun getUsefulRxSli(): EngineSliSnapshot? {
+        val json = getUsefulRxSliJson() ?: return null
+        return EngineSliSnapshot.fromJson(json)
     }
 
     fun getDialBudgetStatsJson(): String? {
@@ -1026,6 +840,23 @@ object NativeProxy {
 
     fun isWsRandomizationEnabled(): Boolean {
         return false
+    }
+
+    fun setTlsEnabled(enabled: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetTlsEnabled(if (enabled) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [SetTlsEnabled]: ${t.message}", t)
+        }
+    }
+
+    fun isTlsEnabled(): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.IsTlsEnabled() != 0
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [IsTlsEnabled]: ${t.message}", t)
+            false
+        }
     }
 
     fun setTlsRecordPaddingEnabled(enabled: Boolean) {
@@ -1422,6 +1253,190 @@ data class WarmPoolStatus(
                 )
             } catch (t: Throwable) {
                 AppLogger.d("NativeProxy", "Failed to parse WarmPoolStatus JSON: ${t.message}")
+                null
+            }
+        }
+    }
+}
+
+data class EngineSliSnapshot(
+    val transport: String = "",
+    val tlsEnabled: Boolean = false,
+    val activeConns: Int = 0,
+    val connectionsTotal: Long = 0L,
+    val connectionsWs: Long = 0L,
+    val connectionsCfproxy: Long = 0L,
+    val connectionsAwg: Long = 0L,
+    val socks5V2Sessions: Long = 0L,
+    val socks5V1Downgrades: Long = 0L,
+    val socks5FastpathHits: Long = 0L,
+    val socks5FallbackTriggers: Long = 0L,
+    val connectionsBad: Long = 0L,
+    val wsErrors: Long = 0L,
+    val poolHits: Long = 0L,
+    val poolMisses: Long = 0L,
+    val warmReady: Int = 0,
+    val warmTarget: Int = 0,
+    val warmInflight: Int = 0,
+    val mtproto429Hits: Long = 0L,
+    val socks5429Hits: Long = 0L,
+    val rxBytes: Long = 0L,
+    val txBytes: Long = 0L,
+    val tlsFailures: Long = 0L,
+    val balancerActiveDomain: String = "",
+    val balancerHealthyDomains: Int = 0,
+    val balancerTotalDomains: Int = 0,
+    val balancerMinRttMs: Long = -1L,
+    val balancerMedianRttMs: Long = -1L,
+    val balancerUsefulSuccessCount: Long = 0L,
+    val balancerFailureCount: Long = 0L,
+    val vpnEstablished: Boolean = false,
+    // Deltas compared to the previous 1s sample in LocalProxyServer
+    val deltaRxBytes: Long = 0L,
+    val deltaUsefulSuccess: Long = 0L,
+    val deltaWsErrors: Long = 0L,
+    val deltaTlsFailures: Long = 0L,
+    val delta429Hits: Long = 0L,
+    val lastLiveTrafficAtMs: Long = 0L
+) {
+    val total429Hits: Long
+        get() = mtproto429Hits + socks5429Hits
+
+    val effectiveBalancerRttMs: Long
+        get() = if (balancerMedianRttMs > 0L) balancerMedianRttMs else balancerMinRttMs
+
+    fun hasFreshLiveTraffic(nowMs: Long = System.currentTimeMillis()): Boolean {
+        val recentActivity = lastLiveTrafficAtMs > 0L && (nowMs - lastLiveTrafficAtMs) <= 20_000L
+        val healthyVpn = vpnEstablished && (connectionsAwg > 0L || rxBytes > 0L)
+        return recentActivity || deltaUsefulSuccess > 0L || deltaRxBytes > 256L || healthyVpn
+    }
+
+    val liveSessionSuccessFloorPercent: Int
+        get() = when {
+            deltaWsErrors == 0L && delta429Hits == 0L -> 86
+            delta429Hits > 0L -> 55
+            else -> 68
+        }
+
+    fun withDeltaFrom(previous: EngineSliSnapshot?, nowMs: Long = System.currentTimeMillis()): EngineSliSnapshot {
+        val dRx = if (previous != null && rxBytes >= previous.rxBytes) rxBytes - previous.rxBytes else 0L
+        val dUseful = if (previous != null && balancerUsefulSuccessCount >= previous.balancerUsefulSuccessCount) {
+            balancerUsefulSuccessCount - previous.balancerUsefulSuccessCount
+        } else {
+            0L
+        }
+        val dErr = if (previous != null && wsErrors >= previous.wsErrors) wsErrors - previous.wsErrors else 0L
+        val dTlsErr = if (previous != null && tlsFailures >= previous.tlsFailures) tlsFailures - previous.tlsFailures else 0L
+        val d429 = if (previous != null && total429Hits >= previous.total429Hits) total429Hits - previous.total429Hits else 0L
+
+        val trafficNow = dRx > 128L ||
+            dUseful > 0L ||
+            (previous != null && connectionsWs > previous.connectionsWs && dErr == 0L) ||
+            (vpnEstablished && dRx > 0L)
+        val liveTs = if (trafficNow) {
+            nowMs
+        } else {
+            previous?.lastLiveTrafficAtMs ?: if (balancerUsefulSuccessCount > 0L || rxBytes > 1024L || vpnEstablished) nowMs else 0L
+        }
+
+        return copy(
+            deltaRxBytes = dRx,
+            deltaUsefulSuccess = dUseful,
+            deltaWsErrors = dErr,
+            deltaTlsFailures = dTlsErr,
+            delta429Hits = d429,
+            lastLiveTrafficAtMs = liveTs
+        )
+    }
+
+    companion object {
+        fun fromJson(json: String?): EngineSliSnapshot? {
+            if (json.isNullOrBlank()) return null
+            return try {
+                val obj = JSONObject(json)
+                if (obj.length() == 0) return null
+                val activeDomain = if (obj.isNull("balancer_active_domain")) "" else obj.optString("balancer_active_domain", "")
+                val minRtt = if (obj.isNull("balancer_min_rtt_ms")) -1L else obj.optLong("balancer_min_rtt_ms", -1L)
+                val medRtt = if (obj.isNull("balancer_median_rtt_ms")) -1L else obj.optLong("balancer_median_rtt_ms", -1L)
+                EngineSliSnapshot(
+                    transport = obj.optString("transport", ""),
+                    tlsEnabled = obj.optBoolean("tls_enabled", false),
+                    activeConns = obj.optInt("active_conns", 0),
+                    connectionsTotal = obj.optLong("connections_total", 0L),
+                    connectionsWs = obj.optLong("connections_ws", 0L),
+                    connectionsCfproxy = obj.optLong("connections_cfproxy", 0L),
+                    connectionsAwg = obj.optLong("connections_awg", 0L),
+                    socks5V2Sessions = obj.optLong("socks5_v2_sessions", 0L),
+                    socks5V1Downgrades = obj.optLong("socks5_v1_downgrades", 0L),
+                    socks5FastpathHits = obj.optLong("socks5_fastpath_hits", 0L),
+                    socks5FallbackTriggers = obj.optLong("socks5_fallback_triggers", 0L),
+                    connectionsBad = obj.optLong("connections_bad", 0L),
+                    wsErrors = obj.optLong("ws_errors", 0L),
+                    poolHits = obj.optLong("pool_hits", 0L),
+                    poolMisses = obj.optLong("pool_misses", 0L),
+                    warmReady = obj.optInt("warm_ready", 0),
+                    warmTarget = obj.optInt("warm_target", 0),
+                    warmInflight = obj.optInt("warm_inflight", 0),
+                    mtproto429Hits = obj.optLong("mtproto_429_hits", 0L),
+                    socks5429Hits = obj.optLong("socks5_429_hits", 0L),
+                    rxBytes = obj.optLong("rx_bytes", 0L),
+                    txBytes = obj.optLong("tx_bytes", 0L),
+                    tlsFailures = obj.optLong("tls_failures", 0L),
+                    balancerActiveDomain = activeDomain,
+                    balancerHealthyDomains = obj.optInt("balancer_healthy_domains", 0),
+                    balancerTotalDomains = obj.optInt("balancer_total_domains", 0),
+                    balancerMinRttMs = minRtt,
+                    balancerMedianRttMs = medRtt,
+                    balancerUsefulSuccessCount = obj.optLong("balancer_useful_success_count", 0L),
+                    balancerFailureCount = obj.optLong("balancer_failure_count", 0L),
+                    vpnEstablished = obj.optBoolean("vpn_established", false)
+                )
+            } catch (t: Throwable) {
+                AppLogger.d("NativeProxy", "Failed to parse EngineSliSnapshot JSON: ${t.message}")
+                null
+            }
+        }
+    }
+}
+
+data class TransportProbeOutcome(
+    val alive: Boolean,
+    val rttMs: Long,
+    val domain: String,
+    val ip: String,
+    val colo: String,
+    val stage: String,
+    val failure: FailureType
+) {
+    companion object {
+        fun fromJson(json: String?): TransportProbeOutcome? {
+            if (json.isNullOrBlank()) return null
+            return try {
+                val obj = JSONObject(json)
+                val alive = obj.optBoolean("alive", false)
+                val rtt = obj.optLong("rtt_ms", -1L)
+                val failStr = obj.optString("failure", "NONE").uppercase()
+                val failure = when (failStr) {
+                    "NONE" -> FailureType.NONE
+                    "RATE_LIMITED_429" -> FailureType.RATE_LIMITED_429
+                    "DPI_BLOCKED" -> FailureType.DPI_BLOCKED
+                    "TLS_HANDSHAKE_FAILED" -> FailureType.TLS_HANDSHAKE_FAILED
+                    "CONNECT_TIMEOUT" -> FailureType.CONNECT_TIMEOUT
+                    "HOST_RESOLUTION_FAILED", "DNS_FAILURE" -> FailureType.DNS_FAILURE
+                    "WARP_HANDSHAKE_TIMEOUT" -> FailureType.WARP_HANDSHAKE_TIMEOUT
+                    else -> if (alive) FailureType.NONE else FailureType.HOST_UNREACHABLE
+                }
+                TransportProbeOutcome(
+                    alive = alive,
+                    rttMs = rtt,
+                    domain = obj.optString("domain", ""),
+                    ip = obj.optString("ip", ""),
+                    colo = obj.optString("colo", ""),
+                    stage = obj.optString("stage", ""),
+                    failure = failure
+                )
+            } catch (t: Throwable) {
+                AppLogger.d("NativeProxy", "Failed to parse TransportProbeOutcome JSON: ${t.message}")
                 null
             }
         }

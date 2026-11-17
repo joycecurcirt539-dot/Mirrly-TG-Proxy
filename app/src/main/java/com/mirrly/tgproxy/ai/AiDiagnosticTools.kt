@@ -203,19 +203,43 @@ object AiDiagnosticTools {
 
         val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
 
-        // Вычисляем показатели на основе последних пингов и состояния отказоустойчивости
+        val app = MirrlyApplication.instance
+        val server = app.proxyServer
+        val config = app.config
+        val stats = server.stats
         val failoverState = WorkerFailoverManager.failoverState.value
         val isFailover = failoverState.isFailoverActive
+        val isRunning = server.isRunning
+        val isCalibrating = isRunning && stats.isCalibrating
+        val rawPing = server.currentPingMs
+        val effectivePing = if (hasInternet && isRunning && rawPing > 0L) rawPing.toInt() else -1
+        val effectiveJitter = if (hasInternet && isRunning && !isCalibrating) stats.jitterMs.toInt() else -1
+        val lossPct = when {
+            !hasInternet -> 100
+            !isRunning || isCalibrating -> -1
+            else -> (100 - stats.healthSuccessRate).coerceIn(0, 100)
+        }
+        val effectiveScore = if (hasInternet && isRunning) stats.healthScore else 0
 
         return JSONObject().apply {
             put("net_type", netType)
             put("internet_available", hasInternet)
+            put("proxy_running", isRunning)
+            put("is_calibrating", isCalibrating)
+            put("live_traffic_active", isRunning && stats.isLiveTrafficActive)
+            put("tls_enabled", config.isTlsEnabled)
             put("failover_active", isFailover)
             put("active_worker_id", failoverState.activeWorkerId)
-            put("rtt_ping_ms", if (hasInternet) 45 else -1)
-            put("jitter_ms", if (hasInternet) 6 else -1)
-            put("packet_loss_pct", if (hasInternet) 0 else 100)
-            put("health_score", if (hasInternet) (if (isFailover) 82 else 98) else 0)
+            put("active_edge_domain", stats.activeEdgeDomain)
+            put("healthy_domains", stats.healthyDomainsCount)
+            put("total_domains", stats.totalDomainsCount)
+            put("warm_pool", "${stats.warmReady}/${stats.warmTarget}")
+            put("quota_429_hits", stats.quota429Hits)
+            put("rtt_ping_ms", effectivePing)
+            put("jitter_ms", effectiveJitter)
+            put("packet_loss_pct", lossPct)
+            put("health_score", effectiveScore)
+            put("health_verdict", if (isRunning) stats.healthVerdict else "Остановлен")
         }
     }
 
@@ -279,8 +303,17 @@ object AiDiagnosticTools {
         val netType = health.optString("net_type", "Неизвестно")
         val ping = health.optInt("rtt_ping_ms", -1)
         val score = health.optInt("health_score", 0)
-        val pingText = if (ping >= 0) "$ping ms" else "таймаут"
-        return "Диагностика сети: тип=$netType, пинг=$pingText, статус=${if (score > 80) "стабильно" else "деградация"} (индекс $score/100)"
+        val isRunning = health.optBoolean("proxy_running", false)
+        val isCalibrating = health.optBoolean("is_calibrating", false)
+        val pingText = if (ping >= 0) "$ping ms" else "нет замера"
+        val statusText = when {
+            !isRunning -> "остановлен"
+            isCalibrating -> "калибровка"
+            score >= 80 -> "стабильно"
+            score >= 45 -> "умеренно"
+            else -> "деградация"
+        }
+        return "Диагностика сети: тип=$netType, пинг=$pingText, статус=$statusText (индекс $score/100)"
     }
 
     fun getFailureLogsChipText(limit: Int = 20): String {

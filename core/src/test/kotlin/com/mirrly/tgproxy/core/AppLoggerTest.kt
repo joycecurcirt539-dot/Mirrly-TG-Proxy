@@ -72,7 +72,7 @@ class AppLoggerTest {
     fun `disabling category drops logs matching any tag of category`() {
         AppLogger.setCategoryEnabled(LogCategory.WARP_SCANNER.key, false)
 
-        AppLogger.i("WarpEndpointScanner", "warp probe message")
+        AppLogger.i("WarpProfileManager", "warp profile message")
         AppLogger.i("LocalProxyServer", "proxy message")
 
         val logs = AppLogger.getLogs()

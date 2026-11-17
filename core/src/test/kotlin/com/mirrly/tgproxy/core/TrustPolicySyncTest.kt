@@ -40,17 +40,17 @@ class TrustPolicySyncTest {
 
         val json = """
         {
-            "route_id": "warp_masque",
+            "route_id": "warp_awg",
             "generation": 3,
             "stage_code": 1,
-            "stage_name": "WARP MASQUE",
-            "effective_route": "WARP MASQUE",
+            "stage_name": "WARP AmneziaWG",
+            "effective_route": "WARP AmneziaWG",
             "operator": "Cloudflare WARP",
             "is_private": false,
             "trust_boundary_maintained": true,
             "allow_public_relay_fallback": false,
             "trace": [
-                {"timestamp_ms": 1720000000000, "generation": 1, "from_stage": "None", "to_stage": "WARP MASQUE", "reason": "Init intent"}
+                {"timestamp_ms": 1720000000000, "generation": 1, "from_stage": "None", "to_stage": "WARP AmneziaWG", "reason": "Init intent"}
             ]
         }
         """.trimIndent()
@@ -74,7 +74,7 @@ class TrustPolicySyncTest {
         stats.isPrivateNode = isPriv
         stats.isTrustBoundaryMaintained = trustOk
 
-        assertEquals("WARP MASQUE", stats.activeEffectiveRoute)
+        assertEquals("WARP AmneziaWG", stats.activeEffectiveRoute)
         assertEquals("Cloudflare WARP", stats.activeOperator)
         assertFalse(stats.isPrivateNode)
         assertTrue(stats.isTrustBoundaryMaintained)
@@ -124,7 +124,7 @@ class TrustPolicySyncTest {
     fun testResetBaselineClearsTrustState() {
         val stats = ProxyStats()
 
-        stats.activeEffectiveRoute = "WARP MASQUE"
+        stats.activeEffectiveRoute = "WARP AmneziaWG"
         stats.activeOperator = "Cloudflare WARP"
         stats.isPrivateNode = true
         stats.isTrustBoundaryMaintained = false

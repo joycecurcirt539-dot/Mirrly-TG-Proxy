@@ -17,13 +17,17 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -69,7 +73,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -196,8 +199,8 @@ fun SettingsThemeAccentCard(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_info_circle),
+                        MirrlyIcon(
+                            id = R.drawable.ic_info_circle,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(14.dp)
@@ -301,7 +304,11 @@ fun SettingsThemeAccentCard(
                 }
 
                 // Секция пресетов (когда выбран режим PRESET)
-                if (currentMode == ThemeAccentMode.PRESET) {
+                AnimatedVisibility(
+                    visible = currentMode == ThemeAccentMode.PRESET,
+                    enter = expandVertically(tween(260)) + fadeIn(tween(240)),
+                    exit = shrinkVertically(tween(200)) + fadeOut(tween(180))
+                ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = stringResource(R.string.settings_theme_status_preset),
@@ -359,7 +366,11 @@ fun SettingsThemeAccentCard(
                 }
 
                 // Секция кастомного цвета (когда выбран режим CUSTOM)
-                if (currentMode == ThemeAccentMode.CUSTOM) {
+                AnimatedVisibility(
+                    visible = currentMode == ThemeAccentMode.CUSTOM,
+                    enter = expandVertically(tween(260)) + fadeIn(tween(240)),
+                    exit = shrinkVertically(tween(200)) + fadeOut(tween(180))
+                ) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         // Быстрые оттенки
                         Text(
@@ -581,7 +592,11 @@ fun SettingsThemeAccentCard(
                             fontWeight = FontWeight.SemiBold,
                             color = TextWhite
                         )
-                        if (brightness != 1.0f || saturation != 1.0f || alpha != 1.0f) {
+                        AnimatedVisibility(
+                            visible = brightness != 1.0f || saturation != 1.0f || alpha != 1.0f,
+                            enter = expandHorizontally(tween(200)) + fadeIn(tween(200)),
+                            exit = shrinkHorizontally(tween(160)) + fadeOut(tween(160))
+                        ) {
                             Text(
                                 text = stringResource(R.string.settings_theme_adjustments_reset),
                                 fontSize = 11.sp,

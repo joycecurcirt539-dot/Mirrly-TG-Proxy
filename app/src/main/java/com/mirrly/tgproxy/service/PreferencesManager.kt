@@ -25,6 +25,39 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.util.UUID
 
+import androidx.annotation.StringRes
+
+/**
+ * Стратегии автоматического выбора встроенных VPN-серверов.
+ */
+enum class VpnAutoSelectStrategy(
+    val id: String,
+    @StringRes val titleRes: Int,
+    @StringRes val subtitleRes: Int,
+    val title: String = "",
+    val subtitle: String = ""
+) {
+    TEL_FIRST("TEL_FIRST", R.string.vpn_auto_strat_tel_title, R.string.vpn_auto_strat_tel_sub),
+    LOWEST_PING("LOWEST_PING", R.string.vpn_auto_strat_ping_title, R.string.vpn_auto_strat_ping_sub),
+    ANYCAST_FIRST("ANYCAST_FIRST", R.string.vpn_auto_strat_anycast_title, R.string.vpn_auto_strat_anycast_sub),
+    CUSTOM_ORDER("CUSTOM_ORDER", R.string.vpn_auto_strat_custom_title, R.string.vpn_auto_strat_custom_sub)
+}
+
+/**
+ * Категории серверов для пользовательской расстановки приоритетов автовыбора.
+ */
+enum class VpnAutoCategory(
+    val id: String,
+    @StringRes val titleRes: Int,
+    @StringRes val descriptionRes: Int,
+    val title: String = "",
+    val description: String = ""
+) {
+    TEL("TEL", R.string.vpn_auto_cat_tel_title, R.string.vpn_auto_cat_tel_desc),
+    ANYCAST("ANYCAST", R.string.vpn_auto_cat_anycast_title, R.string.vpn_auto_cat_anycast_desc),
+    DEDICATED("DEDICATED", R.string.vpn_auto_cat_dedicated_title, R.string.vpn_auto_cat_dedicated_desc)
+}
+
 class PreferencesManager(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("mirrly_tg_proxy_prefs", Context.MODE_PRIVATE)
     private val secretPrefs: SharedPreferences = context.getSharedPreferences("mirrly_secrets_prefs", Context.MODE_PRIVATE)
@@ -37,6 +70,9 @@ class PreferencesManager(private val context: Context) {
 
     private val _isWsRandomizationEnabledFlow = MutableStateFlow(isWsRandomizationEnabled())
     val isWsRandomizationEnabledFlow: StateFlow<Boolean> = _isWsRandomizationEnabledFlow.asStateFlow()
+
+    private val _isTlsEnabledFlow = MutableStateFlow(isTlsEnabled())
+    val isTlsEnabledFlow: StateFlow<Boolean> = _isTlsEnabledFlow.asStateFlow()
 
     private val _isTlsRecordPaddingEnabledFlow = MutableStateFlow(isTlsRecordPaddingEnabled())
     val isTlsRecordPaddingEnabledFlow: StateFlow<Boolean> = _isTlsRecordPaddingEnabledFlow.asStateFlow()
@@ -64,6 +100,17 @@ class PreferencesManager(private val context: Context) {
 
     private val _activeWorkerIdSocks5Flow = MutableStateFlow(getActiveWorkerId(ProxyMode.SOCKS5))
     val activeWorkerIdSocks5Flow: StateFlow<String> = _activeWorkerIdSocks5Flow.asStateFlow()
+
+    private val _isWorkerSwipeEnabledFlow = MutableStateFlow(
+        prefs.getBoolean("worker_swipe_enabled", !prefs.getBoolean("worker_swipe_blocked", true))
+    )
+    val isWorkerSwipeEnabledFlow: StateFlow<Boolean> = _isWorkerSwipeEnabledFlow.asStateFlow()
+
+    private val _isWorkerSwipeBlockedFlow = MutableStateFlow(!_isWorkerSwipeEnabledFlow.value)
+    val isWorkerSwipeBlockedFlow: StateFlow<Boolean> = _isWorkerSwipeBlockedFlow.asStateFlow()
+
+    private val _isHomeModeSwipeEnabledFlow = MutableStateFlow(prefs.getBoolean("home_mode_swipe_enabled", true))
+    val isHomeModeSwipeEnabledFlow: StateFlow<Boolean> = _isHomeModeSwipeEnabledFlow.asStateFlow()
 
     private val _uplinkModeFlow = MutableStateFlow(loadConfig().uplinkMode)
     val uplinkModeFlow: StateFlow<com.mirrly.tgproxy.core.UplinkMode> = _uplinkModeFlow.asStateFlow()
@@ -109,6 +156,22 @@ class PreferencesManager(private val context: Context) {
 
     private val _vpnAutoProfileEnabledFlow = MutableStateFlow(prefs.getBoolean("vpn_auto_profile_enabled", true))
     val vpnAutoProfileEnabledFlow: StateFlow<Boolean> = _vpnAutoProfileEnabledFlow.asStateFlow()
+
+    private val _vpnSelectedBuiltinServerIdFlow = MutableStateFlow(prefs.getString("vpn_selected_builtin_server_id", "builtin_tel_fi") ?: "builtin_tel_fi")
+    val vpnSelectedBuiltinServerIdFlow: StateFlow<String> = _vpnSelectedBuiltinServerIdFlow.asStateFlow()
+
+    private val _vpnUseCustomProfileFlow = MutableStateFlow(prefs.getBoolean("vpn_use_custom_profile", false))
+    val vpnUseCustomProfileFlow: StateFlow<Boolean> = _vpnUseCustomProfileFlow.asStateFlow()
+
+    // ── VPN Server Auto-Select Priority Settings Flows ──
+    private val _vpnAutoSelectStrategyFlow = MutableStateFlow(getVpnAutoSelectStrategy())
+    val vpnAutoSelectStrategyFlow: StateFlow<VpnAutoSelectStrategy> = _vpnAutoSelectStrategyFlow.asStateFlow()
+
+    private val _vpnAutoSelectCategoryOrderFlow = MutableStateFlow(getVpnAutoSelectCategoryOrder())
+    val vpnAutoSelectCategoryOrderFlow: StateFlow<List<String>> = _vpnAutoSelectCategoryOrderFlow.asStateFlow()
+
+    private val _vpnAutoSelectDisabledServersFlow = MutableStateFlow(getVpnAutoSelectDisabledServers())
+    val vpnAutoSelectDisabledServersFlow: StateFlow<Set<String>> = _vpnAutoSelectDisabledServersFlow.asStateFlow()
 
     // ── AI Chat & Neural Engine Settings Flows ──
     private val _aiProviderFlow = MutableStateFlow(getAiProvider())
@@ -379,6 +442,26 @@ class PreferencesManager(private val context: Context) {
     private val _aiChatDraftFlow = MutableStateFlow(getAiChatDraft())
     val aiChatDraftFlow: StateFlow<String> = _aiChatDraftFlow.asStateFlow()
 
+    // ── Cloudflare Session Reactive Flows ──
+    private val _isCloudflareAuthorizedFlow = MutableStateFlow(isCloudflareAuthorized())
+    val isCloudflareAuthorizedFlow: StateFlow<Boolean> = _isCloudflareAuthorizedFlow.asStateFlow()
+
+    private val _cloudflareAccountIdFlow = MutableStateFlow(getCloudflareAccountId().orEmpty())
+    val cloudflareAccountIdFlow: StateFlow<String> = _cloudflareAccountIdFlow.asStateFlow()
+
+    private val _cloudflareAccountNameFlow = MutableStateFlow(getCloudflareAccountName().orEmpty())
+    val cloudflareAccountNameFlow: StateFlow<String> = _cloudflareAccountNameFlow.asStateFlow()
+
+    private val _cloudflareSubdomainFlow = MutableStateFlow(getCloudflareSubdomain().orEmpty())
+    val cloudflareSubdomainFlow: StateFlow<String> = _cloudflareSubdomainFlow.asStateFlow()
+
+    fun updateCloudflareSessionFlows() {
+        _isCloudflareAuthorizedFlow.value = isCloudflareAuthorized()
+        _cloudflareAccountIdFlow.value = getCloudflareAccountId().orEmpty()
+        _cloudflareAccountNameFlow.value = getCloudflareAccountName().orEmpty()
+        _cloudflareSubdomainFlow.value = getCloudflareSubdomain().orEmpty()
+    }
+
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == KEY_THEME_ACCENT_MODE) {
             val mode = getThemeAccentMode()
@@ -469,6 +552,12 @@ class PreferencesManager(private val context: Context) {
         if (key == KEY_WS_RANDOMIZATION_ENABLED) {
             _isWsRandomizationEnabledFlow.value = sharedPreferences.getBoolean(key, true)
         }
+        if (key == KEY_TLS_ENABLED) {
+            _isTlsEnabledFlow.value = sharedPreferences.getBoolean(
+                key,
+                com.mirrly.tgproxy.util.LocaleHelper.isPersianLanguage(getAppLanguage())
+            )
+        }
         if (key == KEY_TLS_RECORD_PADDING_ENABLED) {
             _isTlsRecordPaddingEnabledFlow.value = sharedPreferences.getBoolean(key, true)
         }
@@ -476,10 +565,11 @@ class PreferencesManager(private val context: Context) {
             _isTlsClientHelloSplitEnabledFlow.value = sharedPreferences.getBoolean(key, true)
         }
         if (key == KEY_SOCKS5_UPLINK_MODE) {
-            val mode = sharedPreferences.getInt(key, 0)
+            val mode = sharedPreferences.getInt(key, 1)
             _socks5UplinkModeFlow.value = mode
             try {
                 MirrlyApplication.instance.config.socks5UplinkMode = mode
+                MirrlyApplication.instance.proxyServer.applySocks5UplinkMode(mode)
             } catch (_: Throwable) {}
             com.mirrly.tgproxy.core.NativeProxy.setSocks5UplinkMode(mode)
         }
@@ -541,6 +631,21 @@ class PreferencesManager(private val context: Context) {
         if (key == "vpn_auto_profile_enabled") {
             _vpnAutoProfileEnabledFlow.value = sharedPreferences.getBoolean(key, true)
         }
+        if (key == "vpn_selected_builtin_server_id") {
+            _vpnSelectedBuiltinServerIdFlow.value = sharedPreferences.getString(key, "builtin_tel_fi") ?: "builtin_tel_fi"
+        }
+        if (key == "vpn_use_custom_profile") {
+            _vpnUseCustomProfileFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == "vpn_auto_select_strategy") {
+            _vpnAutoSelectStrategyFlow.value = getVpnAutoSelectStrategy()
+        }
+        if (key == "vpn_auto_select_category_order") {
+            _vpnAutoSelectCategoryOrderFlow.value = getVpnAutoSelectCategoryOrder()
+        }
+        if (key == "vpn_auto_select_disabled_servers") {
+            _vpnAutoSelectDisabledServersFlow.value = getVpnAutoSelectDisabledServers()
+        }
         if (key == "force_mobile_mode_enabled") {
             _forceMobileModeFlow.value = sharedPreferences.getBoolean(key, false)
         }
@@ -557,6 +662,9 @@ class PreferencesManager(private val context: Context) {
             _disabledLogCategoriesFlow.value = sharedPreferences.getStringSet("logs_disabled_categories", emptySet()) ?: emptySet()
             _disabledLogTagsFlow.value = sharedPreferences.getStringSet("logs_disabled_tags", emptySet()) ?: emptySet()
             syncLogSettingsToAppLogger()
+        }
+        if (key == "cf_account_id" || key == "cf_account_name" || key == "cf_subdomain") {
+            updateCloudflareSessionFlows()
         }
     }
 
@@ -622,14 +730,22 @@ class PreferencesManager(private val context: Context) {
         val tcpNoDelay = !nagleEnabled
         val tcpNoDelayModeName = if (nagleEnabled) com.mirrly.tgproxy.core.NagleMode.ENABLED.name else com.mirrly.tgproxy.core.NagleMode.DISABLED.name
         val savedBufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
-        val bufferMigrationDone = prefs.getBoolean("socket_buffer_autotune_migrated_v3", false)
-        val bufferSizeBytes = if (!bufferMigrationDone && (savedBufferSizeBytes == 262144 || savedBufferSizeBytes == 131072) &&
-            speedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
-        ) 0 else savedBufferSizeBytes
+        val bufferMigrationDone = prefs.getBoolean("socket_buffer_autotune_migrated_v4", false)
+        val bufferSizeBytes = if (!bufferMigrationDone) {
+            if (speedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name ||
+                savedBufferSizeBytes == 262144 || savedBufferSizeBytes == 131072
+            ) {
+                0
+            } else {
+                savedBufferSizeBytes
+            }
+        } else {
+            savedBufferSizeBytes
+        }
         if (!bufferMigrationDone) {
             prefs.edit()
                 .putInt("buffer_size_bytes", bufferSizeBytes)
-                .putBoolean("socket_buffer_autotune_migrated_v3", true)
+                .putBoolean("socket_buffer_autotune_migrated_v4", true)
                 .apply()
         }
         val happyEyeballsDelayMs = prefs.getLong("happy_eyeballs_delay_ms", defaults.happyEyeballsDelayMs)
@@ -650,10 +766,54 @@ class PreferencesManager(private val context: Context) {
         val socks5Password = WarpKeystoreEncryption.decrypt(socks5PasswordRaw)
         val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
         val socks5OptimisticResponse = prefs.getBoolean("socks5_optimistic_response", defaults.socks5OptimisticResponse)
-        val socks5UplinkMode = prefs.getInt(KEY_SOCKS5_UPLINK_MODE, defaults.socks5UplinkMode)
+        val socks5UplinkMigrationDone = prefs.getBoolean("socks5_uplink_default_flowseal_migrated_v1", false)
+        var socks5UplinkMode = prefs.getInt(KEY_SOCKS5_UPLINK_MODE, defaults.socks5UplinkMode)
+        if (!socks5UplinkMigrationDone) {
+            val activeWorkerSocks5Id = prefs.getString(KEY_ACTIVE_WORKER_ID_SOCKS5, "") ?: ""
+            val hasCustomWorker = activeWorkerSocks5Id.isNotBlank() && activeWorkerSocks5Id != "no_worker"
+            if (!hasCustomWorker) {
+                socks5UplinkMode = 1
+                prefs.edit().putInt(KEY_SOCKS5_UPLINK_MODE, 1).putBoolean("socks5_uplink_default_flowseal_migrated_v1", true).apply()
+            } else {
+                prefs.edit().putBoolean("socks5_uplink_default_flowseal_migrated_v1", true).apply()
+            }
+        }
         val targetTelegramPort = prefs.getInt("target_telegram_port", defaults.targetTelegramPort)
         val useWorkerMtproto = prefs.getBoolean("use_worker_mtproto", defaults.useWorkerMtproto)
 
+        val currentAppLanguage = getAppLanguage()
+        val tlsStartupState = resolveTlsStartupState(
+            langCode = currentAppLanguage,
+            systemLanguage = com.mirrly.tgproxy.util.LocaleHelper.getSystemLocale().language,
+            hasStoredTlsValue = prefs.contains(KEY_TLS_ENABLED),
+            storedTlsValue = prefs.getBoolean(KEY_TLS_ENABLED, false),
+            v1MigrationDone = prefs.getBoolean("tls_default_disabled_migrated_v1", false),
+            faMigrationDone = prefs.getBoolean(KEY_TLS_FA_DEFAULT_MIGRATED, false),
+            hasUserOverride = prefs.getBoolean(KEY_TLS_USER_OVERRIDE, false)
+        )
+        val isTlsEnabled = tlsStartupState.isTlsEnabled
+        if (tlsStartupState.shouldPersistTls ||
+            tlsStartupState.markUserOverride ||
+            tlsStartupState.markV1Migrated ||
+            tlsStartupState.markFaDefaultMigrated
+        ) {
+            prefs.edit().apply {
+                if (tlsStartupState.shouldPersistTls) {
+                    putBoolean(KEY_TLS_ENABLED, isTlsEnabled)
+                }
+                if (tlsStartupState.markUserOverride) {
+                    putBoolean(KEY_TLS_USER_OVERRIDE, true)
+                }
+                if (tlsStartupState.markV1Migrated) {
+                    putBoolean("tls_default_disabled_migrated_v1", true)
+                }
+                if (tlsStartupState.markFaDefaultMigrated) {
+                    putBoolean(KEY_TLS_FA_DEFAULT_MIGRATED, true)
+                }
+                apply()
+            }
+            _isTlsEnabledFlow.value = isTlsEnabled
+        }
         val isTlsRecordPaddingEnabled = prefs.getBoolean(KEY_TLS_RECORD_PADDING_ENABLED, defaults.isTlsRecordPaddingEnabled)
         val isTlsClientHelloSplitEnabled = prefs.getBoolean(KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED, defaults.isTlsClientHelloSplitEnabled)
         val qosMigrationDone = prefs.getBoolean("qos_default_disabled_migrated_v2", false)
@@ -674,6 +834,9 @@ class PreferencesManager(private val context: Context) {
             prefs.getBoolean("is_adaptive_qos_enabled", defaults.isAdaptiveQoSEnabled)
         }
         val isDialThrottlingEnabled = prefs.getBoolean("dial_throttling_enabled", defaults.isDialThrottlingEnabled)
+        val isAlarmClockWatchdogEnabled = prefs.getBoolean("is_alarm_clock_watchdog_enabled", defaults.isAlarmClockWatchdogEnabled)
+        val isCpuAntiFreezeEnabled = prefs.getBoolean("is_cpu_anti_freeze_enabled", defaults.isCpuAntiFreezeEnabled)
+        val isTrafficPulseEnabled = prefs.getBoolean("is_traffic_pulse_enabled", defaults.isTrafficPulseEnabled)
         if (!qosMigrationDone) {
             prefs.edit()
                 .putBoolean("is_battery_guard_enabled", isBatteryGuardEnabled)
@@ -682,11 +845,10 @@ class PreferencesManager(private val context: Context) {
                 .putBoolean("qos_default_disabled_migrated_v2", true)
                 .apply()
         }
-        val enabledDohProviderIds = emptySet<String>()
 
         val uplinkModeName = com.mirrly.tgproxy.core.UplinkMode.WORKER.name
         var vpnUplinkModeName = prefs.getString("vpn_uplink_mode", defaults.vpnUplinkModeName) ?: defaults.vpnUplinkModeName
-        if (vpnUplinkModeName != com.mirrly.tgproxy.core.UplinkMode.MASQUE.name && vpnUplinkModeName != com.mirrly.tgproxy.core.UplinkMode.AWG.name) {
+        if (vpnUplinkModeName != com.mirrly.tgproxy.core.UplinkMode.AWG.name) {
             vpnUplinkModeName = com.mirrly.tgproxy.core.UplinkMode.AWG.name
         }
         val vpnMtu = prefs.getInt("vpn_mtu", defaults.vpnMtu)
@@ -710,20 +872,13 @@ class PreferencesManager(private val context: Context) {
         val warpP256PrivateKey = WarpKeystoreEncryption.decrypt(warpP256PrivateKeyRaw)
         val warpP256PublicKey = prefs.getString("warp_p256_public_key", defaults.warpP256PublicKey) ?: defaults.warpP256PublicKey
         val warpClientCert = prefs.getString("warp_client_cert", defaults.warpClientCert) ?: defaults.warpClientCert
-        val warpMasqueAccountId = prefs.getString("warp_masque_account_id", defaults.warpMasqueAccountId) ?: defaults.warpMasqueAccountId
-        val warpMasqueTokenRaw = secretPrefs.getString("warp_masque_token", null) ?: prefs.getString("warp_masque_token", defaults.warpMasqueToken) ?: defaults.warpMasqueToken
-        val warpMasqueToken = WarpKeystoreEncryption.decrypt(warpMasqueTokenRaw)
-        val warpMasquePeerEndpoint = prefs.getString("warp_masque_peer_endpoint", defaults.warpMasquePeerEndpoint) ?: defaults.warpMasquePeerEndpoint
-        val warpMasquePeerPublicKey = prefs.getString("warp_masque_peer_public_key", defaults.warpMasquePeerPublicKey) ?: defaults.warpMasquePeerPublicKey
-        val warpMasqueClientIpv4 = prefs.getString("warp_masque_client_ipv4", defaults.warpMasqueClientIpv4) ?: defaults.warpMasqueClientIpv4
-        val warpMasqueClientIpv6 = prefs.getString("warp_masque_client_ipv6", defaults.warpMasqueClientIpv6) ?: defaults.warpMasqueClientIpv6
         val isWgValid = prefs.getBoolean("is_wg_valid", defaults.isWgValid)
-        val isMasqueValid = prefs.getBoolean("is_masque_valid", defaults.isMasqueValid)
-        val warpMasqueSni = prefs.getString("warp_masque_sni", defaults.warpMasqueSni)?.takeIf { it.isNotBlank() } ?: defaults.warpMasqueSni
+        val warpClientId = prefs.getString("warp_client_id", defaults.warpClientId) ?: defaults.warpClientId
         val isWarpPlus = prefs.getBoolean("is_warp_plus", defaults.isWarpPlus)
         val isWarpAccountActive = prefs.getBoolean("is_warp_account_active", defaults.isWarpAccountActive)
         val awgStrategyName = prefs.getString("awg_strategy_name", defaults.awgStrategyName) ?: defaults.awgStrategyName
         val awgCustomIni = prefs.getString("awg_custom_ini", defaults.awgCustomIni) ?: defaults.awgCustomIni
+        val warpMeasuredWgEndpoint = prefs.getString("warp_measured_wg_endpoint", defaults.warpMeasuredWgEndpoint) ?: defaults.warpMeasuredWgEndpoint
 
         return ProxyConfig(
             bindHost = bindHost,
@@ -731,6 +886,7 @@ class PreferencesManager(private val context: Context) {
             secretHex = secretHex,
             cfProxyEnabled = cfEnabled,
             customCfDomain = customDomain,
+            isTlsEnabled = isTlsEnabled,
             isTlsRecordPaddingEnabled = isTlsRecordPaddingEnabled,
             isTlsClientHelloSplitEnabled = isTlsClientHelloSplitEnabled,
             mtprotoStandbyPerActiveSlotValue = poolSize,
@@ -755,8 +911,10 @@ class PreferencesManager(private val context: Context) {
             batteryGuardStopOnPowerSave = batteryGuardStopOnPowerSave,
             isAdaptiveQoSEnabled = isAdaptiveQoSEnabled,
             isDialThrottlingEnabled = isDialThrottlingEnabled,
+            isAlarmClockWatchdogEnabled = isAlarmClockWatchdogEnabled,
+            isCpuAntiFreezeEnabled = isCpuAntiFreezeEnabled,
+            isTrafficPulseEnabled = isTrafficPulseEnabled,
             proxyModeName = proxyModeName,
-            enabledDohProviderIds = enabledDohProviderIds,
             uplinkModeName = uplinkModeName,
             vpnUplinkModeName = vpnUplinkModeName,
             vpnMtu = vpnMtu,
@@ -776,15 +934,9 @@ class PreferencesManager(private val context: Context) {
             warpClientCert = warpClientCert,
             isWarpPlus = isWarpPlus,
             isWarpAccountActive = isWarpAccountActive,
-            warpMasqueAccountId = warpMasqueAccountId,
-            warpMasqueToken = warpMasqueToken,
-            warpMasquePeerEndpoint = warpMasquePeerEndpoint,
-            warpMasquePeerPublicKey = warpMasquePeerPublicKey,
-            warpMasqueClientIpv4 = warpMasqueClientIpv4,
-            warpMasqueClientIpv6 = warpMasqueClientIpv6,
             isWgValid = isWgValid,
-            isMasqueValid = isMasqueValid,
-            warpMasqueSni = warpMasqueSni,
+            warpClientId = warpClientId,
+            warpMeasuredWgEndpoint = warpMeasuredWgEndpoint,
             awgStrategyName = awgStrategyName,
             awgCustomIni = awgCustomIni,
             vpnDnsModeName = vpnDnsModeName,
@@ -820,7 +972,6 @@ class PreferencesManager(private val context: Context) {
             .putString("warp_token", WarpKeystoreEncryption.encrypt(config.warpToken))
             .putString("warp_private_key", WarpKeystoreEncryption.encrypt(config.warpPrivateKey))
             .putString("warp_p256_private_key", WarpKeystoreEncryption.encrypt(config.warpP256PrivateKey))
-            .putString("warp_masque_token", WarpKeystoreEncryption.encrypt(config.warpMasqueToken))
             .putString("socks5_password", WarpKeystoreEncryption.encrypt(config.socks5Password))
             .putString("warp_license_key", WarpKeystoreEncryption.encrypt(config.warpLicenseKey))
             .apply()
@@ -830,7 +981,6 @@ class PreferencesManager(private val context: Context) {
             .remove("warp_token")
             .remove("warp_private_key")
             .remove("warp_p256_private_key")
-            .remove("warp_masque_token")
             .remove("socks5_password")
             .remove("warp_license_key")
             .putString("bind_host", config.bindHost)
@@ -858,10 +1008,13 @@ class PreferencesManager(private val context: Context) {
             .putBoolean("is_battery_guard_enabled", config.isBatteryGuardEnabled)
             .putInt("battery_guard_threshold", config.batteryGuardThreshold)
             .putBoolean("battery_guard_stop_on_powersave", config.batteryGuardStopOnPowerSave)
+            .putBoolean(KEY_TLS_ENABLED, config.isTlsEnabled)
             .putBoolean("is_adaptive_qos_enabled", config.isAdaptiveQoSEnabled)
             .putBoolean("dial_throttling_enabled", config.isDialThrottlingEnabled)
+            .putBoolean("is_alarm_clock_watchdog_enabled", config.isAlarmClockWatchdogEnabled)
+            .putBoolean("is_cpu_anti_freeze_enabled", config.isCpuAntiFreezeEnabled)
+            .putBoolean("is_traffic_pulse_enabled", config.isTrafficPulseEnabled)
             .putString("proxy_mode", config.proxyModeName)
-            .putStringSet("enabled_doh_providers", config.enabledDohProviderIds)
             .putString("uplink_mode", config.uplinkModeName)
             .putString("warp_account_id", config.warpAccountId)
             .putString("warp_client_ipv4", config.warpClientIpv4)
@@ -871,14 +1024,9 @@ class PreferencesManager(private val context: Context) {
             .putString("warp_public_key", config.warpPublicKey)
             .putString("warp_p256_public_key", config.warpP256PublicKey)
             .putString("warp_client_cert", config.warpClientCert)
-            .putString("warp_masque_account_id", config.warpMasqueAccountId)
-            .putString("warp_masque_peer_endpoint", config.warpMasquePeerEndpoint)
-            .putString("warp_masque_peer_public_key", config.warpMasquePeerPublicKey)
-            .putString("warp_masque_client_ipv4", config.warpMasqueClientIpv4)
-            .putString("warp_masque_client_ipv6", config.warpMasqueClientIpv6)
-            .putString("warp_masque_sni", config.warpMasqueSni)
+            .putString("warp_client_id", config.warpClientId)
+            .putString("warp_measured_wg_endpoint", config.warpMeasuredWgEndpoint)
             .putBoolean("is_wg_valid", config.isWgValid)
-            .putBoolean("is_masque_valid", config.isMasqueValid)
             .putBoolean("is_warp_plus", config.isWarpPlus)
             .putBoolean("is_warp_account_active", config.isWarpAccountActive)
             .putString("awg_strategy_name", config.awgStrategyName)
@@ -926,12 +1074,13 @@ class PreferencesManager(private val context: Context) {
         _socks5UplinkModeFlow.value = mode
         try {
             MirrlyApplication.instance.config.socks5UplinkMode = mode
+            MirrlyApplication.instance.proxyServer.applySocks5UplinkMode(mode)
         } catch (_: Throwable) {}
         com.mirrly.tgproxy.core.NativeProxy.setSocks5UplinkMode(mode)
     }
 
     fun getSocks5UplinkMode(): Int {
-        return prefs.getInt(KEY_SOCKS5_UPLINK_MODE, 0)
+        return prefs.getInt(KEY_SOCKS5_UPLINK_MODE, 1)
     }
 
     fun setTargetTelegramPort(port: Int) {
@@ -951,7 +1100,6 @@ class PreferencesManager(private val context: Context) {
             .putString("warp_license_key", WarpKeystoreEncryption.encrypt(profile.licenseKey))
             .putString("warp_private_key", WarpKeystoreEncryption.encrypt(profile.privateKeyBase64))
             .putString("warp_p256_private_key", WarpKeystoreEncryption.encrypt(profile.p256PrivateKeyBase64))
-            .putString("warp_masque_token", WarpKeystoreEncryption.encrypt(profile.masqueToken))
             .commit()
 
         prefs.edit()
@@ -964,13 +1112,8 @@ class PreferencesManager(private val context: Context) {
             .putString("warp_public_key", profile.publicKeyBase64)
             .putString("warp_p256_public_key", profile.p256PublicKeyBase64)
             .putString("warp_client_cert", profile.clientCertBase64)
-            .putString("warp_masque_account_id", profile.masqueAccountId)
-            .putString("warp_masque_peer_endpoint", profile.masquePeerEndpoint)
-            .putString("warp_masque_peer_public_key", profile.masquePeerPublicKey)
-            .putString("warp_masque_client_ipv4", profile.masqueClientIpv4)
-            .putString("warp_masque_client_ipv6", profile.masqueClientIpv6)
+            .putString("warp_client_id", profile.clientId)
             .putBoolean("is_wg_valid", profile.isWgValid)
-            .putBoolean("is_masque_valid", profile.isMasqueValid)
             .putBoolean("is_warp_plus", profile.isWarpPlus)
             .putBoolean("is_warp_account_active", profile.isWarpEnabled)
             .putBoolean("is_registered", profile.isRegistered)
@@ -982,10 +1125,7 @@ class PreferencesManager(private val context: Context) {
             .putBoolean("is_offline_cached", profile.isOfflineCached)
             .putString("warp_api_endpoint", profile.apiEndpoint)
             .putString("warp_user_endpoint_override", profile.userEndpointOverride ?: "")
-            .putString("warp_masque_api_endpoint", profile.masqueApiEndpoint)
-            .putString("warp_masque_user_override", profile.masqueUserOverride ?: "")
             .putString("warp_measured_wg_endpoint", profile.measuredWgEndpoint ?: "")
-            .putString("warp_measured_masque_endpoint", profile.measuredMasqueEndpoint ?: "")
             .apply()
     }
 
@@ -1007,21 +1147,11 @@ class PreferencesManager(private val context: Context) {
         val p256PrivateKey = WarpKeystoreEncryption.decrypt(p256PrivateKeyRaw)
         val p256PublicKey = prefs.getString("warp_p256_public_key", "") ?: ""
         val clientCert = prefs.getString("warp_client_cert", "") ?: ""
-        val masqueAccountId = prefs.getString("warp_masque_account_id", "") ?: ""
-        val masqueTokenRaw = secretPrefs.getString("warp_masque_token", "") ?: ""
-        val masqueToken = WarpKeystoreEncryption.decrypt(masqueTokenRaw)
-        val masquePeerEndpoint = prefs.getString("warp_masque_peer_endpoint", "") ?: ""
-        val masquePeerPublicKey = prefs.getString("warp_masque_peer_public_key", "") ?: ""
-        val masqueClientIpv4 = prefs.getString("warp_masque_client_ipv4", "") ?: ""
-        val masqueClientIpv6 = prefs.getString("warp_masque_client_ipv6", "") ?: ""
         val isWgValid = prefs.getBoolean("is_wg_valid", accountId.isNotBlank() && accountId != "mirrly-warp-bootstrap-id")
-        val isMasqueValid = prefs.getBoolean("is_masque_valid", p256PrivateKey.isNotBlank())
         val isWarpPlus = prefs.getBoolean("is_warp_plus", false)
         val isWarpAccountActive = prefs.getBoolean("is_warp_account_active", false)
         val isReg = prefs.getBoolean("is_registered", true)
         val isAct = prefs.getBoolean("is_activated", isWarpAccountActive)
-        val credsValid = prefs.getBoolean("credentials_valid", isWgValid || isMasqueValid)
-        val dpReady = prefs.getBoolean("data_plane_ready", isAct && (isWgValid || isMasqueValid))
         val entName = prefs.getString("entitlement", "") ?: ""
         val entitlement = try {
             if (entName.isNotBlank()) com.mirrly.tgproxy.core.WarpEntitlement.valueOf(entName) else if (isWarpPlus) com.mirrly.tgproxy.core.WarpEntitlement.PLUS else com.mirrly.tgproxy.core.WarpEntitlement.FREE
@@ -1030,12 +1160,12 @@ class PreferencesManager(private val context: Context) {
         }
         val needsVer = prefs.getBoolean("needs_verification", false)
         val isOffline = prefs.getBoolean("is_offline_cached", false)
+        val credsValid = prefs.getBoolean("credentials_valid", true)
+        val dpReady = prefs.getBoolean("data_plane_ready", true)
         val apiEndpoint = prefs.getString("warp_api_endpoint", "") ?: ""
         val userEndpointOverride = prefs.getString("warp_user_endpoint_override", "").takeIf { !it.isNullOrBlank() }
-        val masqueApiEndpoint = prefs.getString("warp_masque_api_endpoint", "") ?: ""
-        val masqueUserOverride = prefs.getString("warp_masque_user_override", "").takeIf { !it.isNullOrBlank() }
         val measuredWgEndpoint = prefs.getString("warp_measured_wg_endpoint", "").takeIf { !it.isNullOrBlank() }
-        val measuredMasqueEndpoint = prefs.getString("warp_measured_masque_endpoint", "").takeIf { !it.isNullOrBlank() }
+        val clientId = prefs.getString("warp_client_id", "") ?: ""
 
         return com.mirrly.tgproxy.core.WarpProfile(
             accountId = accountId,
@@ -1052,12 +1182,6 @@ class PreferencesManager(private val context: Context) {
             clientCertBase64 = clientCert,
             isWarpPlus = isWarpPlus,
             isWarpEnabled = isWarpAccountActive,
-            masqueAccountId = masqueAccountId,
-            masqueToken = masqueToken,
-            masquePeerEndpoint = masquePeerEndpoint,
-            masquePeerPublicKey = masquePeerPublicKey,
-            masqueClientIpv4 = masqueClientIpv4,
-            masqueClientIpv6 = masqueClientIpv6,
             isRegistered = isReg,
             isActivated = isAct,
             credentialsValid = credsValid,
@@ -1066,13 +1190,10 @@ class PreferencesManager(private val context: Context) {
             needsVerification = needsVer,
             isOfflineCached = isOffline,
             isWgValid = isWgValid,
-            isMasqueValid = isMasqueValid,
             apiEndpoint = apiEndpoint,
             userEndpointOverride = userEndpointOverride,
-            masqueApiEndpoint = masqueApiEndpoint,
-            masqueUserOverride = masqueUserOverride,
             measuredWgEndpoint = measuredWgEndpoint,
-            measuredMasqueEndpoint = measuredMasqueEndpoint
+            clientId = clientId
         )
     }
 
@@ -1104,12 +1225,6 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun getVpnCustomDnsIps(): String = _vpnCustomDnsIpsFlow.value
-
-    fun getEnabledDohProviderIds(): Set<String> = emptySet()
-
-    fun setEnabledDohProviderIds(ids: Set<String>) {
-        // No-op: DoH is removed from MTProto and SOCKS5 pipelines
-    }
 
 
     fun incrementLaunchCount(): Int {
@@ -2021,6 +2136,9 @@ class PreferencesManager(private val context: Context) {
         const val CENTRAL_BUTTON_GLOW_INTENSITY_DEFAULT = 1.0f
         const val KEY_AI_CHAT_DRAFT = "ai_chat_draft"
 
+        const val KEY_TLS_ENABLED = "tls_enabled"
+        private const val KEY_TLS_USER_OVERRIDE = "tls_user_override"
+        private const val KEY_TLS_FA_DEFAULT_MIGRATED = "tls_fa_default_enabled_migrated_v1"
         const val KEY_ECH_ENABLED = "ech_enabled"
         const val KEY_WS_RANDOMIZATION_ENABLED = "ws_randomization_enabled"
         const val KEY_TLS_RECORD_PADDING_ENABLED = "tls_record_padding_enabled"
@@ -2125,6 +2243,7 @@ class PreferencesManager(private val context: Context) {
             val report = JSONObject()
             report.put("schema_version", 2)
             report.put("timestamp_utc_ms", System.currentTimeMillis())
+            report.put("tls_enabled", config.isTlsEnabled)
             report.put("uplink_mode", config.uplinkModeName)
             report.put("proxy_mode", config.proxyModeName)
             report.put("bind_port", config.bindPort)
@@ -2156,6 +2275,123 @@ class PreferencesManager(private val context: Context) {
             report.put("vpn_active_udp_sessions", vpnStatus.activeUdpSessions)
 
             return report.toString(2)
+        }
+
+        internal data class TlsStartupState(
+            val isTlsEnabled: Boolean,
+            val shouldPersistTls: Boolean,
+            val markUserOverride: Boolean,
+            val markV1Migrated: Boolean,
+            val markFaDefaultMigrated: Boolean
+        )
+
+        internal data class TlsLanguageTransition(
+            val shouldUpdateTls: Boolean,
+            val newTlsEnabled: Boolean,
+            val clearUserOverride: Boolean
+        )
+
+        /**
+         * Resolves initial `isTlsEnabled` across fresh installs, legacy migrations, and explicit user overrides.
+         * Persian (`fa`) defaults to TLS 1.2/1.3 enabled; other languages default to disabled.
+         */
+        internal fun resolveTlsStartupState(
+            langCode: String,
+            systemLanguage: String,
+            hasStoredTlsValue: Boolean,
+            storedTlsValue: Boolean,
+            v1MigrationDone: Boolean,
+            faMigrationDone: Boolean,
+            hasUserOverride: Boolean
+        ): TlsStartupState {
+            val defaultForLang = com.mirrly.tgproxy.util.LocaleHelper.isPersianLanguage(
+                langCode = langCode,
+                systemLanguage = systemLanguage
+            )
+            if (!v1MigrationDone) {
+                return TlsStartupState(
+                    isTlsEnabled = defaultForLang,
+                    shouldPersistTls = true,
+                    markUserOverride = false,
+                    markV1Migrated = true,
+                    markFaDefaultMigrated = true
+                )
+            }
+            if (!faMigrationDone) {
+                if (defaultForLang) {
+                    val enableForFa = if (!hasUserOverride && (!hasStoredTlsValue || !storedTlsValue)) true else storedTlsValue
+                    return TlsStartupState(
+                        isTlsEnabled = enableForFa,
+                        shouldPersistTls = !hasStoredTlsValue || enableForFa != storedTlsValue,
+                        markUserOverride = false,
+                        markV1Migrated = false,
+                        markFaDefaultMigrated = true
+                    )
+                }
+                val preserveManualEnable = !hasUserOverride && hasStoredTlsValue && storedTlsValue
+                return TlsStartupState(
+                    isTlsEnabled = if (hasStoredTlsValue) storedTlsValue else false,
+                    shouldPersistTls = false,
+                    markUserOverride = preserveManualEnable,
+                    markV1Migrated = false,
+                    markFaDefaultMigrated = true
+                )
+            }
+            return TlsStartupState(
+                isTlsEnabled = if (hasStoredTlsValue) storedTlsValue else defaultForLang,
+                shouldPersistTls = false,
+                markUserOverride = false,
+                markV1Migrated = false,
+                markFaDefaultMigrated = false
+            )
+        }
+
+        /**
+         * Computes whether switching app language should auto-update TLS 1.2/1.3 without clobbering
+         * an explicit manual override within the active language family.
+         */
+        internal fun resolveTlsOnLanguageChange(
+            previousLangCode: String,
+            newLangCode: String,
+            systemLanguage: String,
+            currentTlsEnabled: Boolean,
+            hasUserOverride: Boolean
+        ): TlsLanguageTransition {
+            val wasPersian = com.mirrly.tgproxy.util.LocaleHelper.isPersianLanguage(
+                langCode = previousLangCode,
+                systemLanguage = systemLanguage
+            )
+            val isNowPersian = com.mirrly.tgproxy.util.LocaleHelper.isPersianLanguage(
+                langCode = newLangCode,
+                systemLanguage = systemLanguage
+            )
+            if (wasPersian == isNowPersian) {
+                return TlsLanguageTransition(
+                    shouldUpdateTls = false,
+                    newTlsEnabled = currentTlsEnabled,
+                    clearUserOverride = false
+                )
+            }
+            if (isNowPersian) {
+                return TlsLanguageTransition(
+                    shouldUpdateTls = !currentTlsEnabled,
+                    newTlsEnabled = true,
+                    clearUserOverride = true
+                )
+            }
+            return if (!hasUserOverride) {
+                TlsLanguageTransition(
+                    shouldUpdateTls = currentTlsEnabled,
+                    newTlsEnabled = false,
+                    clearUserOverride = false
+                )
+            } else {
+                TlsLanguageTransition(
+                    shouldUpdateTls = false,
+                    newTlsEnabled = currentTlsEnabled,
+                    clearUserOverride = false
+                )
+            }
         }
     }
 
@@ -2345,6 +2581,9 @@ class PreferencesManager(private val context: Context) {
         }
         _activeWorkerIdFlow.value = id
         val worker = getActiveWorker(mode = mode, activeId = id)
+        if (fromUserAction && mode == ProxyMode.SOCKS5 && worker.domain.isNotBlank()) {
+            setSocks5UplinkMode(0)
+        }
 
         try {
             val app = com.mirrly.tgproxy.MirrlyApplication.instance
@@ -2414,6 +2653,33 @@ class PreferencesManager(private val context: Context) {
                 domain = "",
                 isDeveloperWorker = false
             )
+    }
+
+    fun isWorkerSwipeEnabled(): Boolean = prefs.getBoolean(
+        "worker_swipe_enabled",
+        !prefs.getBoolean("worker_swipe_blocked", true)
+    )
+
+    fun setWorkerSwipeEnabled(enabled: Boolean) {
+        prefs.edit()
+            .putBoolean("worker_swipe_enabled", enabled)
+            .putBoolean("worker_swipe_blocked", !enabled)
+            .apply()
+        _isWorkerSwipeEnabledFlow.value = enabled
+        _isWorkerSwipeBlockedFlow.value = !enabled
+    }
+
+    fun isWorkerSwipeBlocked(): Boolean = !isWorkerSwipeEnabled()
+
+    fun setWorkerSwipeBlocked(blocked: Boolean) {
+        setWorkerSwipeEnabled(!blocked)
+    }
+
+    fun isHomeModeSwipeEnabled(): Boolean = prefs.getBoolean("home_mode_swipe_enabled", true)
+
+    fun setHomeModeSwipeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("home_mode_swipe_enabled", enabled).apply()
+        _isHomeModeSwipeEnabledFlow.value = enabled
     }
 
     fun getIgnoredUpdateVersion(): String? {
@@ -2529,12 +2795,31 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun setAppLanguage(langCode: String) {
-        prefs.edit().putString("app_language", langCode).apply()
+        val previousLang = getAppLanguage()
+        val systemLanguage = com.mirrly.tgproxy.util.LocaleHelper.getSystemLocale().language
+        val transition = resolveTlsOnLanguageChange(
+            previousLangCode = previousLang,
+            newLangCode = langCode,
+            systemLanguage = systemLanguage,
+            currentTlsEnabled = isTlsEnabled(),
+            hasUserOverride = prefs.getBoolean(KEY_TLS_USER_OVERRIDE, false)
+        )
+        prefs.edit().apply {
+            putString("app_language", langCode)
+            putBoolean(KEY_TLS_FA_DEFAULT_MIGRATED, true)
+            if (transition.clearUserOverride) {
+                remove(KEY_TLS_USER_OVERRIDE)
+            }
+            apply()
+        }
         _appLanguageFlow.value = langCode
         // MainActivity observes appLanguageFlow and supplies a localized Compose context.
         // Mutating Resources here during a click can invalidate the active composition and
         // leave the first-run onboarding controls unresponsive on Android 14.
         java.util.Locale.setDefault(com.mirrly.tgproxy.util.LocaleHelper.getTargetLocale(langCode))
+        if (transition.shouldUpdateTls) {
+            setTlsEnabled(transition.newTlsEnabled, isUserOverride = false)
+        }
     }
 
     // ── Advanced / Expert Mode Settings ──────────────────────────────────────
@@ -2573,6 +2858,11 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun resetAdvancedSettingsToDefaults(config: ProxyConfig) {
+        prefs.edit().remove(KEY_TLS_USER_OVERRIDE).apply()
+        setTlsEnabled(
+            com.mirrly.tgproxy.util.LocaleHelper.isPersianLanguage(getAppLanguage()),
+            isUserOverride = false
+        )
         setHappyEyeballsDelayMs(200L)
         setIpFamilyPreference("IPV4_ONLY")
         setSocketKeepAliveSeconds(60)
@@ -2617,6 +2907,7 @@ class PreferencesManager(private val context: Context) {
 
     fun setCloudflareSubdomain(subdomain: String) {
         prefs.edit().putString("cf_subdomain", subdomain).apply()
+        updateCloudflareSessionFlows()
     }
 
     fun setCloudflareToken(token: String) {
@@ -2625,6 +2916,7 @@ class PreferencesManager(private val context: Context) {
         } else {
             secretPrefs.edit().putString("cf_access_token", WarpKeystoreEncryption.encrypt(token)).apply()
         }
+        updateCloudflareSessionFlows()
     }
 
     fun setCloudflareAccountId(accountId: String) {
@@ -2633,6 +2925,7 @@ class PreferencesManager(private val context: Context) {
         } else {
             prefs.edit().putString("cf_account_id", accountId).apply()
         }
+        updateCloudflareSessionFlows()
     }
 
     fun setCloudflareAuthorized(authorized: Boolean) {
@@ -2658,6 +2951,8 @@ class PreferencesManager(private val context: Context) {
             .putString("cf_account_name", accountName ?: "")
             .putString("cf_subdomain", subdomain ?: "")
             .apply()
+
+        updateCloudflareSessionFlows()
     }
 
     fun updateCloudflareAccessToken(accessToken: String, refreshToken: String? = null) {
@@ -2666,6 +2961,7 @@ class PreferencesManager(private val context: Context) {
             editor.putString("cf_refresh_token", WarpKeystoreEncryption.encrypt(refreshToken))
         }
         editor.apply()
+        updateCloudflareSessionFlows()
     }
 
     fun clearCloudflareSession() {
@@ -2679,6 +2975,8 @@ class PreferencesManager(private val context: Context) {
             .remove("cf_account_name")
             .remove("cf_subdomain")
             .apply()
+
+        updateCloudflareSessionFlows()
     }
 
     /**
@@ -2757,6 +3055,92 @@ class PreferencesManager(private val context: Context) {
         _vpnAutoProfileEnabledFlow.value = enabled
     }
 
+    fun getSelectedBuiltinServerId(): String =
+        prefs.getString("vpn_selected_builtin_server_id", "builtin_tel_fi") ?: "builtin_tel_fi"
+
+    fun setSelectedBuiltinServerId(id: String) {
+        prefs.edit().putString("vpn_selected_builtin_server_id", id).apply()
+        _vpnSelectedBuiltinServerIdFlow.value = id
+    }
+
+    fun isVpnUseCustomProfile(): Boolean = prefs.getBoolean("vpn_use_custom_profile", false)
+
+    fun setVpnUseCustomProfile(useCustom: Boolean) {
+        prefs.edit().putBoolean("vpn_use_custom_profile", useCustom).apply()
+        _vpnUseCustomProfileFlow.value = useCustom
+    }
+
+    // ── Настройки приоритетов и стратегии автовыбора VPN-серверов ──
+    fun getVpnAutoSelectStrategy(): VpnAutoSelectStrategy {
+        val raw = prefs.getString("vpn_auto_select_strategy", VpnAutoSelectStrategy.TEL_FIRST.id)
+        return VpnAutoSelectStrategy.values().find { it.id == raw } ?: VpnAutoSelectStrategy.TEL_FIRST
+    }
+
+    fun setVpnAutoSelectStrategy(strategy: VpnAutoSelectStrategy) {
+        prefs.edit().putString("vpn_auto_select_strategy", strategy.id).apply()
+        _vpnAutoSelectStrategyFlow.value = strategy
+    }
+
+    fun getVpnAutoSelectCategoryOrder(): List<String> {
+        val raw = prefs.getString("vpn_auto_select_category_order", "TEL,ANYCAST,DEDICATED") ?: "TEL,ANYCAST,DEDICATED"
+        val list = raw.split(",").filter { it.isNotBlank() }
+        val allCats = listOf("TEL", "ANYCAST", "DEDICATED")
+        val result = list.filter { it in allCats }.toMutableList()
+        allCats.forEach { if (it !in result) result.add(it) }
+        return result
+    }
+
+    fun setVpnAutoSelectCategoryOrder(order: List<String>) {
+        val raw = order.joinToString(",")
+        prefs.edit().putString("vpn_auto_select_category_order", raw).apply()
+        _vpnAutoSelectCategoryOrderFlow.value = order
+    }
+
+    fun moveAutoSelectCategoryUp(categoryId: String) {
+        val current = getVpnAutoSelectCategoryOrder().toMutableList()
+        val index = current.indexOf(categoryId)
+        if (index > 0) {
+            val item = current.removeAt(index)
+            current.add(index - 1, item)
+            setVpnAutoSelectCategoryOrder(current)
+        }
+    }
+
+    fun moveAutoSelectCategoryDown(categoryId: String) {
+        val current = getVpnAutoSelectCategoryOrder().toMutableList()
+        val index = current.indexOf(categoryId)
+        if (index in 0 until current.size - 1) {
+            val item = current.removeAt(index)
+            current.add(index + 1, item)
+            setVpnAutoSelectCategoryOrder(current)
+        }
+    }
+
+    fun getVpnAutoSelectDisabledServers(): Set<String> {
+        return prefs.getStringSet("vpn_auto_select_disabled_servers", emptySet()) ?: emptySet()
+    }
+
+    fun setVpnAutoSelectDisabledServers(disabled: Set<String>) {
+        prefs.edit().putStringSet("vpn_auto_select_disabled_servers", disabled).apply()
+        _vpnAutoSelectDisabledServersFlow.value = disabled
+    }
+
+    fun toggleVpnAutoSelectServer(serverId: String, enabled: Boolean) {
+        val current = getVpnAutoSelectDisabledServers().toMutableSet()
+        if (enabled) {
+            current.remove(serverId)
+        } else {
+            current.add(serverId)
+        }
+        setVpnAutoSelectDisabledServers(current)
+    }
+
+    fun resetVpnAutoSelectSettings() {
+        setVpnAutoSelectStrategy(VpnAutoSelectStrategy.TEL_FIRST)
+        setVpnAutoSelectCategoryOrder(listOf("TEL", "ANYCAST", "DEDICATED"))
+        setVpnAutoSelectDisabledServers(emptySet())
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Redacted Diagnostic Bundle (Task N20)
     // ──────────────────────────────────────────────────────────────────────────
@@ -2790,6 +3174,27 @@ class PreferencesManager(private val context: Context) {
             val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
             app?.config?.isTlsRecordPaddingEnabled = enabled
             app?.proxyServer?.applyTlsRecordPaddingEnabled(enabled)
+        } catch (_: Exception) {}
+    }
+
+    fun isTlsEnabled(): Boolean = prefs.getBoolean(
+        KEY_TLS_ENABLED,
+        com.mirrly.tgproxy.util.LocaleHelper.isPersianLanguage(getAppLanguage())
+    )
+
+    fun setTlsEnabled(enabled: Boolean, isUserOverride: Boolean = true) {
+        prefs.edit().apply {
+            putBoolean(KEY_TLS_ENABLED, enabled)
+            if (isUserOverride) {
+                putBoolean(KEY_TLS_USER_OVERRIDE, true)
+            }
+            apply()
+        }
+        _isTlsEnabledFlow.value = enabled
+        try {
+            val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
+            app?.config?.isTlsEnabled = enabled
+            app?.proxyServer?.applyTlsEnabled(enabled)
         } catch (_: Exception) {}
     }
 

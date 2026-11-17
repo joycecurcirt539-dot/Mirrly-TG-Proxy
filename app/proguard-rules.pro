@@ -1,4 +1,4 @@
-﻿# ====================================================================
+# ====================================================================
 # Mirrly TG Proxy - R8 & Proguard Optimization Rules
 # ====================================================================
 
@@ -73,7 +73,4 @@
 -dontwarn com.mirrly.tgproxy.ui.**
 -dontwarn com.mirrly.tgproxy.util.**
 
-# --- R8 auto-generated missing rules (from missing_rules.txt) ---
--keep class com.mirrly.tgproxy.service.PreferencesManager { *; }
--dontwarn com.mirrly.tgproxy.service.PreferencesManager
--keep class com.mirrly.tgproxy.service.** { *; }
+

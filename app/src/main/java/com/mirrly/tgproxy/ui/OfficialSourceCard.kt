@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -22,7 +23,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -78,15 +78,15 @@ fun OfficialSourceCard(
                     .border(1.dp, statusColor.copy(alpha = 0.5f), CircleShape)
             ) {
                 if (isUnofficial) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_stat_proxy_warning),
+                    MirrlyIcon(
+                        id = R.drawable.ic_stat_proxy_warning,
                         contentDescription = null,
                         tint = statusColor,
                         modifier = Modifier.size(20.dp)
                     )
                 } else {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_shield),
+                    MirrlyIcon(
+                        id = R.drawable.ic_shield,
                         contentDescription = null,
                         tint = ActiveGreenLed,
                         modifier = Modifier.size(20.dp)
@@ -142,8 +142,8 @@ fun OfficialSourceCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_github),
+                    MirrlyIcon(
+                        id = R.drawable.ic_github,
                         contentDescription = null,
                         tint = ActiveGreenLed,
                         modifier = Modifier.size(15.dp)
@@ -189,6 +189,7 @@ fun OfficialSourceCard(
     if (showUnofficialWarningDialog) {
         UnofficialBuildDialog(
             isUnofficialDetected = true,
+            isManualOpen = true,
             onDismiss = { showUnofficialWarningDialog = false }
         )
     }

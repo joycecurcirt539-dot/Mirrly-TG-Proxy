@@ -31,80 +31,116 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.ui.MainActivity
 import java.util.concurrent.TimeUnit
 
 /**
- * Двухуровневый менеджер восстановления работы службы прокси/VPN
- * при удалении приложения из списка недавних задач (Swipe from Recents / onTaskRemoved)
- * на Android 14–16 (API 34–36) и агрессивных китайских оболочках (MagicOS, Realme UI, HyperOS).
+ * Отказоустойчивый менеджер восстановления и удержания работы службы прокси/VPN
+ * при удалении приложения из недавних задач (onTaskRemoved), вытеснении LMK
+ * и в режиме глубокого сна (Doze Mode / PowerGenie) на Android 14–16 (API 34–36)
+ * и агрессивных OEM-оболочках (MagicOS 9, HyperOS, ColorOS, Realme UI).
  *
- * Tier 1: AlarmManager (RTC_WAKEUP, ~1.5s) — моментальный запуск при гибели процесса.
- * Tier 2: WorkManager (OneTimeWork, ~3s) — гарантированная страховка на случай подавления будильников OEM-лаунчером.
+ * Архитектура удержания и восстановления:
+ * 1. Tier 1: Immediate Alarm (RTC_WAKEUP, +1.5s) — моментальное пробуждение при выгрузке по свайпу.
+ * 2. Tier 2: WorkManager (OneTimeWork, +3s) — страховка на случай блокировки будильников лаунчером.
+ * 3. Tier 3: Watchdog Heartbeat (+15 мин) — циклический сторожевой таймер:
+ *    - Если служба жива: продлевает аппаратный WakeLock и сдвигает таймер вперед.
+ *    - Если служба молча уничтожена ночью в Doze mode: пробуждает CPU, восстанавливает ForegroundService
+ *      и обходит ограничения запуска из фона (ForegroundServiceStartNotAllowedException).
  */
 object ProxyResurrectionManager {
     private const val TAG = "ProxyResurrectionManager"
     const val ACTION_RESURRECT_PROXY = "com.mirrly.tgproxy.ACTION_RESURRECT_PROXY"
+    const val ACTION_WATCHDOG_HEARTBEAT = "com.mirrly.tgproxy.ACTION_WATCHDOG_HEARTBEAT"
+
     private const val RESURRECTION_REQUEST_CODE = 9021
+    private const val WATCHDOG_REQUEST_CODE = 9022
     private const val UNIQUE_WORK_NAME = "mirrly_proxy_resurrection"
     private const val TAG_RESURRECTION_WORK = "proxy_resurrection"
 
+    /** Интервал циклического сторожевого таймера (15 минут) */
+    const val WATCHDOG_INTERVAL_MS = 15L * 60 * 1000L
+
+    /** Дельта для мгновенного перезапуска при свайпе задачи */
+    private const val SWIPE_RESURRECTION_DELTA_MS = 1500L
+
     /**
-     * Планирует восстановление службы через AlarmManager и WorkManager,
-     * если служба активна и не находится в процессе преднамеренной остановки.
+     * Планирует восстановление службы при смахивании задачи (onTaskRemoved) или неожиданном onDestroy.
      */
     fun schedule(context: Context) {
         val app = MirrlyApplication.instance
         val prefsManager = app.prefsManager
         if (!prefsManager.isProxyActive()) {
-            AppLogger.d(TAG, "schedule: proxy is not marked active in preferences, skipping resurrection scheduling")
+            AppLogger.d(TAG, "schedule: proxy is not marked active in preferences, skipping")
             return
         }
 
-        AppLogger.i(TAG, "Scheduling two-tier proxy resurrection after task swipe (Android ${Build.VERSION.SDK_INT})")
-        scheduleAlarmManagerTier(context)
-        scheduleWorkManagerTier(context)
+        AppLogger.i(TAG, "Scheduling two-tier immediate resurrection + arming watchdog (Android ${Build.VERSION.SDK_INT})")
+        scheduleImmediateAlarm(context)
+        scheduleImmediateWorkManager(context)
+        scheduleWatchdogHeartbeat(context)
     }
 
     /**
-     * Отменяет все запланированные задачи восстановления (при ручной остановке пользователем).
+     * Запускает периодический сторожевой таймер (Heartbeat) при успешном старте службы.
+     */
+    fun startWatchdog(context: Context) {
+        val app = MirrlyApplication.instance
+        if (!app.prefsManager.isProxyActive()) return
+
+        cancelImmediateAlarms(context)
+        scheduleWatchdogHeartbeat(context)
+        AppLogger.i(TAG, "Watchdog heartbeat armed (every ${WATCHDOG_INTERVAL_MS / 60000}m)")
+    }
+
+    /**
+     * Отменяет все запланированные задачи восстановления и сторожевой таймер
+     * (вызывается при преднамеренном отключении прокси пользователем).
      */
     fun cancel(context: Context) {
-        // 1. Отмена AlarmManager PendingIntent
-        try {
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
-            if (alarmManager != null) {
-                val intent = Intent(context, ProxyResurrectionReceiver::class.java).apply {
-                    action = ACTION_RESURRECT_PROXY
-                }
-                val pendingIntent = PendingIntent.getBroadcast(
-                    context,
-                    RESURRECTION_REQUEST_CODE,
-                    intent,
-                    PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-                )
-                if (pendingIntent != null) {
-                    alarmManager.cancel(pendingIntent)
-                    pendingIntent.cancel()
-                    AppLogger.d(TAG, "AlarmManager resurrection pending intent cancelled")
-                }
-            }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to cancel AlarmManager resurrection: ${e.message}")
+        cancelImmediateAlarms(context)
+        cancelWatchdogAlarm(context)
+        cancelWorkManager(context)
+        AppLogger.d(TAG, "All proxy resurrection and watchdog tasks cancelled")
+    }
+
+    /**
+     * Обработка очередного срабатывания сторожевого пульса (Watchdog Heartbeat).
+     */
+    fun onHeartbeatReceived(context: Context) {
+        val app = MirrlyApplication.instance
+        val prefsManager = app.prefsManager
+        if (!prefsManager.isProxyActive()) {
+            AppLogger.d(TAG, "Watchdog heartbeat: proxy not active in prefs, disarming watchdog")
+            cancel(context)
+            return
         }
 
-        // 2. Отмена WorkManager задачи
-        try {
-            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK_NAME)
-            AppLogger.d(TAG, "WorkManager resurrection work cancelled")
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to cancel WorkManager resurrection: ${e.message}")
+        val isVpnActive = prefsManager.isVpnModeEnabled()
+        val isAlive = if (isVpnActive) {
+            MirrlyVpnService.isRunning
+        } else {
+            app.proxyServer.isRunning
+        }
+
+        if (isAlive) {
+            AppLogger.d(TAG, "Watchdog heartbeat: service is alive (vpn=$isVpnActive). Refreshing WakeLock...")
+            if (!isVpnActive) {
+                refreshWakeLockIfRunning(context)
+            }
+            // Перепланируем следующий пульс сторожевого таймера
+            scheduleWatchdogHeartbeat(context)
+        } else {
+            AppLogger.w(TAG, "Watchdog heartbeat detected DEAD service while active in prefs! Resurrecting now...")
+            resurrectIfNeeded(context, reason = "WatchdogHeartbeat")
+            scheduleWatchdogHeartbeat(context)
         }
     }
 
     /**
-     * Tier 1: AlarmManager с дельта-задержкой 1.5 секунды.
+     * Мгновенный будильник на +1.5 сек.
      */
-    private fun scheduleAlarmManagerTier(context: Context) {
+    private fun scheduleImmediateAlarm(context: Context) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val intent = Intent(context, ProxyResurrectionReceiver::class.java).apply {
             action = ACTION_RESURRECT_PROXY
@@ -116,46 +152,102 @@ object ProxyResurrectionManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val triggerAtMillis = System.currentTimeMillis() + 1500L
+        val triggerAtMillis = System.currentTimeMillis() + SWIPE_RESURRECTION_DELTA_MS
+        armAlarmWithFallback(alarmManager, triggerAtMillis, pendingIntent, context)
+        AppLogger.d(TAG, "Immediate resurrection alarm scheduled (+${SWIPE_RESURRECTION_DELTA_MS}ms)")
+    }
 
+    /**
+     * Планирование следующего сторожевого пульса (Heartbeat).
+     */
+    private fun scheduleWatchdogHeartbeat(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val intent = Intent(context, ProxyResurrectionReceiver::class.java).apply {
+            action = ACTION_WATCHDOG_HEARTBEAT
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            WATCHDOG_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val triggerAtMillis = System.currentTimeMillis() + WATCHDOG_INTERVAL_MS
+        armAlarmWithFallback(alarmManager, triggerAtMillis, pendingIntent, context)
+    }
+
+    /**
+     * Универсальная постановка будильника с гарантированным обходом ограничений Android 12–16.
+     * Если exact-будильники заблокированы политикой ОС, используется setAlarmClock,
+     * который не требует разрешений и всегда выводит процессор из глубокого Doze.
+     */
+    private fun armAlarmWithFallback(
+        alarmManager: AlarmManager,
+        triggerAtMillis: Long,
+        pendingIntent: PendingIntent,
+        context: Context
+    ) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    alarmManager.canScheduleExactAlarms()
+                val app = MirrlyApplication.instance
+                val preferAlarmClock = app.config.isAlarmClockWatchdogEnabled
+                if (preferAlarmClock) {
+                    armAlarmClock(alarmManager, triggerAtMillis, pendingIntent, context)
                 } else {
-                    true
-                }
-                if (canExact) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                } else {
-                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                    val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        alarmManager.canScheduleExactAlarms()
+                    } else {
+                        true
+                    }
+                    if (canExact) {
+                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                    } else {
+                        armAlarmClock(alarmManager, triggerAtMillis, pendingIntent, context)
+                    }
                 }
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                 alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
             } else {
                 alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
             }
-            AppLogger.d(TAG, "AlarmManager resurrection scheduled (+1500ms)")
-        } catch (e: SecurityException) {
+        } catch (_: SecurityException) {
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                } else {
-                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                }
-                AppLogger.d(TAG, "AlarmManager resurrection scheduled via fallback (+1500ms)")
+                armAlarmClock(alarmManager, triggerAtMillis, pendingIntent, context)
             } catch (fallbackEx: Exception) {
-                AppLogger.w(TAG, "Failed to schedule AlarmManager resurrection: ${fallbackEx.message}")
+                AppLogger.w(TAG, "Failed to arm alarm via alarm clock fallback: ${fallbackEx.message}")
             }
         } catch (e: Exception) {
-            AppLogger.w(TAG, "Unexpected error scheduling AlarmManager resurrection: ${e.message}")
+            AppLogger.w(TAG, "Unexpected error scheduling alarm: ${e.message}")
         }
     }
 
     /**
-     * Tier 2: WorkManager с отложенным запуском на 3 секунды.
+     * Запасной запуск через AlarmClockInfo. Дает 100% гарантию пробуждения устройства
+     * и официальное право на старт ForegroundService из фона на Android 14–16.
      */
-    private fun scheduleWorkManagerTier(context: Context) {
+    private fun armAlarmClock(
+        alarmManager: AlarmManager,
+        triggerAtMillis: Long,
+        pendingIntent: PendingIntent,
+        context: Context
+    ) {
+        val showIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val showPendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            showIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val info = AlarmManager.AlarmClockInfo(triggerAtMillis, showPendingIntent)
+        alarmManager.setAlarmClock(info, pendingIntent)
+    }
+
+    /**
+     * WorkManager страховка (+3 сек) при удалении из недавних.
+     */
+    private fun scheduleImmediateWorkManager(context: Context) {
         try {
             val workRequest = OneTimeWorkRequestBuilder<ProxyResurrectionWorker>()
                 .setInitialDelay(3, TimeUnit.SECONDS)
@@ -173,8 +265,66 @@ object ProxyResurrectionManager {
         }
     }
 
+    private fun cancelImmediateAlarms(context: Context) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val intent = Intent(context, ProxyResurrectionReceiver::class.java).apply {
+                action = ACTION_RESURRECT_PROXY
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                RESURRECTION_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (pendingIntent != null) {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to cancel immediate resurrection alarm: ${e.message}")
+        }
+    }
+
+    private fun cancelWatchdogAlarm(context: Context) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val intent = Intent(context, ProxyResurrectionReceiver::class.java).apply {
+                action = ACTION_WATCHDOG_HEARTBEAT
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                WATCHDOG_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (pendingIntent != null) {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to cancel watchdog alarm: ${e.message}")
+        }
+    }
+
+    private fun cancelWorkManager(context: Context) {
+        try {
+            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK_NAME)
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to cancel WorkManager: ${e.message}")
+        }
+    }
+
+    private fun refreshWakeLockIfRunning(context: Context) {
+        try {
+            ProxyForegroundService.refreshWakeLockDirectly()
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to direct-refresh WakeLock: ${e.message}")
+        }
+    }
+
     /**
-     * Общий метод проверки и запуска службы при срабатывании любого из уровней восстановления.
+     * Проверка и восстановление службы.
      */
     fun resurrectIfNeeded(context: Context, reason: String) {
         val app = MirrlyApplication.instance
@@ -195,11 +345,15 @@ object ProxyResurrectionManager {
         }
 
         if (isVpnActive) {
+            if (MirrlyVpnService.isRunning) {
+                AppLogger.d(TAG, "Resurrection skipped: VPN service is already running")
+                return
+            }
             if (MirrlyVpnService.prepare(context) == null) {
-                AppLogger.i(TAG, "Resurrecting MirrlyVpnService...")
+                AppLogger.i(TAG, "Resurrecting MirrlyVpnService ($reason)...")
                 MirrlyVpnService.start(context)
             } else {
-                AppLogger.w(TAG, "Cannot resurrect MirrlyVpnService: VPN system permission not granted")
+                AppLogger.w(TAG, "Cannot resurrect MirrlyVpnService: VPN permission not granted")
             }
             return
         }
@@ -219,23 +373,51 @@ object ProxyResurrectionManager {
             } else {
                 context.startService(serviceIntent)
             }
-            AppLogger.i(TAG, "Successfully requested ProxyForegroundService resurrection")
+            AppLogger.i(TAG, "Successfully requested ProxyForegroundService resurrection ($reason)")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to start service during resurrection ($reason): ${e.message}")
+            // Если Android 14+ заблокировал прямой запуск из фона (ForegroundServiceStartNotAllowedException),
+            // взводим микро-будильник через setAlarmClock на +300мс, гарантирующий исключение из блокировки
+            armMicroResurrectionAlarmClock(context)
+        }
+    }
+
+    private fun armMicroResurrectionAlarmClock(context: Context) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val intent = Intent(context, ProxyResurrectionReceiver::class.java).apply {
+                action = ACTION_RESURRECT_PROXY
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                RESURRECTION_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            armAlarmClock(alarmManager, System.currentTimeMillis() + 300L, pendingIntent, context)
+            AppLogger.i(TAG, "Armed setAlarmClock micro-fallback (+300ms) to bypass background start restriction")
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to arm setAlarmClock micro-fallback: ${e.message}")
         }
     }
 }
 
 /**
- * BroadcastReceiver для получения сигнала пробуждения от AlarmManager.
+ * BroadcastReceiver для получения сигналов пробуждения от AlarmManager.
  */
 class ProxyResurrectionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
-        if (action != ProxyResurrectionManager.ACTION_RESURRECT_PROXY) return
-
-        AppLogger.i("ProxyResurrectionReceiver", "Resurrection alarm received")
-        ProxyResurrectionManager.resurrectIfNeeded(context, reason = "AlarmManager")
+        when (action) {
+            ProxyResurrectionManager.ACTION_RESURRECT_PROXY -> {
+                AppLogger.i("ProxyResurrectionReceiver", "Resurrection alarm received")
+                ProxyResurrectionManager.resurrectIfNeeded(context, reason = "AlarmManager")
+            }
+            ProxyResurrectionManager.ACTION_WATCHDOG_HEARTBEAT -> {
+                AppLogger.i("ProxyResurrectionReceiver", "Watchdog heartbeat alarm received")
+                ProxyResurrectionManager.onHeartbeatReceived(context)
+            }
+        }
     }
 }
 

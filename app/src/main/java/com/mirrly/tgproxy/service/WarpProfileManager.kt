@@ -9,9 +9,9 @@ package com.mirrly.tgproxy.service
 
 import android.content.Context
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.core.BuiltinVpnServers
+import com.mirrly.tgproxy.core.BuiltinVpnServerItem
 import com.mirrly.tgproxy.core.NativeProxy
-import com.mirrly.tgproxy.core.WarpGeneratedProfileItem
-import com.mirrly.tgproxy.core.WarpGeneratorFormat
 import com.mirrly.tgproxy.core.WarpImportResult
 import com.mirrly.tgproxy.core.WarpProfile
 import com.mirrly.tgproxy.core.WarpProfileParser
@@ -38,13 +38,14 @@ import java.util.zip.ZipOutputStream
  */
 enum class WarpProfileOrigin {
     CONFIGURATOR, // Создан в конфигураторе/генераторе
-    IMPORTED      // Импортирован пользователем
+    IMPORTED,     // Импортирован пользователем
+    BUILTIN       // Встроенный эталонный сервер
 }
 
 data class WarpSavedProfile(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val format: WarpGeneratorFormat,
+    val format: ImportedProfileType,
     val endpoint: String,
     val dnsLine: String,
     val content: String,
@@ -52,7 +53,7 @@ data class WarpSavedProfile(
     val createdAt: Long = System.currentTimeMillis(),
     val isFavorite: Boolean = false,
     val warnings: List<String> = emptyList(),
-    val origin: WarpProfileOrigin = WarpProfileOrigin.CONFIGURATOR
+    val origin: WarpProfileOrigin = WarpProfileOrigin.IMPORTED
 ) {
     /**
      * Главные профили: созданные через конфигуратор либо импортированные.
@@ -78,18 +79,16 @@ data class WarpSavedProfile(
 
     companion object {
         fun fromJsonObject(json: JSONObject): WarpSavedProfile? = try {
-            val formatStr = json.optString("format", WarpGeneratorFormat.WARP_MASQUE.name)
+            val formatStr = json.optString("format", ImportedProfileType.AMNEZIA_WG_CONF.name)
             val format = when (formatStr) {
-                "WARP_MASQUE", "MASQUE" -> WarpGeneratorFormat.WARP_MASQUE
-                "AMNEZIA_WG", "AWG_1_0" -> WarpGeneratorFormat.AWG_1_0
-                "AWG_2_0" -> WarpGeneratorFormat.AWG_2_0
-                "AWG_3_0" -> WarpGeneratorFormat.AWG_3_0
-                "AWG_3_1" -> WarpGeneratorFormat.AWG_3_1
-                "WIREGUARD", "WIRESOCK", "CLASH_META" -> WarpGeneratorFormat.WARP_MASQUE
+                "CLASH_YAML", "CLASH_META", "CLASH_META_YAML" -> ImportedProfileType.CLASH_META_YAML
+                "WIREGUARD", "WIREGUARD_CONF", "WIRESOCK" -> ImportedProfileType.WIREGUARD_CONF
+                "AWG_UNIVERSAL", "AMNEZIA_WG", "AMNEZIA_WG_CONF", "AWG_1_0", "AWG_2_0", "AWG_3_0", "AWG_3_1" -> ImportedProfileType.AMNEZIA_WG_CONF
+                "CLOUDFLARE_JSON" -> ImportedProfileType.CLOUDFLARE_JSON
                 else -> try {
-                    WarpGeneratorFormat.valueOf(formatStr)
+                    ImportedProfileType.valueOf(formatStr)
                 } catch (_: Exception) {
-                    WarpGeneratorFormat.WARP_MASQUE
+                    ImportedProfileType.AMNEZIA_WG_CONF
                 }
             }
             val originStr = json.optString("origin", WarpProfileOrigin.CONFIGURATOR.name)
@@ -126,6 +125,23 @@ data class WarpSavedProfile(
     }
 }
 
+fun BuiltinVpnServerItem.toWarpSavedProfile(): WarpSavedProfile {
+    val app = com.mirrly.tgproxy.MirrlyApplication.instance
+    val effectiveDns = app.config.getEffectiveVpnDnsIpv4().joinToString(", ")
+    return WarpSavedProfile(
+        id = this.id,
+        name = this.name,
+        format = ImportedProfileType.AMNEZIA_WG_CONF,
+        endpoint = this.endpoint,
+        dnsLine = effectiveDns.ifBlank { "1.1.1.1, 1.0.0.1" },
+        content = this.rawConfig,
+        isWarpSafe = true,
+        createdAt = 0L,
+        isFavorite = false,
+        origin = WarpProfileOrigin.BUILTIN
+    )
+}
+
 /**
  * Менеджер профилей WARP: хранение, пакетный импорт, экспорт в ZIP/файлы,
  * выбор активного профиля и синхронизация с сетевым движком.
@@ -142,7 +158,7 @@ class WarpProfileManager private constructor(private val context: Context) {
 
     fun getAllProfiles(): List<WarpSavedProfile> = _profilesFlow.value
 
-    fun hasUserProfiles(): Boolean = _profilesFlow.value.any { it.isPriority }
+    fun hasUserProfiles(): Boolean = _profilesFlow.value.any { it.origin == WarpProfileOrigin.IMPORTED || (it.isPriority && it.name != "Auto WARP" && it.name != "Auto WARP (Clash)") }
 
     fun getActiveProfileId(): String? = prefs.getString(KEY_ACTIVE_PROFILE_ID, null)
 
@@ -194,30 +210,145 @@ class WarpProfileManager private constructor(private val context: Context) {
         return targetPool.firstOrNull() ?: candidatePool.first()
     }
 
+    private val _serverPings = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun recordServerPing(serverId: String, rttMs: Long) {
+        if (rttMs > 0L) {
+            _serverPings[serverId] = rttMs
+        }
+    }
+
+    fun getServerPing(serverId: String): Long? = _serverPings[serverId]
+
+    fun getAllServerPings(): Map<String, Long> = _serverPings.toMap()
+
+    fun resolveBestBuiltinServer(): BuiltinVpnServerItem {
+        val app = com.mirrly.tgproxy.MirrlyApplication.instance
+        val strategy = app.prefsManager.getVpnAutoSelectStrategy()
+        val disabledIds = app.prefsManager.getVpnAutoSelectDisabledServers()
+        val categoryOrder = app.prefsManager.getVpnAutoSelectCategoryOrder()
+
+        val allServers = BuiltinVpnServers.ALL
+        // Отсеиваем отключенные пользователем серверы из пула автовыбора
+        val enabledServers = allServers.filter { it.id !in disabledIds }
+        val pool = if (enabledServers.isNotEmpty()) enabledServers else allServers
+
+        // Серверы с успешно измеренным пингом
+        val measured = pool.filter {
+            val ping = _serverPings[it.id]
+            ping != null && ping > 0L
+        }
+
+        // Если замеры завершены, выбираем из измеренных; иначе из всего разрешенного пула
+        val candidates = if (measured.isNotEmpty()) measured else pool
+
+        fun bestByPing(list: List<BuiltinVpnServerItem>): BuiltinVpnServerItem? {
+            if (list.isEmpty()) return null
+            return list.minByOrNull { _serverPings[it.id] ?: Long.MAX_VALUE } ?: list.first()
+        }
+
+        val chosen: BuiltinVpnServerItem? = when (strategy) {
+            VpnAutoSelectStrategy.TEL_FIRST -> {
+                val telServers = candidates.filter { it.isTel }
+                bestByPing(telServers) ?: bestByPing(candidates)
+            }
+            VpnAutoSelectStrategy.LOWEST_PING -> {
+                bestByPing(candidates)
+            }
+            VpnAutoSelectStrategy.ANYCAST_FIRST -> {
+                val anycastServers = candidates.filter { it.isAnycast }
+                bestByPing(anycastServers) ?: bestByPing(candidates)
+            }
+            VpnAutoSelectStrategy.CUSTOM_ORDER -> {
+                var found: BuiltinVpnServerItem? = null
+                for (cat in categoryOrder) {
+                    val matching = when (cat) {
+                        "TEL" -> candidates.filter { it.isTel }
+                        "ANYCAST" -> candidates.filter { it.isAnycast }
+                        "DEDICATED" -> candidates.filter { !it.isTel && !it.isAnycast }
+                        else -> emptyList()
+                    }
+                    val best = bestByPing(matching)
+                    if (best != null) {
+                        found = best
+                        break
+                    }
+                }
+                found ?: bestByPing(candidates)
+            }
+        }
+
+        return chosen ?: BuiltinVpnServers.SERVER_BUILTIN_TEL_FI
+    }
+
+    fun selectAutoServer() {
+        val app = com.mirrly.tgproxy.MirrlyApplication.instance
+        app.prefsManager.setSelectedBuiltinServerId(BuiltinVpnServers.ID_AUTO)
+        app.prefsManager.setVpnUseCustomProfile(false)
+        val autoProfile = getActiveBuiltinServer().toWarpSavedProfile()
+        prefs.edit().putString(KEY_ACTIVE_PROFILE_ID, autoProfile.id).apply()
+        _activeProfileIdFlow.value = autoProfile.id
+        if (MirrlyVpnService.isRunning) {
+            MirrlyVpnService.restart(context)
+        }
+    }
+
+    fun getBuiltinServers(): List<BuiltinVpnServerItem> = BuiltinVpnServers.ALL
+
+    fun getActiveBuiltinServer(): BuiltinVpnServerItem {
+        val app = com.mirrly.tgproxy.MirrlyApplication.instance
+        val selectedId = app.prefsManager.getSelectedBuiltinServerId()
+        if (selectedId == BuiltinVpnServers.ID_AUTO) {
+            return resolveBestBuiltinServer()
+        }
+        return BuiltinVpnServers.getById(selectedId)
+    }
+
+    fun getCustomProfiles(): List<WarpSavedProfile> = _profilesFlow.value.filter { it.origin != WarpProfileOrigin.BUILTIN }
+
+    fun getActiveCustomProfile(): WarpSavedProfile? {
+        val custom = getCustomProfiles()
+        val activeId = getActiveProfileId()
+        return custom.find { it.id == activeId } ?: custom.firstOrNull()
+    }
+
+    fun selectBuiltinServer(server: BuiltinVpnServerItem) {
+        val app = com.mirrly.tgproxy.MirrlyApplication.instance
+        app.prefsManager.setSelectedBuiltinServerId(server.id)
+        app.prefsManager.setVpnUseCustomProfile(false)
+        val builtinProfile = server.toWarpSavedProfile()
+        prefs.edit().putString(KEY_ACTIVE_PROFILE_ID, builtinProfile.id).apply()
+        _activeProfileIdFlow.value = builtinProfile.id
+        if (MirrlyVpnService.isRunning) {
+            MirrlyVpnService.restart(context)
+        }
+    }
+
+    fun selectCustomProfile(profile: WarpSavedProfile) {
+        val app = com.mirrly.tgproxy.MirrlyApplication.instance
+        app.prefsManager.setVpnUseCustomProfile(true)
+        setActiveProfile(profile.id)
+    }
+
     /**
-     * Возвращает эффективный активный профиль с учетом переключателя автоподбора.
-     * Если автоподбор включен в настройках и профилей больше одного, система подбирает узел автоматически.
-     * Если выключен ползунком, строго возвращается профиль, выбранный пользователем.
-     * Если пользователь создал хотя бы один профиль, стандартный профиль или профиль старого регистратора
-     * КАТЕГОРИЧЕСКИ НЕ ДОЛЖНЫ ИСПОЛЬЗОВАТЬСЯ.
+     * Возвращает эффективный активный профиль с учетом режима (Простой vs Продвинутый)
+     * и разделения (Серверы vs Свои профили).
      */
     fun getEffectiveActiveProfile(): WarpSavedProfile? {
-        val profiles = _profilesFlow.value
-        if (profiles.isEmpty()) return null
-
         val app = com.mirrly.tgproxy.MirrlyApplication.instance
-        val isAutoEnabled = app.prefsManager.isVpnAutoProfileEnabled()
+        val customProfiles = getCustomProfiles()
+        val useCustom = app.prefsManager.isVpnUseCustomProfile()
 
-        val priorityProfiles = profiles.filter { it.isPriority }
-        val effectivePool = if (priorityProfiles.isNotEmpty()) priorityProfiles else profiles
-
-        if (effectivePool.size == 1) return effectivePool.first()
-
-        return if (isAutoEnabled) {
-            resolveAutoProfile() ?: effectivePool.find { it.id == getActiveProfileId() } ?: effectivePool.first()
-        } else {
-            effectivePool.find { it.id == getActiveProfileId() } ?: effectivePool.first()
+        // Если пользователь выбрал встроенный сервер (useCustom == false) или список своих профилей пуст
+        if (!useCustom || customProfiles.isEmpty()) {
+            val builtin = getActiveBuiltinServer()
+            return builtin.toWarpSavedProfile()
         }
+
+        // Если пользователь явно переключился на "Свои профили" (useCustom == true)
+        val activeId = getActiveProfileId()
+        val foundCustom = customProfiles.find { it.id == activeId } ?: customProfiles.firstOrNull()
+        return foundCustom ?: getActiveBuiltinServer().toWarpSavedProfile()
     }
 
     /**
@@ -227,154 +358,7 @@ class WarpProfileManager private constructor(private val context: Context) {
      * с сохранением в активные, предотвращая отказ запуска VPN на других устройствах.
      */
     fun ensureDefaultProfile(): WarpSavedProfile {
-        val existing = getEffectiveActiveProfile()
-        if (existing != null) return existing
-
-        val app = com.mirrly.tgproxy.MirrlyApplication.instance
-        val config = app.config
-
-        // Если в хранилище уже есть валидный аккаунт WARP, применяем его к конфигурации
-        val savedWarp = app.prefsManager.getWarpProfile()
-        if (savedWarp != null && savedWarp.isUsable() && !savedWarp.isBootstrap()) {
-            config.applyWarpProfile(savedWarp)
-            app.prefsManager.saveConfig(config)
-        } else if (config.warpPrivateKey.isBlank()) {
-            // Если приватный ключ еще не сгенерирован, генерируем пару ключей Curve25519
-            val (priv, pub) = com.mirrly.tgproxy.core.WarpAccountManager.generateWireGuardKeyPair()
-            config.warpPrivateKey = priv
-            config.warpPublicKey = pub
-            config.warpClientIpv4 = "172.16.0.2"
-            config.warpPeerEndpoint = "162.159.193.10:1701"
-            config.warpMeasuredWgEndpoint = "162.159.193.10:1701"
-            app.prefsManager.saveConfig(config)
-        }
-
-        val (rawHost, rawPort) = com.mirrly.tgproxy.core.WarpEndpointScanner.parseEndpoint(config.warpPeerEndpoint)
-        val cleanEp = if (rawHost.isNotBlank() && rawPort in listOf(500, 1701, 4500)) {
-            "$rawHost:$rawPort"
-        } else if (rawHost.isNotBlank()) {
-            "$rawHost:1701"
-        } else {
-            "162.159.193.10:1701"
-        }
-
-        val awgContent = config.getAmneziaWgConfig(cleanEndpoint = cleanEp)
-        val defaultProfile = WarpSavedProfile(
-            name = "Auto WARP",
-            format = com.mirrly.tgproxy.core.WarpGeneratorFormat.AWG_1_0,
-            endpoint = cleanEp,
-            dnsLine = "1.1.1.1, 1.0.0.1",
-            content = awgContent,
-            origin = WarpProfileOrigin.CONFIGURATOR
-        )
-
-        val current = _profilesFlow.value.toMutableList()
-        current.add(0, defaultProfile)
-        persistProfiles(current)
-        setActiveProfile(defaultProfile.id)
-        AppLogger.i(TAG, "Автоматически создан и активирован базовый профиль WARP: ${defaultProfile.name} ($cleanEp)")
-        return defaultProfile
-    }
-
-    /**
-     * Обновляет базовый профиль "Auto WARP" зарегистрированными данными учетной записи Cloudflare.
-     */
-    fun updateDefaultProfileWithRegisteredAccount(profile: WarpProfile): WarpSavedProfile {
-        val app = com.mirrly.tgproxy.MirrlyApplication.instance
-        val config = app.config
-        val (rawHost, rawPort) = com.mirrly.tgproxy.core.WarpEndpointScanner.parseEndpoint(config.warpPeerEndpoint)
-        val cleanEp = if (rawHost.isNotBlank() && rawPort in listOf(500, 1701, 4500)) {
-            "$rawHost:$rawPort"
-        } else if (rawHost.isNotBlank()) {
-            "$rawHost:1701"
-        } else {
-            "162.159.193.10:1701"
-        }
-        val awgContent = config.getAmneziaWgConfig(cleanEndpoint = cleanEp)
-        val updatedProfile = WarpSavedProfile(
-            name = "Auto WARP",
-            format = com.mirrly.tgproxy.core.WarpGeneratorFormat.AWG_1_0,
-            endpoint = cleanEp,
-            dnsLine = "1.1.1.1, 1.0.0.1",
-            content = awgContent,
-            origin = WarpProfileOrigin.CONFIGURATOR
-        )
-        val current = _profilesFlow.value.toMutableList()
-        val idx = current.indexOfFirst { it.name == "Auto WARP" }
-        if (idx >= 0) {
-            current[idx] = updatedProfile.copy(id = current[idx].id)
-        } else {
-            current.add(0, updatedProfile)
-        }
-        persistProfiles(current)
-        setActiveProfile(updatedProfile.id)
-        AppLogger.i(TAG, "Базовый профиль 'Auto WARP' обновлен зарегистрированными ключами Cloudflare (IPv4: ${profile.clientIpv4})")
-        return updatedProfile
-    }
-
-    /**
-     * Сохраняет один сгенерированный результат в базу профилей.
-     */
-    fun saveGeneratedProfile(
-        item: WarpGeneratedProfileItem,
-        makeActive: Boolean = false
-    ): WarpSavedProfile {
-        val profile = WarpSavedProfile(
-            id = item.id,
-            name = item.name.take(10),
-            format = item.format,
-            endpoint = item.endpoint,
-            dnsLine = item.dnsLine,
-            content = item.content,
-            isWarpSafe = item.isWarpSafe,
-            warnings = item.warnings,
-            origin = WarpProfileOrigin.CONFIGURATOR
-        )
-        val current = _profilesFlow.value.toMutableList()
-        // Удаляем существующий с таким ID или именем при перезаписи
-        current.removeAll { it.id == profile.id || it.name == profile.name }
-        current.add(0, profile)
-        persistProfiles(current)
-
-        if (makeActive || getActiveProfileId() == null) {
-            setActiveProfile(profile.id)
-        }
-        return profile
-    }
-
-    /**
-     * Пакетное сохранение списка результатов генерации.
-     */
-    fun saveGeneratedBatch(
-        items: List<WarpGeneratedProfileItem>,
-        makeFirstActive: Boolean = false
-    ): List<WarpSavedProfile> {
-        if (items.isEmpty()) return emptyList()
-        val saved = mutableListOf<WarpSavedProfile>()
-        val current = _profilesFlow.value.toMutableList()
-
-        for (item in items) {
-            val prof = WarpSavedProfile(
-                id = item.id,
-                name = item.name.take(10),
-                format = item.format,
-                endpoint = item.endpoint,
-                dnsLine = item.dnsLine,
-                content = item.content,
-                isWarpSafe = item.isWarpSafe,
-                warnings = item.warnings,
-                origin = WarpProfileOrigin.CONFIGURATOR
-            )
-            current.removeAll { it.id == prof.id || it.name == prof.name }
-            saved.add(prof)
-        }
-        current.addAll(0, saved)
-        persistProfiles(current)
-
-        if ((makeFirstActive || getActiveProfileId() == null) && saved.isNotEmpty()) {
-            setActiveProfile(saved.first().id)
-        }
-        return saved
+        return getEffectiveActiveProfile() ?: getActiveBuiltinServer().toWarpSavedProfile()
     }
 
     /**
@@ -388,24 +372,19 @@ class WarpProfileManager private constructor(private val context: Context) {
         makeActive: Boolean = false
     ): WarpSavedProfile {
         val format = when (type) {
-            ImportedProfileType.WARP_MASQUE -> WarpGeneratorFormat.WARP_MASQUE
-            ImportedProfileType.CLOUDFLARE_JSON -> if (warpProfile.isMasqueValid || warpProfile.p256PrivateKeyBase64.isNotBlank()) WarpGeneratorFormat.WARP_MASQUE else WarpGeneratorFormat.AWG_1_0
-            ImportedProfileType.AMNEZIA_WG_CONF -> WarpGeneratorFormat.AWG_1_0
-            ImportedProfileType.WIREGUARD_CONF -> WarpGeneratorFormat.AWG_1_0
-            ImportedProfileType.CLASH_META_YAML -> WarpGeneratorFormat.AWG_1_0
-            else -> WarpGeneratorFormat.WARP_MASQUE
+            ImportedProfileType.CLASH_META_YAML -> ImportedProfileType.CLASH_META_YAML
+            ImportedProfileType.WIREGUARD_CONF -> ImportedProfileType.WIREGUARD_CONF
+            ImportedProfileType.CLOUDFLARE_JSON -> ImportedProfileType.CLOUDFLARE_JSON
+            ImportedProfileType.AMNEZIA_WG_CONF -> ImportedProfileType.AMNEZIA_WG_CONF
+            else -> ImportedProfileType.AMNEZIA_WG_CONF
         }
-        val endpoint = if (format == WarpGeneratorFormat.WARP_MASQUE) {
-            warpProfile.effectiveMasquePeerEndpoint
-        } else {
-            warpProfile.effectivePeerEndpoint
-        }
+        val endpoint = warpProfile.effectivePeerEndpoint
         val dnsLine = warpProfile.dnsServers.ifBlank { "1.1.1.1, 1.0.0.1" }
         val confContent = if (content.isNotBlank()) content else warpProfile.awgRawConfig
 
         val profile = WarpSavedProfile(
             id = UUID.randomUUID().toString(),
-            name = name.take(15),
+            name = name.take(35),
             format = format,
             endpoint = endpoint,
             dnsLine = dnsLine,
@@ -445,43 +424,59 @@ class WarpProfileManager private constructor(private val context: Context) {
 
         // Обновляем в PreferencesManager и ProxyConfig (чтобы VpnTunManager и другие службы подхватили)
         val app = com.mirrly.tgproxy.MirrlyApplication.instance
-        app.prefsManager.saveWarpProfile(warpProfile)
-        app.config.applyWarpProfile(warpProfile)
+        val currentWarp = app.prefsManager.getWarpProfile()
+        val isRegisteredWarp = if (target.name == "Auto WARP") {
+            currentWarp != null && currentWarp.isRegistered && currentWarp.isUsable() && !currentWarp.isBootstrap()
+        } else {
+            warpProfile.isRegistered
+        }
 
-        val isMasque = target.format == WarpGeneratorFormat.WARP_MASQUE || target.format.extension == "masque" || target.format.extension == "json"
+        val effectiveWarpProfile = if (target.name == "Auto WARP" && !isRegisteredWarp) {
+            warpProfile.copy(
+                accountId = currentWarp?.accountId ?: "",
+                token = currentWarp?.token ?: "",
+                clientId = currentWarp?.clientId ?: "",
+                isRegistered = false,
+                isActivated = false,
+                isWarpEnabled = false,
+                credentialsValid = false,
+                dataPlaneReady = false,
+                isWgValid = false
+            )
+        } else {
+            warpProfile
+        }
+
+        app.prefsManager.saveWarpProfile(effectiveWarpProfile)
+        app.config.applyWarpProfile(effectiveWarpProfile)
+        app.config.isWarpAccountActive = isRegisteredWarp
+
+        val isYamlOrJson = target.format == ImportedProfileType.CLASH_META_YAML || target.format.extension == "yaml" || target.format.extension == "json"
+        app.config.vpnUplinkMode = com.mirrly.tgproxy.core.UplinkMode.AWG
+        app.prefsManager.setVpnUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG)
+        if (target.endpoint.isNotBlank()) {
+            app.config.warpPeerEndpoint = target.endpoint
+            app.config.warpMeasuredWgEndpoint = target.endpoint
+        }
         if (target.format.extension == "conf") {
             app.config.awgCustomIni = target.content
             app.config.awgStrategyName = com.mirrly.tgproxy.core.AwgObfuscationStrategy.CUSTOM.name
-            app.config.vpnUplinkMode = com.mirrly.tgproxy.core.UplinkMode.AWG
-            app.prefsManager.setVpnUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG)
-            if (target.endpoint.isNotBlank()) {
-                app.config.warpPeerEndpoint = target.endpoint
-                app.config.warpMeasuredWgEndpoint = target.endpoint
-            }
-        } else if (isMasque) {
-            app.config.vpnUplinkMode = com.mirrly.tgproxy.core.UplinkMode.MASQUE
-            app.prefsManager.setVpnUplinkMode(com.mirrly.tgproxy.core.UplinkMode.MASQUE)
-            if (target.endpoint.isNotBlank()) {
-                app.config.warpMasquePeerEndpoint = target.endpoint
-                app.config.warpMeasuredMasqueEndpoint = target.endpoint
-            }
         }
         app.prefsManager.saveConfig(app.config)
 
-        // Загружаем в нативный Rust-движок
-        if (target.format.extension == "conf") {
-            try {
+        try {
+            if (target.format.extension == "conf") {
                 NativeProxy.setAwgConfig(target.content)
-                NativeProxy.setVpnUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG)
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Ошибка применения конфигурации в NativeProxy: ${e.message}")
             }
-        } else if (isMasque) {
-            try {
-                NativeProxy.setVpnUplinkMode(com.mirrly.tgproxy.core.UplinkMode.MASQUE)
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Ошибка переключения NativeProxy на MASQUE: ${e.message}")
-            }
+            NativeProxy.setVpnUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG)
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Ошибка применения конфигурации в NativeProxy: ${e.message}")
+        }
+
+        if (target.origin == WarpProfileOrigin.BUILTIN) {
+            app.prefsManager.setVpnUseCustomProfile(false)
+        } else {
+            app.prefsManager.setVpnUseCustomProfile(true)
         }
 
         prefs.edit().putString(KEY_ACTIVE_PROFILE_ID, profileId).apply()
@@ -489,6 +484,71 @@ class WarpProfileManager private constructor(private val context: Context) {
         AppLogger.i(TAG, "Профиль '${target.name}' (${target.format.title}) установлен как активный")
 
         // Если VPN активен, мягко перезапускаем его для немедленного перехода на выбранный профиль
+        if (MirrlyVpnService.isRunning) {
+            MirrlyVpnService.restart(context)
+        }
+
+        return true
+    }
+
+    /**
+     * Сохраняет выигравший в результате сканирования чистый Anycast-эндпоинт напрямую
+     * в warpMeasuredWgEndpoint и синхронизирует с активным профилем.
+     * Не искажает найденный порт.
+     */
+    fun saveMeasuredEndpoint(
+        endpoint: String,
+        protocol: String = "UDP"
+    ): Boolean {
+        val (ip, port) = com.mirrly.tgproxy.core.ProxyConfig.parseEndpoint(endpoint)
+        if (ip.isBlank() || port !in 1..65535) {
+            AppLogger.w(TAG, "saveMeasuredEndpoint: некорректный эндпоинт '$endpoint'")
+            return false
+        }
+        val cleanEndpoint = if (ip.contains(":") && !ip.startsWith("[")) "[$ip]:$port" else "$ip:$port"
+        val app = com.mirrly.tgproxy.MirrlyApplication.instance
+        val config = app.config
+        config.warpMeasuredWgEndpoint = cleanEndpoint
+        config.warpPeerEndpoint = cleanEndpoint
+
+        val currentWarp = app.prefsManager.getWarpProfile()
+        if (currentWarp != null) {
+            val updatedWarp = currentWarp.copy(
+                measuredWgEndpoint = cleanEndpoint,
+                peerEndpoint = cleanEndpoint
+            )
+            app.prefsManager.saveWarpProfile(updatedWarp)
+        }
+
+        // Сохраняем в конфигурацию
+        app.prefsManager.saveConfig(config)
+
+        // Обновляем активный профиль в менеджере без искажения порта в файле конфигурации
+        val activeId = getActiveProfileId()
+        if (activeId != null) {
+            val currentList = _profilesFlow.value.toMutableList()
+            val idx = currentList.indexOfFirst { it.id == activeId }
+            if (idx >= 0) {
+                val activeProf = currentList[idx]
+                val updatedContent = if (activeProf.format.extension == "conf") {
+                    activeProf.content.replace(
+                        Regex("""(?mi)^(\s*Endpoint\s*=\s*).*$"""),
+                        "$1$cleanEndpoint"
+                    )
+                } else {
+                    activeProf.content
+                }
+                currentList[idx] = activeProf.copy(
+                    endpoint = cleanEndpoint,
+                    content = updatedContent
+                )
+                persistProfiles(currentList)
+            }
+        }
+
+        AppLogger.i(TAG, "Anycast-эндпоинт зафиксирован: $cleanEndpoint")
+
+        // Если VPN активен, мягко перезапускаем его для немедленного переподключения через найденный узел
         if (MirrlyVpnService.isRunning) {
             MirrlyVpnService.restart(context)
         }
@@ -519,6 +579,23 @@ class WarpProfileManager private constructor(private val context: Context) {
                 } catch (_: Exception) {}
             }
         }
+    }
+
+    /**
+     * Переименование сохраненного профиля.
+     */
+    fun renameProfile(profileId: String, newName: String): Boolean {
+        val clean = newName.trim().take(35)
+        if (clean.isBlank()) return false
+        val current = _profilesFlow.value.toMutableList()
+        val idx = current.indexOfFirst { it.id == profileId }
+        if (idx != -1) {
+            val p = current[idx]
+            current[idx] = p.copy(name = clean)
+            persistProfiles(current)
+            return true
+        }
+        return false
     }
 
     /**
@@ -602,21 +679,6 @@ class WarpProfileManager private constructor(private val context: Context) {
                 zos.putNextEntry(entry)
                 zos.write(p.content.toByteArray(StandardCharsets.UTF_8))
                 zos.closeEntry()
-
-                // Для WARP MASQUE также добавляем в архив полный JSON-дамп
-                if (p.format == WarpGeneratorFormat.WARP_MASQUE) {
-                    val parsed = WarpProfileParser.parse(p.content)
-                    if (parsed is WarpImportResult.Success) {
-                        val jsonDump = com.mirrly.tgproxy.core.WarpConfigGeneratorEngine.buildMasqueJsonDump(
-                            profile = parsed.profile,
-                            endpoint = p.endpoint
-                        )
-                        val jsonEntry = ZipEntry("$baseName$suffix.json")
-                        zos.putNextEntry(jsonEntry)
-                        zos.write(jsonDump.toByteArray(StandardCharsets.UTF_8))
-                        zos.closeEntry()
-                    }
-                }
             }
             zos.finish()
         }

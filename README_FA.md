@@ -19,7 +19,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Release](https://img.shields.io/badge/نسخه-v2.1.0-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Release](https://img.shields.io/badge/نسخه-v2.1.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Language](https://img.shields.io/badge/زبان-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-رابط-کاربری-برنامه)
 [![Genesis](https://img.shields.io/badge/آغاز-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
@@ -76,7 +76,7 @@
 
 این برنامه برای هدایت ترافیک تلگرام از رابط سیستمی `VpnService` **استفاده نمی‌کند** و ترافیک سایر برنامه‌های دستگاه را **رهگیری نمی‌کند**. تلگرام به یک سوکت محلی بر روی خود دستگاه متصل می‌شود (`127.0.0.1:1443` برای MTProto یا `127.0.0.1:10808` برای SOCKS5). این سوکت توسط هسته بومی `mirrlyengine` (Rust/Tokio) پردازش شده و ترافیک را از طریق شبکه جهانی Anycast CDN یا ورکر Cloudflare به دیتاسنترهای رسمی تلگرام می‌رساند.
 
-> **حالت VPN سیستمی غیرفعال بوده و در حال توسعه است.** پروتکل‌های VLESS، WARP، MASQUE، AWG، Proton و مسیرهای آبشاری در نسخه فعلی کار نمی‌کنند. این برنامه منحصراً برای پروکسی محلی ترافیک تلگرام از طریق پروتکل‌های MTProto (پورت 1443) و SOCKS5 (پورت 10808) طراحی شده و هیچ‌گونه ترافیک سایر برنامه‌های دستگاه را هدایت یا رهگیری نمی‌کند.
+> **حالت VPN سیستمی:** حالت ساده VPN از Cloudflare WARP بر بستر AmneziaWG (AWG) و پروفایل‌های WireGuard وارد شده پشتیبانی می‌کند. پروکسی محلی تلگرام (MTProto و SOCKS5) به صورت مستقل عمل می‌نماید.
 
 ---
 
@@ -107,7 +107,6 @@
   * *تأیید یکپارچگی کریپتوگرافیک*: اعتبارسنجی امضای دیجیتال بسته APK در لایه NDK C++‎ توسط `SignatureVerifier` و بررسی هش SHA-256 توسط `UpdateChecker`.
 
 #### ۲. در حال توسعه (In Development)
-* **تونل سیستماتیک VPN (لایه L3) و مسیرهای آپ‌لینک VPN**: مسیریابی ترافیک کل دستگاه و پروتکل‌های VLESS و MASQUE در دست بازطراحی هستند.
 * **تست سرعت درون برنامه‌ای (`TunnelSpeedTestScreen`)**: سنجش پویای سرعت و پایداری پهنای باند تونل.
 
 ---
@@ -368,7 +367,7 @@ Mirrly TG Proxy/
 ├── app/                  # کلاینت اندروید (رابط Jetpack Compose، سرویس پیش‌زمینه و ماژول بومی C++‎)
 │   ├── src/main/assets/  # والپیپرهای پیش‌فرض سیستم (wallpapers/)
 │   ├── src/main/cpp/     # اعتبارسنجی امضای دیجیتال با C++ NDK (native_sec.cpp, CMakeLists.txt)
-│   ├── src/main/java/    # صفحات رابط کاربری (WarpGenerator، AiChat، Fame)، خوش‌آمدگویی، کانال‌ها، سرویس‌ها
+│   ├── src/main/java/    # صفحات رابط کاربری (VpnMode، AiChat، Fame)، خوش‌آمدگویی، کانال‌ها، سرویس‌ها
 │   └── src/main/res/     # منابع، پوسته‌ها، آیکون‌های وکتور و فایل strings.xml (زبان‌های RU / EN / FA)
 ├── core/                 # هسته منطق برنامه و شبکه در کاتلین
 │   └── src/main/kotlin/  # کلاس‌های LocalProxyServer، رابط بومی NativeProxy، موتورهای WarpConfigGeneratorEngine، Keystore و UpdateChecker
@@ -381,7 +380,6 @@ Mirrly TG Proxy/
 │   ├── src/dns.rs        # مسیریاب مسابقه‌ای DoH و کش بهینه دامنه‌ها
 │   ├── src/faketls.rs    # لایه استتار FakeTLS تلگرام (دامنه‌ها و کلیدهای ee/dd)
 │   ├── src/generation_guard.rs # محافظ سوییچ نسل‌های شبکه
-│   ├── src/masque.rs     # پروتکل WARP MASQUE بر بستر HTTP/3 CONNECT-UDP
 │   ├── src/network_profile.rs  # پیاده‌سازی FSM پایداری شبکه (NORMAL, DEGRADED, RECOVERING)
 │   ├── src/node_independence.rs # سیاست‌های جداسازی نودها و حفظ حریم خصوصی
 │   ├── src/prober.rs     # ارزیابی دسترسی نودها و پینگ
@@ -479,6 +477,7 @@ chmod +x tools/build/build_native.sh
 | **`v2.0.0.2`** | بهینه‌سازی مقیاس و زبان فارسی | اضافه شدن زبان فارسی، ارتقای نمودار پویایی سرعت و حلقه سنجش کیفیت، جداسازی ایمن و اعلان در حال توسعه برای سرویس VPN. |
 | **`v2.0.0.3`** | بازطراحی و پایداری | بازطراحی مینیمال AMOLED برای بخش‌های تاریخچه و لاگ‌ها، حالت شفاف المان‌های اشتراک‌گذاری ورکر، رفع مشکل توقف و فریز در اولین اجرا و انتخاب زبان در سامسونگ و هواوی، حذف لاگ‌های مکرر DNS و آزادسازی فوری پورت SOCKS5 (`SO_REUSEPORT`). |
 | **`v2.1.0`** | تولیدکننده WARP، چت هوش مصنوعی و والپیپر | بنر هشدار بازطراحی سرویس VPN، تولیدکننده داخلی پروفایل‌های WireGuard و AmneziaWG با رمزنگاری Keystore، چت هوش مصنوعی محلی برای عیب‌یابی شبکه، پشتیبانی از والپیپرهای اختصاصی عکس و ویدیو زیر خطوط MirrlyUI، حذف کتابخانه‌های بومی بی‌استفاده (کاهش ۲۱ مگابایتی حجم APK) و گسترش تالار مشاهیر به ۷۹ مشارکت‌کننده. |
+| **`v2.1.2`** | ترمیم پروکسی و AmneziaWG | بازیابی اضطراری اتصالات پروکسی (غیرفعال‌سازی پیش‌فرض TLS خارجی، حذف محدودیت MSS روی loopback، پیش‌گرمایش استخر Anycast CDN)، ۱۴ سرور داخلی AmneziaWG، کنترل‌های بقا در پس‌زمینه، آیکون‌های برداری `MirrlyIcon` و بازی آرکید Cyber Snake. |
 
 ---
 

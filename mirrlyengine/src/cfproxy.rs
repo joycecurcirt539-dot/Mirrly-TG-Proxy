@@ -640,6 +640,10 @@ pub fn init_cfproxy_domains() {
 }
 
 pub fn start_cfproxy_refresh() {
+    if !crate::ws::is_tls_enabled() {
+        ldebug!(" CF: TLS выключен, пропускаю HTTPS-обновление списка доменов");
+        return;
+    }
     if !should_refresh_cfproxy_domains() {
         ldebug!(" CF: кеш свежий, пропускаю обновление списка");
         return;
@@ -664,6 +668,9 @@ static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
 });
 
 pub async fn try_refresh_cfproxy_domains() -> bool {
+    if !crate::ws::is_tls_enabled() {
+        return false;
+    }
     let expected = crate::generation_guard::snapshot();
     let resp = match HTTP_CLIENT
         .get(CFPROXY_DOMAINS_URL)
@@ -763,7 +770,7 @@ pub fn interleave_dual_stack_ips(v6: Vec<IpAddr>, v4: Vec<IpAddr>) -> Vec<IpAddr
 }
 
 #[derive(Clone, Debug)]
-pub struct CfDohCacheEntry {
+pub struct CfHostCacheEntry {
     pub ips: Vec<IpAddr>,
     pub expires_at: Instant,
     pub is_negative: bool,
@@ -772,8 +779,8 @@ pub struct CfDohCacheEntry {
     pub network_generation: u64,
 }
 
-static DOH_CACHE: Lazy<
-    parking_lot::RwLock<std::collections::HashMap<String, CfDohCacheEntry>>,
+static HOST_ADDR_CACHE: Lazy<
+    parking_lot::RwLock<std::collections::HashMap<String, CfHostCacheEntry>>,
 > = Lazy::new(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
 
 #[derive(Clone, Debug)]
@@ -825,15 +832,15 @@ pub fn set_cached_winner(expected: crate::generation_guard::GenerationStamp, dom
     }
 }
 
-pub fn clear_doh_cache() {
-    DOH_CACHE.write().clear();
+pub fn clear_addr_cache() {
+    HOST_ADDR_CACHE.write().clear();
     WINNER_CACHE.write().clear();
 }
 
-pub fn invalidate_doh_host(domain: &str) {
+pub fn invalidate_host_cache(domain: &str) {
     let domain = normalize_cf_domain(domain);
     if !domain.is_empty() {
-        DOH_CACHE.write().remove(&domain);
+        HOST_ADDR_CACHE.write().remove(&domain);
         WINNER_CACHE.write().remove(&domain);
     }
 }
@@ -845,14 +852,14 @@ pub fn cache_resolved_ips_if_current(
 ) -> bool {
     let fam = crate::dns::AddressFamily::from_ips(&ips);
     crate::generation_guard::apply_if_current(expected, || {
-        DOH_CACHE.write().insert(
+        HOST_ADDR_CACHE.write().insert(
             domain.to_string(),
-            CfDohCacheEntry {
+            CfHostCacheEntry {
                 ips,
                 expires_at: Instant::now() + Duration::from_secs(300),
                 is_negative: false,
                 family: fam,
-                resolver_source: "DoH".to_string(),
+                resolver_source: "System".to_string(),
                 network_generation: expected.network,
             },
         );
@@ -862,7 +869,7 @@ pub fn cache_resolved_ips_if_current(
 
 pub fn cached_resolved_ips(domain: &str) -> Option<Vec<IpAddr>> {
     let cur_gen = crate::network_profile::current_generation();
-    let entry = DOH_CACHE.read().get(domain)?.clone();
+    let entry = HOST_ADDR_CACHE.read().get(domain)?.clone();
     if Instant::now() < entry.expires_at && entry.network_generation == cur_gen && !entry.is_negative && !entry.ips.is_empty() {
         Some(entry.ips)
     } else {
@@ -937,10 +944,6 @@ pub fn clear_all_recovery_cooldowns() {
     CFPROXY_RECOVERY_CIRCUIT.write().clear();
 }
 
-pub fn set_doh_endpoints(_endpoints_csv: &str) {
-    // No-op: DoH is removed from MTProto and SOCKS5 pipelines
-}
-
 pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
     let domain = domain.trim();
     if domain.is_empty() {
@@ -954,7 +957,7 @@ pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
 
     // 2. Cache hit (0 ms)
     let cur_gen = crate::network_profile::current_generation();
-    if let Some(entry) = DOH_CACHE.read().get(domain).cloned() {
+    if let Some(entry) = HOST_ADDR_CACHE.read().get(domain).cloned() {
         if Instant::now() < entry.expires_at && entry.network_generation == cur_gen {
             if entry.is_negative {
                 return Vec::new();
@@ -982,7 +985,7 @@ async fn resolve_dual_stack_ips_uncached(
     expected: crate::generation_guard::GenerationStamp,
 ) -> Vec<IpAddr> {
     // 1. First, try fast system DNS lookup (network-bound, dual-stack via getaddrinfo)
-    let host = format!("{}:443", domain);
+    let host = format!("{}:{}", domain, crate::ws::default_ws_port());
     let mut addrs_list = Vec::new();
     if let Ok(Ok(addrs)) = tokio::time::timeout(Duration::from_millis(1500), tokio::net::lookup_host(&host)).await {
         for a in addrs {
@@ -1029,11 +1032,6 @@ pub async fn resolve_clean_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
     } else {
         ips
     }
-}
-
-pub async fn resolve_doh(domain: &str) -> Option<String> {
-    let ips = resolve_dual_stack_ips(domain).await;
-    ips.first().map(|ip| ip.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1126,9 +1124,10 @@ pub async fn cf_connect_domain_with_category(
         } else {
             false
         };
+        let default_port = crate::ws::default_ws_port();
         let candidate_addrs: Vec<SocketAddr> = candidate_ips
             .into_iter()
-            .map(|ip| SocketAddr::new(ip, 443))
+            .map(|ip| SocketAddr::new(ip, default_port))
             .collect();
 
         if candidate_addrs.is_empty() {
@@ -1260,7 +1259,7 @@ pub async fn cf_connect_fronted_ext(
 ) -> (Option<RawWebSocket>, String, Option<WsError>) {
     let expected = crate::generation_guard::snapshot();
     let path = if path.is_empty() {
-        "/vless-ws?ed=2048"
+        "/apiws"
     } else {
         path
     };
@@ -1273,6 +1272,7 @@ pub async fn cf_connect_fronted_ext(
         attempt_timeout.max(dial_timeout)
     };
 
+    let default_port = crate::ws::default_ws_port();
     let server_addr_trimmed = server_address.trim();
     let (parsed_host, target_port) = if let Ok(sa) = server_addr_trimmed.parse::<SocketAddr>() {
         (
@@ -1286,7 +1286,7 @@ pub async fn cf_connect_fronted_ext(
     } else if let Ok(ip) = server_addr_trimmed.parse::<IpAddr>() {
         (
             ip.to_string(),
-            if server_port > 0 { server_port } else { 443 },
+            if server_port > 0 { server_port } else { default_port },
         )
     } else if let Some(colon) = server_addr_trimmed.rfind(':') {
         if !server_addr_trimmed.starts_with('[')
@@ -1295,18 +1295,18 @@ pub async fn cf_connect_fronted_ext(
             let h = &server_addr_trimmed[..colon];
             let p = server_addr_trimmed[colon + 1..]
                 .parse::<u16>()
-                .unwrap_or(443);
+                .unwrap_or(default_port);
             (h.to_string(), if server_port > 0 { server_port } else { p })
         } else {
             (
                 server_addr_trimmed.to_string(),
-                if server_port > 0 { server_port } else { 443 },
+                if server_port > 0 { server_port } else { default_port },
             )
         }
     } else {
         (
             server_addr_trimmed.to_string(),
-            if server_port > 0 { server_port } else { 443 },
+            if server_port > 0 { server_port } else { default_port },
         )
     };
 
@@ -1427,9 +1427,10 @@ pub async fn probe_domain_latency(domain: &str, dc: i32, timeout: Duration) -> O
     }
     let target_host = format!("kws{}.{}", dc, base_domain);
     let candidate_ips = resolve_dual_stack_ips(&target_host).await;
+    let default_port = crate::ws::default_ws_port();
     let candidate_addrs: Vec<SocketAddr> = candidate_ips
         .into_iter()
-        .map(|ip| SocketAddr::new(ip, 443))
+        .map(|ip| SocketAddr::new(ip, default_port))
         .collect();
 
     if candidate_addrs.is_empty() {
@@ -1609,23 +1610,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_doh_cache_clear() {
+    fn test_host_addr_cache_clear() {
         let test_ip = "1.2.3.4".parse::<IpAddr>().unwrap();
-        DOH_CACHE.write().insert(
+        HOST_ADDR_CACHE.write().insert(
             "test.worker.dev".to_string(),
-            CfDohCacheEntry {
+            CfHostCacheEntry {
                 ips: vec![test_ip],
                 expires_at: Instant::now() + Duration::from_secs(300),
                 is_negative: false,
                 family: crate::dns::AddressFamily::Ipv4,
-                resolver_source: "DoH".to_string(),
+                resolver_source: "System".to_string(),
                 network_generation: 1,
             },
         );
-        assert!(DOH_CACHE.read().contains_key("test.worker.dev"));
+        assert!(HOST_ADDR_CACHE.read().contains_key("test.worker.dev"));
 
-        clear_doh_cache();
-        assert!(!DOH_CACHE.read().contains_key("test.worker.dev"));
+        clear_addr_cache();
+        assert!(!HOST_ADDR_CACHE.read().contains_key("test.worker.dev"));
     }
 
     #[test]

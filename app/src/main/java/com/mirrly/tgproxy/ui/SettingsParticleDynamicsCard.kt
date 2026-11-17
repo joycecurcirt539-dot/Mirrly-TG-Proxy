@@ -17,9 +17,11 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -59,7 +61,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -141,8 +142,8 @@ fun SettingsParticleDynamicsCard(
                         .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_star),
+                    MirrlyIcon(
+                        id = R.drawable.ic_star,
                         contentDescription = null,
                         tint = if (particlesEnabled) accentColor else TextMuted,
                         modifier = Modifier.size(18.dp)
@@ -170,8 +171,8 @@ fun SettingsParticleDynamicsCard(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_info_circle),
+                        MirrlyIcon(
+                            id = R.drawable.ic_info_circle,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(14.dp)
@@ -241,8 +242,13 @@ fun SettingsParticleDynamicsCard(
                     )
                 }
 
-                if (particlesEnabled) {
-                    // Выбор кинетического стиля частиц
+                AnimatedVisibility(
+                    visible = particlesEnabled,
+                    enter = expandVertically(tween(260)) + fadeIn(tween(240)),
+                    exit = shrinkVertically(tween(200)) + fadeOut(tween(180))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        // Выбор кинетического стиля частиц
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = stringResource(R.string.settings_customization_wallpaper_particles_style),
@@ -468,4 +474,5 @@ fun SettingsParticleDynamicsCard(
             }
         }
     }
+}
 }

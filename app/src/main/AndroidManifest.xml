@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -27,6 +29,7 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <package android:name="com.mirrly.gram" />
         <package android:name="org.telegram.messenger" />
         <package android:name="com.radolyn.ayugram" />
         <package android:name="com.exteragram.messenger" />
@@ -151,8 +154,19 @@
         <service
             android:name=".service.ProxyTileService"
             android:exported="true"
-            android:label="Mirrly"
+            android:label="@string/tile_proxy_label"
             android:icon="@drawable/ic_qs_proxy"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".service.VpnTileService"
+            android:exported="true"
+            android:label="@string/tile_vpn_label"
+            android:icon="@drawable/ic_qs_warp_inactive"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
@@ -191,6 +205,17 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.mirrly.tgproxy.ACTION_RESURRECT_PROXY" />
+                <action android:name="com.mirrly.tgproxy.ACTION_WATCHDOG_HEARTBEAT" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".service.MirrlyBridgeReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mirrly.tgproxy.BRIDGE_CMD" />
+                <action android:name="com.mirrly.tgproxy.QUERY_STATUS" />
             </intent-filter>
         </receiver>
         <provider

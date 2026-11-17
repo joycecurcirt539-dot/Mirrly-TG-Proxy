@@ -60,8 +60,8 @@ enum class ConnectionQuality(val label: String, val level: Int) {
  */
 enum class FailureType(val description: String, val technicalCode: String = "") {
     NONE("Норма", "OK"),
-    DNS_FAILURE("Ошибка DNS / DoH резолвинга", "DNS_RESOLUTION_UNAVAILABLE"),
-    DNS_RESOLUTION_UNAVAILABLE("Невозможно разрешить имя хоста / недоступность DoH", "DNS_RESOLUTION_UNAVAILABLE"),
+    DNS_FAILURE("Ошибка системного DNS резолвинга", "DNS_RESOLUTION_UNAVAILABLE"),
+    DNS_RESOLUTION_UNAVAILABLE("Невозможно разрешить имя хоста", "DNS_RESOLUTION_UNAVAILABLE"),
     FALLBACK_IP_FAILED("Сбой подключения к Anycast Fallback IP", "FALLBACK_IP_FAILED"),
     CONNECT_TIMEOUT("Таймаут подключения (> 2500 мс)", "CONNECT_TIMEOUT"),
     HOST_UNREACHABLE("Сервер или воркер недоступен", "HOST_UNREACHABLE"),
@@ -135,33 +135,17 @@ data class PingSnapshot(
     val maxPingMs: Long = -1L,
     val minRttMs: Long = -1L,
     val bufferbloatMs: Long = 0L,
-    val bufferbloatGrade: String = "A+ (Идеально)",
+    val bufferbloatGrade: String = "—",
     val currentAlpha: Double = 0.25,
     val isDegradingTrend: Boolean = false,
-    val successRatePercent: Int = 100,
+    val successRatePercent: Int = 0,
     val quality: ConnectionQuality = ConnectionQuality.OFFLINE,
     val consecutiveFailures: Int = 0,
     val lastFailureType: FailureType = FailureType.NONE,
     val lastProbeTimestamp: Long = 0L,
     val rttHistory: List<PingHistoryPoint> = emptyList(),
-    val healthReport: ConnectionHealthReport = ConnectionHealthReport(
-        score = 100,
-        chatScore = 100,
-        chatVerdict = "Идеально для медиа",
-        callScore = 100,
-        mosScore = 4.50,
-        mosGrade = "HD Voice (Отлично)",
-        isCallRecommended = true,
-        verdict = "Канал в норме",
-        detail = "Ожидание первых данных",
-        operatorLatencyGrade = "Отлично",
-        workerStatusGrade = "Стабилен",
-        packetReliabilityGrade = "100%",
-        pingMs = -1L,
-        jitterMs = 0L,
-        successRate = 100,
-        isExcellent = true
-    )
+    val isCalibrating: Boolean = true,
+    val healthReport: ConnectionHealthReport = ConnectionHealthEngine.calibratingReport()
 )
 
 /**
@@ -176,6 +160,10 @@ class PingEngine(
     private val profileRevisionProvider: () -> Long = { 1L },
     private val configGenerationProvider: () -> Long = { 1L },
     private val isSocks5Provider: () -> Boolean = { false },
+    private val sliProvider: () -> EngineSliSnapshot? = { null },
+    private val isTlsEnabledProvider: () -> Boolean = { false },
+    private val isFlowsealProvider: () -> Boolean = { false },
+    private val isVpnProvider: () -> Boolean = { false },
     private val probeExecutor: (suspend (String) -> PingProbeResult)? = null,
     private val onSelfHealingRequired: ((FailureType) -> Unit)? = null,
     private val onSnapshotUpdated: ((PingSnapshot) -> Unit)? = null
@@ -508,7 +496,11 @@ class PingEngine(
             jitterMs = jitter,
             successRatePercent = successRate,
             lastFailureType = lastFailureType,
-            isSocks5 = isSocks5Provider()
+            isSocks5 = isSocks5Provider(),
+            sliSnapshot = sliProvider(),
+            isTlsEnabled = isTlsEnabledProvider(),
+            isFlowseal = isFlowsealProvider(),
+            isVpn = isVpnProvider()
         )
 
         currentSnapshot = PingSnapshot(
@@ -528,6 +520,7 @@ class PingEngine(
             lastFailureType = lastFailureType,
             lastProbeTimestamp = lastProbeTimestamp,
             rttHistory = rttHistoryWindow.toList(),
+            isCalibrating = false,
             healthReport = healthReport
         )
 
@@ -539,6 +532,58 @@ class PingEngine(
             val target = targetProvider().trim()
             onProbeCompleted?.invoke(probe, target)
         } catch (_: Exception) {}
+    }
+
+    @Synchronized
+    fun resetMinRttWindow() {
+        minRttWindow.clear()
+        recentRttSamples.clear()
+    }
+
+    @Synchronized
+    fun refreshFromSli(sli: EngineSliSnapshot) {
+        if (isDormant) return
+        val snap = currentSnapshot
+        val hasMeasuredProbe = !snap.isCalibrating && historyWindow.isNotEmpty()
+        val hasLiveSli = sli.hasFreshLiveTraffic() || sli.warmReady > 0
+        if (!hasMeasuredProbe && !hasLiveSli) {
+            return
+        }
+
+        val smoothed = if (snap.smoothedPingMs > 0L) {
+            snap.smoothedPingMs
+        } else {
+            sli.effectiveBalancerRttMs
+        }
+        val report = ConnectionHealthEngine.computeHealth(
+            smoothedPingMs = smoothed,
+            jitterMs = snap.jitterMs,
+            successRatePercent = if (hasMeasuredProbe) snap.successRatePercent else 0,
+            lastFailureType = snap.lastFailureType,
+            isSocks5 = isSocks5Provider(),
+            sliSnapshot = sli,
+            isTlsEnabled = isTlsEnabledProvider(),
+            isFlowseal = isFlowsealProvider(),
+            isVpn = isVpnProvider()
+        )
+        val effectiveQuality = if (report.score >= 90) {
+            ConnectionQuality.EXCELLENT
+        } else if (report.score >= 75) {
+            ConnectionQuality.GOOD
+        } else if (report.score >= 50) {
+            ConnectionQuality.MODERATE
+        } else if (report.score > 0) {
+            ConnectionQuality.POOR
+        } else {
+            ConnectionQuality.OFFLINE
+        }
+        currentSnapshot = snap.copy(
+            smoothedPingMs = report.pingMs.takeIf { it > 0L && snap.smoothedPingMs <= 0L } ?: snap.smoothedPingMs,
+            successRatePercent = report.successRate,
+            quality = if (hasLiveSli) effectiveQuality else snap.quality,
+            isCalibrating = report.isCalibrating,
+            healthReport = report
+        )
     }
 
     private fun detectDegradationTrend(smoothedRtt: Long, minRtt: Long, jitter: Long): Boolean {
@@ -674,9 +719,20 @@ class PingEngine(
                     443
                 }
 
-                // 0. Нативный TCP Ping через Rust Tokio с защитой сокета через Android VpnService
+                // 0. Если целевой порт - это чисто UDP порт WireGuard/AmneziaWG (500, 4500, 1701, 2408),
+                // опрашиваем доступность узла напрямую через системный ICMP Echo или TCP порт 443 того же Anycast-узла
+                val isUdpVpnPort = port in listOf(500, 4500, 1701, 2408)
+                val probePort = if (isUdpVpnPort) 443 else port
+                if (isUdpVpnPort) {
+                    val icmpRes = systemPingProbe(hostClean, timeoutMs)
+                    if (icmpRes.success && icmpRes.rawRttMs > 0L) {
+                        return icmpRes
+                    }
+                }
+
+                // 1. Нативный TCP Ping через Rust Tokio с защитой сокета через Android VpnService
                 try {
-                    val (success, rttMs) = NativeProxy.pingHost(hostClean, port, timeoutMs.coerceAtMost(2500L).toInt())
+                    val (success, rttMs) = NativeProxy.pingHost(hostClean, probePort, timeoutMs.coerceAtMost(2500L).toInt())
                     if (success && rttMs >= 0) {
                         return PingProbeResult(
                             rawRttMs = rttMs,
@@ -717,7 +773,7 @@ class PingEngine(
                         Socket().use { s ->
                             VpnSocketProtector.protect(s)
                             s.tcpNoDelay = true
-                            s.connect(InetSocketAddress(addr, port), connectTimeout)
+                            s.connect(InetSocketAddress(addr, probePort), connectTimeout)
                         }
                         successRtt = ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
                         break
@@ -733,6 +789,12 @@ class PingEngine(
                         failureType = FailureType.NONE
                     )
                 } else {
+                    // Fallback на системный ICMP Echo, если TCP коннект не удался (например, сервер без TCP)
+                    val icmpFallback = systemPingProbe(hostClean, timeoutMs)
+                    if (icmpFallback.success && icmpFallback.rawRttMs > 0L) {
+                        return icmpFallback
+                    }
+
                     val fType = if (lastErr is SocketTimeoutException) {
                         FailureType.CONNECT_TIMEOUT
                     } else if (lastErr != null) {
@@ -750,6 +812,73 @@ class PingEngine(
             } catch (e: Exception) {
                 val fType = DpiAnomalyDetector.classifyException(e)
                 PingProbeResult(-1L, false, fType, e.message)
+            }
+        }
+
+        /**
+         * Парсит вывод системного ping Android и извлекает RTT в миллисекундах.
+         */
+        fun parsePingOutput(output: String): Long {
+            // 1. time=112 ms или time=112.2 ms
+            val timeRegex = Regex("""time=([0-9]+(?:\.[0-9]+)?)\s*ms""", RegexOption.IGNORE_CASE)
+            timeRegex.find(output)?.let { match ->
+                val numStr = match.groupValues[1]
+                val floatVal = numStr.toFloatOrNull()
+                if (floatVal != null && floatVal > 0f) {
+                    return floatVal.toDouble().roundToLong().coerceAtLeast(1L)
+                }
+            }
+            // 2. rtt min/avg/max/mdev = 112.202/112.202/112.202/0.000 ms
+            val rttLineRegex = Regex("""rtt\s+min/avg/max/mdev\s*=\s*[0-9.]+/([0-9.]+)/""", RegexOption.IGNORE_CASE)
+            rttLineRegex.find(output)?.let { match ->
+                val avgStr = match.groupValues[1]
+                val floatVal = avgStr.toFloatOrNull()
+                if (floatVal != null && floatVal > 0f) {
+                    return floatVal.toDouble().roundToLong().coerceAtLeast(1L)
+                }
+            }
+            return -1L
+        }
+
+        /**
+         * Выполняет системный ICMP Echo опрос хоста через /system/bin/ping.
+         * Не требует root-прав на Android (использует непривилегированные ping-сокеты ядра Linux).
+         */
+        fun systemPingProbe(host: String, timeoutMs: Long = 1000L): PingProbeResult {
+            return try {
+                val timeoutSec = ((timeoutMs + 999L) / 1000L).coerceIn(1L, 2L)
+                val isIpv6 = host.contains(":")
+                val pingBin = if (isIpv6) "/system/bin/ping6" else "/system/bin/ping"
+                val process = ProcessBuilder(pingBin, "-c", "1", "-W", timeoutSec.toString(), host)
+                    .redirectErrorStream(true)
+                    .start()
+
+                val reader = process.inputStream.bufferedReader()
+                val output = reader.readText()
+                process.waitFor(timeoutMs + 250L, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+                val rtt = parsePingOutput(output)
+                if (rtt > 0L) {
+                    PingProbeResult(
+                        rawRttMs = rtt,
+                        success = true,
+                        failureType = FailureType.NONE
+                    )
+                } else {
+                    PingProbeResult(
+                        rawRttMs = -1L,
+                        success = false,
+                        failureType = FailureType.CONNECT_TIMEOUT,
+                        errorDetail = "ICMP timeout: $output"
+                    )
+                }
+            } catch (e: Exception) {
+                PingProbeResult(
+                    rawRttMs = -1L,
+                    success = false,
+                    failureType = FailureType.HOST_UNREACHABLE,
+                    errorDetail = e.message
+                )
             }
         }
 

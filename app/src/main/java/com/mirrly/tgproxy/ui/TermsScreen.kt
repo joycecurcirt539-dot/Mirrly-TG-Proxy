@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -41,7 +42,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -131,8 +131,8 @@ fun TermsScreen(
                                 .background(Color.Transparent)
                                 .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), CircleShape)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_license),
+                            MirrlyIcon(
+                                id = R.drawable.ic_license,
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
                                 modifier = Modifier.size(22.dp)
@@ -176,8 +176,8 @@ fun TermsScreen(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_github),
+                            MirrlyIcon(
+                                id = R.drawable.ic_github,
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
                                 modifier = Modifier.size(16.dp)
@@ -202,8 +202,8 @@ fun TermsScreen(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_copy),
+                            MirrlyIcon(
+                                id = R.drawable.ic_copy,
                                 contentDescription = null,
                                 tint = TextWhite,
                                 modifier = Modifier.size(16.dp)
@@ -412,8 +412,8 @@ fun TermsScreen(
                             onBack()
                         })
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_arrow_left),
+                        MirrlyIcon(
+                            id = R.drawable.ic_arrow_left,
                             contentDescription = stringResource(R.string.action_back),
                             tint = TextWhite,
                             modifier = Modifier.size(22.dp)
@@ -440,8 +440,8 @@ private fun ProtectionRow(title: String, desc: String) {
                 .clip(CircleShape)
                 .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), CircleShape)
         ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_check_circle),
+            MirrlyIcon(
+                id = R.drawable.ic_check_circle,
                 contentDescription = null,
                 tint = ActiveGreenLed,
                 modifier = Modifier.size(11.dp)

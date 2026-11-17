@@ -93,6 +93,17 @@ pub struct DomainBalancerStatus {
     pub routes: Vec<TargetRouteStatus>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BalancerHealthSummary {
+    pub active_domain: Option<String>,
+    pub healthy_domain_count: usize,
+    pub total_domain_count: usize,
+    pub min_probe_rtt_ms: Option<u64>,
+    pub median_probe_rtt_ms: Option<u64>,
+    pub total_useful_success_count: u64,
+    pub total_failure_count: u64,
+}
+
 pub fn normalize_domain(domain: &str) -> String {
     let s = domain.trim();
     if let Some(pos) = s.find("://") {
@@ -534,6 +545,76 @@ impl Balancer {
         };
 
         serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    pub fn get_health_summary(&self) -> BalancerHealthSummary {
+        let gen = self.current_generation;
+        let active_domain = self
+            .active_domains
+            .get(&(gen, DcTargetKey::new(2, false)))
+            .cloned()
+            .or_else(|| {
+                self.active_domains
+                    .iter()
+                    .find(|((g, _), _)| *g == gen)
+                    .map(|(_, d)| d.clone())
+            });
+
+        let mut per_domain: HashMap<String, (Option<u64>, u64, u64, u32)> = HashMap::new();
+        for ((g, _), map) in &self.stats {
+            if *g != gen {
+                continue;
+            }
+            for (dom, st) in map {
+                let entry = per_domain
+                    .entry(dom.clone())
+                    .or_insert((None, 0, 0, 0));
+                if let Some(rtt) = st.probe_rtt_ms {
+                    entry.0 = Some(entry.0.map_or(rtt, |cur| cur.min(rtt)));
+                }
+                entry.1 = entry.1.saturating_add(st.useful_success_count);
+                entry.2 = entry.2.saturating_add(st.failure_count);
+                entry.3 = entry.3.max(st.consecutive_failures);
+            }
+        }
+
+        let total_domain_count = per_domain.len().max(self.domains.len());
+        let mut healthy_domain_count = 0usize;
+        let mut rtts: Vec<u64> = Vec::new();
+        let mut total_useful_success_count = 0u64;
+        let mut total_failure_count = 0u64;
+
+        for (_dom, (rtt_opt, useful, fails, consec)) in per_domain {
+            total_useful_success_count = total_useful_success_count.saturating_add(useful);
+            total_failure_count = total_failure_count.saturating_add(fails);
+            if consec == 0 && (rtt_opt.is_some() || useful > 0) {
+                healthy_domain_count += 1;
+            }
+            if consec == 0 {
+                if let Some(r) = rtt_opt {
+                    if r > 0 {
+                        rtts.push(r);
+                    }
+                }
+            }
+        }
+        rtts.sort_unstable();
+        let min_probe_rtt_ms = rtts.first().copied();
+        let median_probe_rtt_ms = if rtts.is_empty() {
+            None
+        } else {
+            Some(rtts[rtts.len() / 2])
+        };
+
+        BalancerHealthSummary {
+            active_domain,
+            healthy_domain_count,
+            total_domain_count,
+            min_probe_rtt_ms,
+            median_probe_rtt_ms,
+            total_useful_success_count,
+            total_failure_count,
+        }
     }
 }
 

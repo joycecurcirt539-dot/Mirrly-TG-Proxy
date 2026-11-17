@@ -17,7 +17,9 @@ object ConnectionHealthFormatter {
 
     fun formatVerdict(context: Context, rawVerdict: String): String {
         return when (rawVerdict.trim()) {
+            "Calibrating", "Калибровка канала" -> context.getString(R.string.verdict_calibrating)
             "Optimal Connection", "Идеальный канал связи", "Stable Connection", "Стабильный канал связи" -> context.getString(R.string.verdict_ideal_channel)
+            "Worker Quota 429", "Лимит Worker 429" -> context.getString(R.string.verdict_quota_429)
             "Operator DPI Block", "Блокировка DPI оператором" -> context.getString(R.string.verdict_dpi_blocked)
             "Secure TLS Failure", "Сбой защищенного TLS" -> context.getString(R.string.verdict_tls_failed)
             "Good Connection", "Хорошее соединение" -> context.getString(R.string.verdict_good_connection)
@@ -25,20 +27,36 @@ object ConnectionHealthFormatter {
             "Link Degradation", "Деградация канала" -> context.getString(R.string.verdict_link_degradation)
             "Critical Instability", "Критическая нестабильность" -> context.getString(R.string.verdict_critical_instability)
             "Channel inactive", "Канал не активен" -> context.getString(R.string.verdict_channel_inactive)
-            "Waiting for network", "Ожидание сети" -> context.getString(R.string.verdict_waiting_network)
+            "Waiting for network", "Ожидание сети", "No internet connection", "Нет интернет-соединения" -> context.getString(R.string.verdict_waiting_network)
             else -> rawVerdict
         }
     }
 
     fun formatDetail(context: Context, rawDetail: String): String {
         return when (rawDetail.trim()) {
+            "Checking transport route..." ->
+                context.getString(R.string.verdict_calibrating_desc)
+            "Minimal latency and stable WARP AmneziaWG tunnel" ->
+                context.getString(R.string.verdict_ideal_vpn_desc)
+            "Low latency over Flowseal WS :80 Anycast CDN" ->
+                context.getString(R.string.verdict_ideal_flowseal_ws_desc)
+            "Low latency over Flowseal WSS TLS Anycast CDN" ->
+                context.getString(R.string.verdict_ideal_flowseal_wss_desc)
+            "Low latency over Worker WS :80 tunnel" ->
+                context.getString(R.string.verdict_ideal_worker_ws_desc)
+            "Minimal latency and stable Worker WSS TLS tunnel" ->
+                context.getString(R.string.verdict_ideal_worker_wss_desc)
             "Minimal latency and stable direct WSS tunnel", "Минимальная задержка и стабильный прямой WSS-туннель",
             "Low latency and direct WSS tunnel", "Низкая задержка и прямой WSS-туннель" ->
                 context.getString(R.string.verdict_ideal_channel_desc)
+            "Cloudflare Worker daily request quota exceeded" ->
+                context.getString(R.string.verdict_quota_429_desc)
             "TCP/ClientHello packet reset detected by middlebox", "Обнаружен сброс TCP/ClientHello пакетов middlebox-системой" ->
                 context.getString(R.string.verdict_dpi_blocked_desc)
             "TLS handshake aborted or invalid server certificate", "Разрыв TLS-рукопожатия или попытка подмены сертификата узла" ->
                 context.getString(R.string.verdict_tls_failed_desc)
+            "Live session active with minor latency variation" ->
+                context.getString(R.string.verdict_good_live_desc)
             "Minor latency variation (mobile or Wi-Fi jitter)", "Небольшая вариация задержки (джиттер мобильной сети или Wi-Fi)",
             "Незначительные колебания задержки (джиттер)" ->
                 context.getString(R.string.verdict_good_connection_desc)
@@ -50,7 +68,8 @@ object ConnectionHealthFormatter {
                 context.getString(R.string.verdict_critical_instability_desc)
             "Awaiting initial network probes", "Ожидание первых сетевых проб" ->
                 context.getString(R.string.verdict_channel_inactive_desc)
-            "No internet connection. Waiting for network...", "Нет подключения к интернету. Ожидание сети..." ->
+            "No internet connection. Waiting for network...", "Нет подключения к интернету. Ожидание сети...",
+            "Связь с сетью потеряна. Ожидание подключения..." ->
                 context.getString(R.string.verdict_waiting_network_desc)
             "Waiting for network check...", "Ожидание проверки канала..." ->
                 context.getString(R.string.verdict_waiting_check_desc)
@@ -60,6 +79,7 @@ object ConnectionHealthFormatter {
 
     fun formatChatVerdict(context: Context, rawChatVerdict: String): String {
         return when (rawChatVerdict.trim()) {
+            "Checking", "Проверка..." -> context.getString(R.string.chat_verdict_checking)
             "Ideal for media", "Идеально для медиа", "Stable media throughput", "Стабильная передача медиа" -> context.getString(R.string.chat_verdict_ideal)
             "Stable", "Стабильно" -> context.getString(R.string.chat_verdict_stable)
             "Moderate speed", "Умеренная скорость" -> context.getString(R.string.chat_verdict_moderate)
@@ -72,6 +92,7 @@ object ConnectionHealthFormatter {
 
     fun formatMosGrade(context: Context, rawMosGrade: String): String {
         return when (rawMosGrade.trim()) {
+            "Calibrating", "Калибровка" -> context.getString(R.string.mos_grade_calibrating)
             "HD Voice (Excellent)", "HD Voice (Отлично)", "HD Voice (High quality)", "HD Voice (Высокое)" -> context.getString(R.string.mos_grade_hd)
             "Good quality", "Хорошее качество" -> context.getString(R.string.mos_grade_good)
             "Acceptable", "Приемлемо" -> context.getString(R.string.mos_grade_acceptable)

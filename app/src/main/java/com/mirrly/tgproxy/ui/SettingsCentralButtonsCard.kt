@@ -9,6 +9,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -18,9 +19,11 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -69,7 +72,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -229,8 +231,8 @@ fun SettingsCentralButtonsCard(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_info_circle),
+                        MirrlyIcon(
+                            id = R.drawable.ic_info_circle,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(14.dp)
@@ -612,7 +614,11 @@ fun SettingsCentralButtonsCard(
                 }
 
                 // ── Custom Vector Code Panel (when custom is selected) ──
-                if (activePresetId == "custom") {
+                AnimatedVisibility(
+                    visible = activePresetId == "custom",
+                    enter = expandVertically(tween(260)) + fadeIn(tween(240)),
+                    exit = shrinkVertically(tween(200)) + fadeOut(tween(180))
+                ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -635,105 +641,92 @@ fun SettingsCentralButtonsCard(
                             lineHeight = 16.sp
                         )
 
-                        // Quick action buttons: Copy prompt, Create in Mirrly AI, Guide
+                        // Quick action buttons: Copy prompt (icon), Create in Mirrly AI (icon + text), Guide (icon)
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Copy prompt button
+                            // Copy prompt button (icon only)
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(9.dp))
                                     .background(Color.Transparent)
-                                    .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isPromptCopied) effectiveAccent else AmoledBorder, RoundedCornerShape(9.dp))
                                     .springPress(onClick = {
                                         val prompt = CentralButtonPresets.buildAiPromptForProtocol(selectedProtocol)
                                         clipboard.setPrimaryClip(ClipData.newPlainText("AI Prompt", prompt))
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         isPromptCopied = true
-                                    })
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    }),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_copy),
-                                        contentDescription = null,
-                                        tint = effectiveAccent,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Text(
-                                        text = if (isPromptCopied) stringResource(R.string.settings_customization_buttons_prompt_copied) else stringResource(R.string.settings_customization_buttons_btn_copy_prompt),
-                                        fontSize = 11.5.sp,
-                                        color = if (isPromptCopied) effectiveAccent else TextWhite
-                                    )
-                                }
+                                MirrlyIcon(
+                                    id = R.drawable.ic_copy,
+                                    contentDescription = stringResource(R.string.settings_customization_buttons_btn_copy_prompt),
+                                    tint = if (isPromptCopied) effectiveAccent else TextWhite.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(15.dp)
+                                )
                             }
 
-                            // Create in Mirrly AI button
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            // Create in Mirrly AI button (icon + text)
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .height(38.dp)
+                                    .clip(RoundedCornerShape(9.dp))
                                     .background(effectiveAccent.copy(alpha = 0.12f))
-                                    .border(1.dp, effectiveAccent, RoundedCornerShape(8.dp))
+                                    .border(1.dp, effectiveAccent, RoundedCornerShape(9.dp))
                                     .springPress(onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         val prompt = CentralButtonPresets.buildAiPromptForProtocol(selectedProtocol)
                                         onOpenAiChat?.invoke(prompt)
                                     })
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 14.dp),
+                                contentAlignment = Alignment.Center
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_ai_chat),
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_ai_chat,
                                         contentDescription = null,
                                         tint = effectiveAccent,
-                                        modifier = Modifier.size(13.dp)
+                                        modifier = Modifier.size(15.dp)
                                     )
                                     Text(
                                         text = stringResource(R.string.settings_customization_buttons_btn_ai_generate),
-                                        fontSize = 11.5.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = effectiveAccent
                                     )
                                 }
                             }
 
-                            // Guide button
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            // Guide button (icon only)
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(9.dp))
                                     .background(Color.Transparent)
-                                    .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                    .border(1.dp, AmoledBorder, RoundedCornerShape(9.dp))
                                     .springPress(onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         onInfoClick("buttons_guide")
-                                    })
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    }),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_info_circle),
-                                        contentDescription = null,
-                                        tint = TextMuted,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.settings_customization_buttons_btn_guide),
-                                        fontSize = 11.5.sp,
-                                        color = TextWhite
-                                    )
-                                }
+                                MirrlyIcon(
+                                    id = R.drawable.ic_info_circle,
+                                    contentDescription = stringResource(R.string.settings_customization_buttons_btn_guide),
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(15.dp)
+                                )
                             }
                         }
 
@@ -765,7 +758,11 @@ fun SettingsCentralButtonsCard(
                             )
                         )
 
-                        if (!isInputValid && codeInput.isNotBlank()) {
+                        AnimatedVisibility(
+                            visible = !isInputValid && codeInput.isNotBlank(),
+                            enter = expandVertically(tween(200)) + fadeIn(tween(200)),
+                            exit = shrinkVertically(tween(160)) + fadeOut(tween(160))
+                        ) {
                             Text(
                                 text = stringResource(R.string.settings_customization_buttons_code_invalid),
                                 fontSize = 11.sp,
@@ -807,25 +804,30 @@ fun SettingsCentralButtonsCard(
                                 )
                             }
 
-                            if (codeInput.isNotBlank()) {
+                            AnimatedVisibility(
+                                visible = codeInput.isNotBlank(),
+                                enter = expandHorizontally(tween(180)) + fadeIn(tween(180)),
+                                exit = shrinkHorizontally(tween(150)) + fadeOut(tween(150))
+                            ) {
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.Transparent)
-                                    .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
-                                    .springPress(onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        codeInput = ""
-                                        prefs.setCustomIconCode(selectedProtocol, "")
-                                    })
-                                    .padding(horizontal = 14.dp, vertical = 9.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.settings_customization_buttons_code_clear),
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.error
-                                )
+                                        .background(Color.Transparent)
+                                        .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                        .springPress(onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            codeInput = ""
+                                            prefs.setCustomIconCode(selectedProtocol, "")
+                                        })
+                                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_customization_buttons_code_clear),
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
                         }
                     }
@@ -833,7 +835,6 @@ fun SettingsCentralButtonsCard(
             }
         }
     }
-}
 }
 
 /**

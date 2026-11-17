@@ -8,6 +8,7 @@ object LaunchCountManager {
     private const val KEY_LAUNCH_COUNT = "launch_count"
     private const val KEY_STAR_DISMISSED = "github_star_dismissed"
     private const val KEY_LAST_SECURITY_NOTICE_TIME = "last_security_notice_time_ms"
+    private const val KEY_SECURITY_NOTICE_DISMISSED_FOREVER = "security_notice_dismissed_forever"
     private const val ONE_DAY_MS = 24 * 60 * 60 * 1000L
 
     private fun getPrefs(context: Context): SharedPreferences {
@@ -39,7 +40,16 @@ object LaunchCountManager {
         return count == 2 || count == 10
     }
 
+    fun isSecurityNoticeDismissedForever(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_SECURITY_NOTICE_DISMISSED_FOREVER, false)
+    }
+
+    fun setSecurityNoticeDismissedForever(context: Context, dismissed: Boolean = true) {
+        getPrefs(context).edit().putBoolean(KEY_SECURITY_NOTICE_DISMISSED_FOREVER, dismissed).apply()
+    }
+
     fun shouldShowDailySecurityNotice(context: Context): Boolean {
+        if (isSecurityNoticeDismissedForever(context)) return false
         val lastTime = getPrefs(context).getLong(KEY_LAST_SECURITY_NOTICE_TIME, 0L)
         val now = System.currentTimeMillis()
         return (now - lastTime) >= ONE_DAY_MS

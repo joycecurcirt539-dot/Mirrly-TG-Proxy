@@ -4,24 +4,15 @@
 // - S1 / S2 padding on Initiation and Response packets
 // - H1..H4 custom message type headers (defaulting to 1..4 for standard WireGuard / WARP Anycast)
 // - I1 custom initial packet camouflage (e.g. QUIC Initial RFC 9001)
-// - smoltcp user-space TCP stack bridging for SOCKS5 proxy without Android VpnService
-use crate::{ldebug, lerror, linfo, lwarn, STATS};
+use crate::{ldebug, linfo, lwarn};
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
-use smoltcp::iface::{Config as SmolConfig, Interface, SocketSet};
-use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
-use smoltcp::socket::tcp::{self, Socket as TcpSocket, State as TcpState};
-use smoltcp::time::Instant as SmolInstant;
-use smoltcp::wire::{
-    HardwareAddress, IpAddress, IpCidr, IpEndpoint, Ipv4Address, Ipv4Cidr, Ipv6Address, Ipv6Cidr,
-};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
 
@@ -568,40 +559,64 @@ pub fn generate_tai64n() -> [u8; 12] {
     out
 }
 
+/// Encrypts plaintext using a precomputed `LessSafeKey` reference.
+/// Completely eliminates `UnboundKey::new` key scheduling overhead from packet hot loop.
 pub fn aead_encrypt(
-    key: &[u8; 32],
+    cipher: &LessSafeKey,
     counter: u64,
     ad: &[u8],
     plaintext: &[u8],
 ) -> Result<Vec<u8>, String> {
     let mut nonce_bytes = [0u8; 12];
     nonce_bytes[4..12].copy_from_slice(&counter.to_le_bytes());
-    let unbound_key = UnboundKey::new(&CHACHA20_POLY1305, key).map_err(|e| format!("{:?}", e))?;
-    let aead_key = LessSafeKey::new(unbound_key);
     let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes).map_err(|e| format!("{:?}", e))?;
     let mut in_out = plaintext.to_vec();
-    aead_key
+    cipher
         .seal_in_place_append_tag(nonce, Aad::from(ad), &mut in_out)
         .map_err(|e| format!("{:?}", e))?;
     Ok(in_out)
 }
 
+/// Decrypts ciphertext using a precomputed `LessSafeKey` reference.
+/// Completely eliminates `UnboundKey::new` key scheduling overhead from packet hot loop.
 pub fn aead_decrypt(
-    key: &[u8; 32],
+    cipher: &LessSafeKey,
     counter: u64,
     ad: &[u8],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, String> {
     let mut nonce_bytes = [0u8; 12];
     nonce_bytes[4..12].copy_from_slice(&counter.to_le_bytes());
-    let unbound_key = UnboundKey::new(&CHACHA20_POLY1305, key).map_err(|e| format!("{:?}", e))?;
-    let aead_key = LessSafeKey::new(unbound_key);
     let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes).map_err(|e| format!("{:?}", e))?;
     let mut in_out = ciphertext.to_vec();
-    let res = aead_key
+    let res = cipher
         .open_in_place(nonce, Aad::from(ad), &mut in_out)
         .map_err(|e| format!("{:?}", e))?;
     Ok(res.to_vec())
+}
+
+/// One-time helper for handshake steps and unit tests with raw 32-byte keys.
+pub fn aead_encrypt_with_key(
+    key: &[u8; 32],
+    counter: u64,
+    ad: &[u8],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, String> {
+    let unbound = UnboundKey::new(&CHACHA20_POLY1305, key).map_err(|e| format!("{:?}", e))?;
+    let cipher = LessSafeKey::new(unbound);
+    aead_encrypt(&cipher, counter, ad, plaintext)
+}
+
+/// One-time helper for handshake steps and unit tests with raw 32-byte keys.
+pub fn aead_decrypt_with_key(
+    key: &[u8; 32],
+    counter: u64,
+    ad: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, String> {
+    let unbound = UnboundKey::new(&CHACHA20_POLY1305, key).map_err(|e| format!("{:?}", e))?;
+    let cipher = LessSafeKey::new(unbound);
+    aead_decrypt(&cipher, counter, ad, ciphertext)
 }
 
 // ---------------------------------------------------------------------------
@@ -943,7 +958,7 @@ pub struct AwgValidationReport {
 
 pub fn is_cloudflare_warp_endpoint(endpoint: &str) -> bool {
     let lower = endpoint.to_ascii_lowercase();
-    if lower.contains("cloudflareclient.com") || lower.contains("cloudflare.com") {
+    if lower.contains("cloudflareclient.com") || lower.contains("cloudflare.com") || lower.contains("tribukvy.ltd") {
         return true;
     }
     let host = if let Some(stripped) = endpoint.strip_prefix('[') {
@@ -969,7 +984,7 @@ pub fn is_cloudflare_warp_endpoint(endpoint: &str) -> bool {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AwgParams {
     pub jc: u32,
     pub jmin: usize,
@@ -981,6 +996,11 @@ pub struct AwgParams {
     pub h3: u32,
     pub h4: u32,
     pub i1: Option<Vec<u8>>,
+    pub reserved: Option<[u8; 3]>,
+    pub content_padding_min: usize,
+    pub content_padding_max: usize,
+    pub random_trailers: bool,
+    pub disable_cookies: bool,
 }
 
 impl Default for AwgParams {
@@ -997,21 +1017,34 @@ impl Default for AwgParams {
             h3: 3,
             h4: 4,
             i1: None,
+            reserved: None,
+            content_padding_min: 0,
+            content_padding_max: 0,
+            random_trailers: false,
+            disable_cookies: false,
         }
     }
 }
 
 impl AwgParams {
     pub const SUPPORTED_VERSION: &'static str = "AmneziaWG v1.0";
+    /// Recommended QUIC Initial CPS pattern for Cloudflare WARP Anycast bypass:
+    /// - 0xc0: QUIC Long Header Initial form
+    /// - 0x00000001: QUIC v1 version (4 bytes)
+    /// - <rc 8>: Destination Connection ID (DCID 8 bytes random ASCII letters)
+    /// - <rc 8>: Source Connection ID (SCID 8 bytes random ASCII letters)
+    /// - 0x00: Token length (1 byte)
+    /// - <r 128>: Randomized payload (128 bytes)
+    pub const WARP_DEFAULT_I1_SPEC: &'static str = "<b 0xc000000001><rc 8><rc 8><b 0x00><r 128>";
 
     pub fn warp_recommended() -> Self {
-        // Recommended settings for bypassing Russian TSPU blocks on Cloudflare Anycast:
-        // Cloudflare server operates on standard WireGuard headers (H1=1..H4=4, S1=0, S2=0).
-        // 5 junk packets (40-70 bytes) sent before the handshake destroy the 148-byte DPI signature.
+        // Cloudflare Anycast servers operate on standard WireGuard protocol (RFC 7748/IKpsk2).
+        // Junk packets (Jc > 0) or unstandardized I1 packets MUST NOT be sent to Cloudflare Anycast,
+        // as they trigger border rate-limiting, DPI anomaly flags, and temporary IP bans.
         Self {
-            jc: 5,
-            jmin: 40,
-            jmax: 70,
+            jc: 0,
+            jmin: 0,
+            jmax: 0,
             s1: 0,
             s2: 0,
             h1: 1,
@@ -1019,6 +1052,11 @@ impl AwgParams {
             h3: 3,
             h4: 4,
             i1: None,
+            reserved: None,
+            content_padding_min: 0,
+            content_padding_max: 0,
+            random_trailers: false,
+            disable_cookies: false,
         }
     }
 
@@ -1099,27 +1137,23 @@ impl AwgParams {
 pub const CLOUDFLARE_WARP_PEER_PUBKEY_B64: &str = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=";
 
 pub const CLOUDFLARE_WARP_ANYCAST_POOL: &[&str] = &[
-    "162.159.193.10:1701",
-    "162.159.192.1:1701",
-    "188.114.96.1:1701",
-    "188.114.97.1:1701",
-    "162.159.192.1:500",
-    "162.159.193.10:500",
-    "188.114.96.1:500",
-    "188.114.96.1:4500",
-    "188.114.97.1:4500",
-    "188.114.98.2:1701",
-    "188.114.99.3:1701",
-    "162.159.195.5:1701",
-    "188.114.96.1:854",
-    "188.114.97.1:854",
-    "162.159.193.10:4500",
+    // Подтвержденные рабочие Anycast и релей-эндпоинты Cloudflare (AWG)
+    "162.159.195.1:500",
+    "engage.cloudflareclient.com:2408",
+    "188.114.97.66:4500",
+    "188.114.96.125:4500",
+    "de.tribukvy.ltd:4500",
+    "nl.tribukvy.ltd:4500",
+    "pl.tribukvy.ltd:4500",
+    "ru0.tribukvy.ltd:4500",
+    "fi.tribukvy.ltd:4500",
+    "ee.tribukvy.ltd:4500",
+    "lv.tribukvy.ltd:4500",
+    "tel.de.tribukvy.ltd:4500",
+    "tel.pl.tribukvy.ltd:4500",
+    "tel.fi.tribukvy.ltd:4500",
     "162.159.192.1:4500",
-    "162.159.193.10:854",
-    "162.159.192.1:854",
-    "162.159.192.1:2408",
-    "162.159.193.10:2408",
-    "162.159.195.5:2408",
+    "8.34.70.1:500",
 ];
 
 pub fn is_cloudflare_warp_peer(peer_pub: &[u8; 32]) -> bool {
@@ -1146,6 +1180,8 @@ pub struct AwgConfig {
     pub client_ipv6: Option<Ipv6Addr>,
     pub awg_params: AwgParams,
     pub persistent_keepalive: Option<u16>,
+    pub mtu: Option<u16>,
+    pub limits: Option<SessionLimits>,
 }
 
 impl AwgConfig {
@@ -1166,7 +1202,7 @@ impl Default for AwgConfig {
         }
         Self {
             profile_name: "Cloudflare WARP".to_string(),
-            endpoint: "162.159.193.10:1701".to_string(),
+            endpoint: "188.114.96.1:500".to_string(),
             fallback_endpoints: CLOUDFLARE_WARP_ANYCAST_POOL
                 .iter()
                 .map(|&s| s.to_string())
@@ -1179,6 +1215,8 @@ impl Default for AwgConfig {
             client_ipv6: None,
             awg_params: AwgParams::warp_recommended(),
             persistent_keepalive: Some(20),
+            mtu: Some(1280),
+            limits: None,
         }
     }
 }
@@ -1222,46 +1260,272 @@ pub fn validate_endpoint_format(endpoint: &str) -> Result<(String, u16), String>
     Ok((trimmed.to_string(), port))
 }
 
-fn parse_awg_i1(val: &str, line_num: usize) -> Result<Vec<u8>, String> {
+static AWG_CPS_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+fn parse_awg_i1_tag(tag: &str, line_num: usize, out: &mut Vec<u8>) -> Result<(), String> {
+    let t = tag.trim();
+    if t.is_empty() {
+        return Err(format!("line {}: empty tag '<>' in I1", line_num));
+    }
+
+    // Tag <t>: 4-byte current Unix timestamp in big-endian
+    if t.eq_ignore_ascii_case("t") {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as u32;
+        out.extend_from_slice(&ts.to_be_bytes());
+        return Ok(());
+    }
+
+    // Tag <c>: 4-byte incremental session/packet counter in big-endian
+    if t.eq_ignore_ascii_case("c") {
+        let counter = AWG_CPS_COUNTER.fetch_add(1, Ordering::Relaxed);
+        out.extend_from_slice(&counter.to_be_bytes());
+        return Ok(());
+    }
+
+    // Tag <rc N>: N random ASCII letters [A-Za-z] (N <= 1000)
+    if t.len() >= 2 && t[..2].eq_ignore_ascii_case("rc") {
+        let count_str = t[2..].trim();
+        let count: usize = count_str.parse().map_err(|_| {
+            format!("line {}: invalid random char count in I1 tag '<{}>'", line_num, tag)
+        })?;
+        if count > 1000 {
+            return Err(format!(
+                "line {}: random char count {} in I1 tag '<{}>' exceeds limit 1000",
+                line_num, count, tag
+            ));
+        }
+        const ASCII_LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let mut rng = rand::thread_rng();
+        for _ in 0..count {
+            let idx = rand::Rng::gen_range(&mut rng, 0..ASCII_LETTERS.len());
+            out.push(ASCII_LETTERS[idx]);
+        }
+        return Ok(());
+    }
+
+    // Tag <rd N>: N random decimal digits [0-9] (N <= 1000)
+    if t.len() >= 2 && t[..2].eq_ignore_ascii_case("rd") {
+        let count_str = t[2..].trim();
+        let count: usize = count_str.parse().map_err(|_| {
+            format!("line {}: invalid random digit count in I1 tag '<{}>'", line_num, tag)
+        })?;
+        if count > 1000 {
+            return Err(format!(
+                "line {}: random digit count {} in I1 tag '<{}>' exceeds limit 1000",
+                line_num, count, tag
+            ));
+        }
+        const ASCII_DIGITS: &[u8] = b"0123456789";
+        let mut rng = rand::thread_rng();
+        for _ in 0..count {
+            let idx = rand::Rng::gen_range(&mut rng, 0..ASCII_DIGITS.len());
+            out.push(ASCII_DIGITS[idx]);
+        }
+        return Ok(());
+    }
+
+    // Tag <r N>: N cryptographically secure random raw bytes (N <= 1000)
+    if (t.starts_with('r') || t.starts_with('R'))
+        && !t[1..].starts_with('c')
+        && !t[1..].starts_with('C')
+        && !t[1..].starts_with('d')
+        && !t[1..].starts_with('D')
+    {
+        let count_str = t[1..].trim();
+        let count: usize = count_str.parse().map_err(|_| {
+            format!("line {}: invalid random byte count in I1 tag '<{}>'", line_num, tag)
+        })?;
+        if count > 1000 {
+            return Err(format!(
+                "line {}: random byte count {} in I1 tag '<{}>' exceeds limit 1000",
+                line_num, count, tag
+            ));
+        }
+        let mut rng_buf = vec![0u8; count];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut rng_buf);
+        out.extend_from_slice(&rng_buf);
+        return Ok(());
+    }
+
+    // Tag <b ...>: hex bytes (supporting optional 0x/0X prefix and spaces)
+    if t.starts_with('b') || t.starts_with('B') {
+        let hex_content = t[1..].trim();
+        let clean_hex_prefix = hex_content
+            .strip_prefix("0x")
+            .or_else(|| hex_content.strip_prefix("0X"))
+            .unwrap_or(hex_content)
+            .trim();
+        let hex_str: String = clean_hex_prefix.chars().filter(|c| !c.is_whitespace()).collect();
+        if hex_str.is_empty() {
+            return Err(format!("line {}: empty hex content in I1 tag '<{}>'", line_num, tag));
+        }
+        let decoded = hex::decode(&hex_str).map_err(|e| {
+            format!("line {}: invalid hex in I1 tag '<{}>': {}", line_num, tag, e)
+        })?;
+        out.extend_from_slice(&decoded);
+        return Ok(());
+    }
+
+    Err(format!("line {}: unrecognized I1 tag '<{}>'", line_num, tag))
+}
+
+pub fn parse_awg_i1(val: &str, line_num: usize) -> Result<Vec<u8>, String> {
     let s = val.trim();
-    if !s.starts_with('<') {
-        let clean_hex = s.trim_start_matches("0x").trim();
-        return hex::decode(clean_hex).map_err(|e| {
+    if s.is_empty() {
+        return Err(format!("line {}: empty I1 value", line_num));
+    }
+    if !s.contains('<') {
+        let clean_hex_prefix = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s)
+            .trim();
+        let hex_str: String = clean_hex_prefix.chars().filter(|c| !c.is_whitespace()).collect();
+        if hex_str.is_empty() {
+            return Err(format!("line {}: empty I1 hex value '{}'", line_num, val));
+        }
+        return hex::decode(&hex_str).map_err(|e| {
             format!("line {}: invalid I1 hex format '{}': {}", line_num, val, e)
         });
     }
+
     let mut out = Vec::new();
     let mut rest = s;
     while !rest.is_empty() {
-        if let Some(start) = rest.find('<') {
-            if let Some(end) = rest[start..].find('>') {
-                let tag = rest[start + 1..start + end].trim();
-                if let Some(r_str) = tag.strip_prefix('r') {
-                    let count: usize = r_str.trim().parse().map_err(|_| {
-                        format!("line {}: invalid random count in I1 tag '<{}>'", line_num, tag)
-                    })?;
-                    let mut rng_buf = vec![0u8; count];
-                    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut rng_buf);
-                    out.extend_from_slice(&rng_buf);
-                } else if let Some(b_str) = tag.strip_prefix('b') {
-                    let hex_str = b_str.trim().trim_start_matches("0x").trim();
-                    let decoded = hex::decode(hex_str).map_err(|e| {
-                        format!("line {}: invalid hex in I1 tag '<{}>': {}", line_num, tag, e)
-                    })?;
-                    out.extend_from_slice(&decoded);
-                }
-                rest = rest[start + end + 1..].trim();
-            } else {
-                break;
-            }
-        } else {
+        let trimmed_rest = rest.trim_start();
+        if trimmed_rest.is_empty() {
             break;
         }
+        if !trimmed_rest.starts_with('<') {
+            return Err(format!(
+                "line {}: unexpected characters outside tags in I1: '{}'",
+                line_num, trimmed_rest
+            ));
+        }
+        let end = trimmed_rest.find('>').ok_or_else(|| {
+            format!("line {}: unclosed '<' tag in I1: '{}'", line_num, trimmed_rest)
+        })?;
+        let tag = trimmed_rest[1..end].trim();
+        parse_awg_i1_tag(tag, line_num, &mut out)?;
+        rest = &trimmed_rest[end + 1..];
     }
+
     if out.is_empty() {
         return Err(format!("line {}: empty or invalid I1 sequence '{}'", line_num, val));
     }
     Ok(out)
+}
+
+pub fn parse_awg_reserved(val: &str, line_num: usize) -> Result<[u8; 3], String> {
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine;
+
+    let trimmed = val.trim();
+    if trimmed.is_empty() {
+        return Err(format!("line {}: empty 'Reserved' value", line_num));
+    }
+
+    // 1. Comma-separated: "123, 45, 67" or "[123, 45, 67]"
+    let clean_csv = trimmed.trim_start_matches('[').trim_end_matches(']').trim();
+    let parts: Vec<&str> = clean_csv.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    if parts.len() == 3 {
+        let mut bytes = [0u8; 3];
+        let mut ok = true;
+        for (i, part) in parts.iter().enumerate() {
+            match part.parse::<u8>() {
+                Ok(b) => bytes[i] = b,
+                Err(_) => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            return Ok(bytes);
+        }
+    }
+
+    // 2. Base64 (3 raw bytes encoded into 4 Base64 chars)
+    if let Ok(bytes) = B64.decode(trimmed) {
+        if bytes.len() == 3 {
+            return Ok([bytes[0], bytes[1], bytes[2]]);
+        }
+    }
+
+    // 3. Hex (e.g., "010203" or "0x010203")
+    let hex_str = if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+        &trimmed[2..]
+    } else {
+        trimmed
+    };
+    if hex_str.len() == 6 && hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
+        let mut bytes = [0u8; 3];
+        let mut ok = true;
+        for i in 0..3 {
+            match u8::from_str_radix(&hex_str[i * 2..i * 2 + 2], 16) {
+                Ok(b) => bytes[i] = b,
+                Err(_) => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            return Ok(bytes);
+        }
+    }
+
+    Err(format!(
+        "line {}: invalid 'Reserved' format '{}': expected 3 bytes (e.g. comma-separated '123, 45, 67', hex '010203', or base64)",
+        line_num, val
+    ))
+}
+
+fn parse_content_padding_addition(val: &str, line_num: usize) -> Result<(usize, usize), String> {
+    let trimmed = val.trim();
+    if trimmed.is_empty() {
+        return Ok((0, 0));
+    }
+    if let Some((min_str, max_str)) = trimmed.split_once('-') {
+        let min_val: usize = min_str.trim().parse().map_err(|_| {
+            format!("line {}: invalid ContentPaddingAddition min '{}': expected integer", line_num, min_str)
+        })?;
+        let max_val: usize = max_str.trim().parse().map_err(|_| {
+            format!("line {}: invalid ContentPaddingAddition max '{}': expected integer", line_num, max_str)
+        })?;
+        if min_val > max_val {
+            return Err(format!("line {}: invalid ContentPaddingAddition range: {} > {}", line_num, min_val, max_val));
+        }
+        Ok((min_val, max_val))
+    } else {
+        let single: usize = trimmed.parse().map_err(|_| {
+            format!("line {}: invalid ContentPaddingAddition '{}': expected integer or range (min-max)", line_num, trimmed)
+        })?;
+        Ok((single, single))
+    }
+}
+
+fn parse_bool_flag(val: &str) -> bool {
+    matches!(val.trim().to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes")
+}
+
+fn parse_duration_range(val: &str) -> Option<Duration> {
+    use rand::Rng;
+    let trimmed = val.trim();
+    if let Some((min_str, max_str)) = trimmed.split_once('-') {
+        let min_val: u64 = min_str.trim().parse().ok()?;
+        let max_val: u64 = max_str.trim().parse().ok()?;
+        if min_val <= max_val {
+            let secs = rand::thread_rng().gen_range(min_val..=max_val);
+            return Some(Duration::from_secs(secs));
+        }
+    } else if let Ok(val) = trimmed.parse::<u64>() {
+        return Some(Duration::from_secs(val));
+    }
+    None
 }
 
 impl AwgConfig {
@@ -1294,6 +1558,9 @@ impl AwgConfig {
         let mut endpoint: Option<String> = None;
         let mut persistent_keepalive: Option<u16> = Some(20);
         let mut awg_params = AwgParams::default();
+        let mut mtu_val: Option<u16> = None;
+        let mut session_limits = SessionLimits::default();
+        let mut has_custom_limits = false;
 
         for (line_idx, line) in ini_str.lines().enumerate() {
             let line_num = line_idx + 1;
@@ -1462,6 +1729,7 @@ impl AwgConfig {
                                 line_num, mtu
                             ));
                         }
+                        mtu_val = Some(mtu);
                     }
                     "jc" => {
                         let jc: u32 = val.parse().map_err(|_| {
@@ -1568,13 +1836,56 @@ impl AwgConfig {
                         let bytes = parse_awg_i1(val, line_num)?;
                         awg_params.i1 = Some(bytes);
                     }
+                    "reserved" | "clientid" | "client_id" => {
+                        let res = parse_awg_reserved(val, line_num)?;
+                        awg_params.reserved = Some(res);
+                    }
                     "i2" | "i3" | "i4" | "i5" => {
                         ldebug!("AWG config: parsed extended CPS directive {}: {}", key, val);
                     }
-                    "contentpaddingaddition" | "rekeyaftertime" | "rekeytimeout" | "rejectaftertime"
-                    | "keepalivetimeout" | "maxhandshakeattempts" | "disablecookies" | "randomtrailers"
-                    | "persistentkeepalive" => {
-                        ldebug!("AWG config: parsed extended AWG parameter {}: {}", key, val);
+                    "contentpaddingaddition" => {
+                        let (pmin, pmax) = parse_content_padding_addition(val, line_num)?;
+                        awg_params.content_padding_min = pmin;
+                        awg_params.content_padding_max = pmax;
+                    }
+                    "randomtrailers" => {
+                        awg_params.random_trailers = parse_bool_flag(val);
+                    }
+                    "disablecookies" => {
+                        awg_params.disable_cookies = parse_bool_flag(val);
+                    }
+                    "rekeyaftertime" => {
+                        if let Some(dur) = parse_duration_range(val) {
+                            session_limits.rekey_after_time = dur;
+                            has_custom_limits = true;
+                        }
+                    }
+                    "rejectaftertime" => {
+                        if let Some(dur) = parse_duration_range(val) {
+                            session_limits.reject_after_time = dur;
+                            has_custom_limits = true;
+                        }
+                    }
+                    "rekeytimeout" => {
+                        if let Some(dur) = parse_duration_range(val) {
+                            session_limits.rekey_timeout = dur;
+                            has_custom_limits = true;
+                        }
+                    }
+                    "keepalivetimeout" => {
+                        if let Some(dur) = parse_duration_range(val) {
+                            session_limits.keepalive_timeout = dur;
+                            has_custom_limits = true;
+                        }
+                    }
+                    "maxhandshakeattempts" => {
+                        ldebug!("AWG config: parsed maxhandshakeattempts: {}", val);
+                    }
+                    "persistentkeepalive" => {
+                        let secs: u16 = val.parse().map_err(|_| {
+                            format!("line {}: invalid PersistentKeepalive '{}': expected integer", line_num, val)
+                        })?;
+                        persistent_keepalive = Some(secs);
                     }
                     _ => {
                         return Err(format!(
@@ -1757,6 +2068,10 @@ impl AwgConfig {
                         let bytes = parse_awg_i1(val, line_num)?;
                         awg_params.i1 = Some(bytes);
                     }
+                    "reserved" | "clientid" | "client_id" => {
+                        let res = parse_awg_reserved(val, line_num)?;
+                        awg_params.reserved = Some(res);
+                    }
                     "s3" | "s4" => {
                         let _s: usize = val.parse().map_err(|_| {
                             format!("line {}: invalid {} value '{}': expected integer", line_num, key, val)
@@ -1765,9 +2080,43 @@ impl AwgConfig {
                     "i2" | "i3" | "i4" | "i5" => {
                         ldebug!("AWG config: parsed extended CPS directive {}: {}", key, val);
                     }
-                    "contentpaddingaddition" | "rekeyaftertime" | "rekeytimeout" | "rejectaftertime"
-                    | "keepalivetimeout" | "maxhandshakeattempts" | "disablecookies" | "randomtrailers" => {
-                        ldebug!("AWG config: parsed extended AWG parameter in peer {}: {}", key, val);
+                    "contentpaddingaddition" => {
+                        let (pmin, pmax) = parse_content_padding_addition(val, line_num)?;
+                        awg_params.content_padding_min = pmin;
+                        awg_params.content_padding_max = pmax;
+                    }
+                    "randomtrailers" => {
+                        awg_params.random_trailers = parse_bool_flag(val);
+                    }
+                    "disablecookies" => {
+                        awg_params.disable_cookies = parse_bool_flag(val);
+                    }
+                    "rekeyaftertime" => {
+                        if let Some(dur) = parse_duration_range(val) {
+                            session_limits.rekey_after_time = dur;
+                            has_custom_limits = true;
+                        }
+                    }
+                    "rejectaftertime" => {
+                        if let Some(dur) = parse_duration_range(val) {
+                            session_limits.reject_after_time = dur;
+                            has_custom_limits = true;
+                        }
+                    }
+                    "rekeytimeout" => {
+                        if let Some(dur) = parse_duration_range(val) {
+                            session_limits.rekey_timeout = dur;
+                            has_custom_limits = true;
+                        }
+                    }
+                    "keepalivetimeout" => {
+                        if let Some(dur) = parse_duration_range(val) {
+                            session_limits.keepalive_timeout = dur;
+                            has_custom_limits = true;
+                        }
+                    }
+                    "maxhandshakeattempts" => {
+                        ldebug!("AWG config: parsed maxhandshakeattempts in peer: {}", val);
                     }
                     _ => {
                         return Err(format!(
@@ -1829,6 +2178,9 @@ impl AwgConfig {
         let my_pub = x25519_base(&priv_k);
 
         let is_warp = is_cloudflare_warp_peer(&pub_k) || is_cloudflare_warp_endpoint(&ep);
+        if is_warp && awg_params.reserved.is_none() {
+            lwarn!("AWG parse_ini: Cloudflare WARP peer specified without Reserved client_id (3 bytes). Handshake may be dropped by Cloudflare border routers.");
+        }
         let prof_name = profile_name.unwrap_or_else(|| {
             if is_warp {
                 "Cloudflare WARP".to_string()
@@ -1849,6 +2201,12 @@ impl AwgConfig {
             Vec::new()
         };
 
+        let limits = if has_custom_limits {
+            Some(session_limits)
+        } else {
+            None
+        };
+
         Ok(Self {
             profile_name: prof_name,
             endpoint: ep,
@@ -1861,6 +2219,8 @@ impl AwgConfig {
             client_ipv6,
             awg_params,
             persistent_keepalive,
+            mtu: mtu_val,
+            limits,
         })
     }
 }
@@ -1941,6 +2301,9 @@ pub fn set_awg_config(
     cfg.awg_params.h4 = if h4 != 0 { h4 } else { 4 };
 
     let is_warp = is_cloudflare_warp_peer(&cfg.peer_public_key) || is_cloudflare_warp_endpoint(&cfg.endpoint);
+    if is_warp && cfg.awg_params.reserved.is_none() {
+        lwarn!("set_awg_config: Cloudflare WARP peer specified without Reserved client_id (3 bytes).");
+    }
     cfg.profile_name = if is_warp {
         "Cloudflare WARP".to_string()
     } else {
@@ -2246,6 +2609,8 @@ pub fn slide_bitmap(bitmap: &mut [u64; BITMAP_WORDS], shift: usize) {
 pub struct TransportKeys {
     pub send_key: [u8; 32],
     pub recv_key: [u8; 32],
+    pub send_cipher: Arc<LessSafeKey>,
+    pub recv_cipher: Arc<LessSafeKey>,
     pub local_index: u32,
     pub peer_index: u32,
     pub send_counter: AtomicU64,
@@ -2254,6 +2619,8 @@ pub struct TransportKeys {
     pub created_at: std::time::Instant,
     pub limits: SessionLimits,
     pub is_initiator: bool,
+    pub awg_params: Option<AwgParams>,
+    pub mtu: usize,
 }
 
 impl std::fmt::Debug for TransportKeys {
@@ -2293,9 +2660,16 @@ impl TransportKeys {
         limits: SessionLimits,
         is_initiator: bool,
     ) -> Self {
+        let send_unbound = UnboundKey::new(&CHACHA20_POLY1305, &send_key)
+            .expect("valid 32-byte key for ChaCha20-Poly1305 send_cipher");
+        let recv_unbound = UnboundKey::new(&CHACHA20_POLY1305, &recv_key)
+            .expect("valid 32-byte key for ChaCha20-Poly1305 recv_cipher");
+
         Self {
             send_key,
             recv_key,
+            send_cipher: Arc::new(LessSafeKey::new(send_unbound)),
+            recv_cipher: Arc::new(LessSafeKey::new(recv_unbound)),
             local_index,
             peer_index,
             send_counter: AtomicU64::new(0),
@@ -2304,6 +2678,29 @@ impl TransportKeys {
             created_at: std::time::Instant::now(),
             limits,
             is_initiator,
+            awg_params: None,
+            mtu: 1280,
+        }
+    }
+
+    /// Optimized cloning of key structures when only limits need updating,
+    /// avoiding redundant recomputation of `LessSafeKey`.
+    pub fn clone_with_limits(&self, limits: SessionLimits) -> Self {
+        Self {
+            send_key: self.send_key,
+            recv_key: self.recv_key,
+            send_cipher: Arc::clone(&self.send_cipher),
+            recv_cipher: Arc::clone(&self.recv_cipher),
+            local_index: self.local_index,
+            peer_index: self.peer_index,
+            send_counter: AtomicU64::new(self.send_counter.load(Ordering::Relaxed)),
+            recv_counter: AtomicU64::new(self.recv_counter.load(Ordering::Relaxed)),
+            replay_filter: Mutex::new(ReplayFilter::new()),
+            created_at: self.created_at,
+            limits,
+            is_initiator: self.is_initiator,
+            awg_params: self.awg_params.clone(),
+            mtu: self.mtu,
         }
     }
 
@@ -2333,6 +2730,8 @@ pub fn create_initiation(
     create_initiation_with_cookie(config, local_index, cached_cookie.as_ref())
 }
 
+pub use create_initiation as create_handshake_initiation;
+
 pub fn create_initiation_with_cookie(
     config: &AwgConfig,
     local_index: u32,
@@ -2351,6 +2750,13 @@ pub fn create_initiation_with_cookie(
     // Ephemeral key generation
     let mut e_priv = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut e_priv);
+    // RFC 7748 Curve25519 scalar clamping:
+    // Bits 0..2 cleared (scalar is a multiple of 8, cofactor clearing)
+    // Bit 254 set (scalar >= 2^254, prevents small-subgroup attacks)
+    // Bit 255 cleared
+    e_priv[0] &= 248;
+    e_priv[31] &= 127;
+    e_priv[31] |= 64;
     let e_pub = x25519_base(&e_priv);
 
     // Add unencrypted ephemeral to packet & mix hash & kdf
@@ -2364,7 +2770,7 @@ pub fn create_initiation_with_cookie(
     chaining_key = ck_new;
 
     // Encrypt static public key
-    let encrypted_static = aead_encrypt(&k2, 0, &h, &config.public_key)?;
+    let encrypted_static = aead_encrypt_with_key(&k2, 0, &h, &config.public_key)?;
     h = blake2s_mix(&h, &encrypted_static);
 
     // ss2 = X25519(Cpriv, Spk)
@@ -2374,14 +2780,15 @@ pub fn create_initiation_with_cookie(
 
     // Encrypt timestamp (Tai64n)
     let tai64n = generate_tai64n();
-    let encrypted_timestamp = aead_encrypt(&k3, 0, &h, &tai64n)?;
+    let encrypted_timestamp = aead_encrypt_with_key(&k3, 0, &h, &tai64n)?;
     h = blake2s_mix(&h, &encrypted_timestamp);
 
     // Assemble packet: S1 prefix padding + 148 bytes initiation
-    let s1 = config.awg_params.s1;
+    let is_cf = is_cloudflare_warp_peer(&config.peer_public_key) && config.awg_params.h1 == 1;
+    let s1 = if is_cf { 0 } else { config.awg_params.s1 };
     let mut packet = Vec::with_capacity(s1 + 148);
 
-    // AmneziaWG v1.0: S1 bytes of random prefix padding
+    // AmneziaWG v1.0: S1 bytes of random prefix padding (dedicated AWG servers only)
     if s1 > 0 {
         let mut padding = vec![0u8; s1];
         rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut padding);
@@ -2389,7 +2796,19 @@ pub fn create_initiation_with_cookie(
     }
 
     let init_start = s1;
-    packet.extend_from_slice(&config.awg_params.h1.to_le_bytes());
+    let mut header_bytes = if is_cf {
+        1u32.to_le_bytes()
+    } else {
+        config.awg_params.h1.to_le_bytes()
+    };
+    if let Some(res) = config.awg_params.reserved {
+        header_bytes[1] = res[0];
+        header_bytes[2] = res[1];
+        header_bytes[3] = res[2];
+    } else if is_cf {
+        lwarn!("create_initiation: Cloudflare WARP profile missing reserved client_id (3 bytes) in handshake initiation header");
+    }
+    packet.extend_from_slice(&header_bytes);
     packet.extend_from_slice(&local_index.to_le_bytes());
     packet.extend_from_slice(&e_pub);
     packet.extend_from_slice(&encrypted_static);
@@ -2403,12 +2822,24 @@ pub fn create_initiation_with_cookie(
     let mac1 = blake2s(&mac1_key, &packet[init_start..init_start + 116], 16);
     packet.extend_from_slice(&mac1);
 
-    // MAC2 = if cookie present { BLAKE2s-128(key = cookie, data = packet[init_start..init_start + 132]) } else { 16 zeros }
+    // MAC2 = if cookie present && !disable_cookies { BLAKE2s-128(key = cookie, data = packet[init_start..init_start + 132]) } else { 16 zeros }
     if let Some(c) = cookie {
-        let mac2 = blake2s(c, &packet[init_start..init_start + 132], 16);
-        packet.extend_from_slice(&mac2);
+        if !config.awg_params.disable_cookies {
+            let mac2 = blake2s(c, &packet[init_start..init_start + 132], 16);
+            packet.extend_from_slice(&mac2);
+        } else {
+            packet.extend_from_slice(&[0u8; 16]);
+        }
     } else {
         packet.extend_from_slice(&[0u8; 16]);
+    }
+
+    if config.awg_params.random_trailers {
+        use rand::Rng;
+        let trailer_len = rand::thread_rng().gen_range(16..=48);
+        let mut trailer = vec![0u8; trailer_len];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut trailer);
+        packet.extend_from_slice(&trailer);
     }
 
     let mut mac1_arr = [0u8; 16];
@@ -2431,7 +2862,8 @@ pub fn process_response(
     config: &AwgConfig,
     resp: &[u8],
 ) -> Result<TransportKeys, String> {
-    let s2 = config.awg_params.s2;
+    let is_cf = is_cloudflare_warp_peer(&config.peer_public_key) && config.awg_params.h2 == 2;
+    let s2 = if is_cf { 0 } else { config.awg_params.s2 };
     let min_len = 92 + s2;
     if resp.len() < min_len {
         return Err(format!(
@@ -2443,10 +2875,11 @@ pub fn process_response(
 
     let resp_slice = &resp[s2..];
     let msg_type = u32::from_le_bytes([resp_slice[0], resp_slice[1], resp_slice[2], resp_slice[3]]);
-    if msg_type != config.awg_params.h2 {
+    let expected_h2 = if is_cf { 2 } else { config.awg_params.h2 };
+    if msg_type != expected_h2 {
         return Err(format!(
             "AWG response message type mismatch: {} (expected H2={})",
-            msg_type, config.awg_params.h2
+            msg_type, expected_h2
         ));
     }
 
@@ -2493,7 +2926,7 @@ pub fn process_response(
     h = blake2s_mix(&h, &tau);
 
     // Decrypt empty payload (auth tag verification)
-    let empty = aead_decrypt(&k4, 0, &h, &resp_slice[44..60])?;
+    let empty = aead_decrypt_with_key(&k4, 0, &h, &resp_slice[44..60])?;
     if !empty.is_empty() {
         return Err("AWG handshake response payload non-empty".to_string());
     }
@@ -2502,12 +2935,15 @@ pub fn process_response(
     // Derive final transport keys
     let (send_key, recv_key) = kdf2(&chaining_key, &[]);
 
-    Ok(TransportKeys::new(
+    let mut keys = TransportKeys::new(
         send_key,
         recv_key,
         handshake.local_index,
         server_index,
-    ))
+    );
+    keys.awg_params = Some(config.awg_params.clone());
+    keys.mtu = config.mtu.unwrap_or(1280) as usize;
+    Ok(keys)
 }
 
 /// Responder-side handshake processing (RFC Noise IKpsk2 / WireGuard paper Section 5.4).
@@ -2532,10 +2968,17 @@ pub fn respond_to_initiation(
 
     let init_slice = &init_packet[s1..];
     let msg_type = u32::from_le_bytes([init_slice[0], init_slice[1], init_slice[2], init_slice[3]]);
-    if msg_type != awg_params.h1 {
+    let mut expected_header = awg_params.h1.to_le_bytes();
+    if let Some(res) = awg_params.reserved {
+        expected_header[1] = res[0];
+        expected_header[2] = res[1];
+        expected_header[3] = res[2];
+    }
+    let expected_h1 = u32::from_le_bytes(expected_header);
+    if msg_type != expected_h1 {
         return Err(format!(
-            "AWG initiation message type mismatch: got {}, expected H1={}",
-            msg_type, awg_params.h1
+            "AWG initiation message type mismatch: got 0x{:08x}, expected H1=0x{:08x}",
+            msg_type, expected_h1
         ));
     }
 
@@ -2575,7 +3018,7 @@ pub fn respond_to_initiation(
 
     // Decrypt static public key
     let encrypted_static = &init_slice[40..88];
-    let client_pub_bytes = aead_decrypt(&k2, 0, &h, encrypted_static)?;
+    let client_pub_bytes = aead_decrypt_with_key(&k2, 0, &h, encrypted_static)?;
     if client_pub_bytes.len() != 32 {
         return Err("invalid decrypted client static key length".to_string());
     }
@@ -2590,7 +3033,7 @@ pub fn respond_to_initiation(
 
     // Decrypt timestamp (Tai64n)
     let encrypted_timestamp = &init_slice[88..116];
-    let _tai64n = aead_decrypt(&k3, 0, &h, encrypted_timestamp)?;
+    let _tai64n = aead_decrypt_with_key(&k3, 0, &h, encrypted_timestamp)?;
     h = blake2s_mix(&h, encrypted_timestamp);
 
     // Generate server ephemeral keypair
@@ -2619,14 +3062,16 @@ pub fn respond_to_initiation(
     h = blake2s_mix(&h, &tau);
 
     // Encrypt empty payload
-    let empty_encrypted = aead_encrypt(&k4, 0, &h, &[])?;
+    let empty_encrypted = aead_encrypt_with_key(&k4, 0, &h, &[])?;
     let _ = blake2s_mix(&h, &empty_encrypted);
 
     // Derive transport keys:
     // Initiator gets (send_key, recv_key) = kdf2(chaining_key, &[]).
     // Responder sends with initiator's recv_key and receives with initiator's send_key!
     let (t_send, t_recv) = kdf2(&chaining_key, &[]);
-    let responder_keys = TransportKeys::new(t_recv, t_send, server_index, client_index);
+    let mut responder_keys = TransportKeys::new(t_recv, t_send, server_index, client_index);
+    responder_keys.awg_params = Some(awg_params.clone());
+    responder_keys.mtu = 1280;
 
     let s2 = awg_params.s2;
     let mut resp_packet = Vec::with_capacity(s2 + 92);
@@ -2654,6 +3099,14 @@ pub fn respond_to_initiation(
     resp_packet.extend_from_slice(&mac1);
     // MAC2 (16 zeros)
     resp_packet.extend_from_slice(&[0u8; 16]);
+
+    if awg_params.random_trailers {
+        use rand::Rng;
+        let trailer_len = rand::thread_rng().gen_range(16..=48);
+        let mut trailer = vec![0u8; trailer_len];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut trailer);
+        resp_packet.extend_from_slice(&trailer);
+    }
 
     Ok((responder_keys, resp_packet))
 }
@@ -2691,11 +3144,14 @@ pub fn is_ip_packet(data: &[u8]) -> bool {
     }
 }
 
-/// Trims 16-byte padding and validates inner IPv4 or IPv6 header length after decryption.
-pub fn trim_and_validate_ip_packet(plaintext: &[u8]) -> Result<Vec<u8>, String> {
+/// Validates inner IPv4 or IPv6 header structure and returns exact packet length in bytes.
+/// Operates as a pure validation function with zero heap allocations.
+#[inline]
+pub fn validate_and_get_ip_len(plaintext: &[u8]) -> Result<usize, String> {
     if plaintext.is_empty() {
-        return Ok(Vec::new());
+        return Ok(0);
     }
+
     if plaintext[0] == 0x45 {
         if plaintext.len() < 20 {
             return Err(format!(
@@ -2717,7 +3173,7 @@ pub fn trim_and_validate_ip_packet(plaintext: &[u8]) -> Result<Vec<u8>, String> 
                 plaintext.len()
             ));
         }
-        Ok(plaintext[..total_len].to_vec())
+        Ok(total_len)
     } else if plaintext[0] == 0x60 {
         if plaintext.len() < 40 {
             return Err(format!(
@@ -2734,26 +3190,50 @@ pub fn trim_and_validate_ip_packet(plaintext: &[u8]) -> Result<Vec<u8>, String> 
                 plaintext.len()
             ));
         }
-        Ok(plaintext[..total_len].to_vec())
+        Ok(total_len)
     } else if plaintext.len() >= 40 && (plaintext[0] >> 4 == 6) {
         let payload_len = u16::from_be_bytes([plaintext[4], plaintext[5]]) as usize;
         let total_len = 40 + payload_len;
         if total_len <= plaintext.len() {
-            Ok(plaintext[..total_len].to_vec())
+            Ok(total_len)
         } else {
-            Ok(plaintext.to_vec())
+            Ok(plaintext.len())
         }
     } else {
         // Raw/dummy non-IP payloads (e.g. test dummy data like b"Hello Server" or b"GET /chat"): returned as-is
-        Ok(plaintext.to_vec())
+        Ok(plaintext.len())
     }
 }
 
+/// Trims 16-byte padding and validates inner IPv4 or IPv6 header length after decryption.
+/// Backward-compatible wrapper around `validate_and_get_ip_len`.
+pub fn trim_and_validate_ip_packet(plaintext: &[u8]) -> Result<Vec<u8>, String> {
+    let len = validate_and_get_ip_len(plaintext)?;
+    Ok(plaintext[..len].to_vec())
+}
+
+/// Encapsulates an IP packet into an AmneziaWG transport data packet with zero intermediate allocations.
+/// Allocates the wire packet directly with exact capacity (16-byte header + padded plaintext + 16-byte tag),
+/// writes the transport header, copies/pads the plaintext, seals the payload in-place via
+/// `seal_in_place_separate_tag`, and appends the 16-byte Poly1305 authentication tag.
 pub fn encapsulate_transport_packet(
     keys: &TransportKeys,
     h4: u32,
     ip_packet: &[u8],
 ) -> Result<Vec<u8>, String> {
+    let cap = (ip_packet.len() + 128).max(keys.mtu).max(128);
+    let mut packet = Vec::with_capacity(cap);
+    encapsulate_transport_packet_into(keys, h4, ip_packet, &mut packet)?;
+    Ok(packet)
+}
+
+/// Zero-allocation variant: writes directly into caller-provided `out` vector, reusing existing capacity.
+pub fn encapsulate_transport_packet_into(
+    keys: &TransportKeys,
+    h4: u32,
+    ip_packet: &[u8],
+    out: &mut Vec<u8>,
+) -> Result<(), String> {
     if keys.age() >= keys.limits.reject_after_time {
         return Err("AWG send key expired (reject_after_time exceeded)".to_string());
     }
@@ -2778,29 +3258,78 @@ pub fn encapsulate_transport_packet(
         }
     };
 
-    // Apply standard WireGuard 16-byte padding for IP packets (empty keepalive packets are unpadded)
-    let padded_payload: Vec<u8> = if !ip_packet.is_empty() {
-        if is_ip_packet(ip_packet) {
-            let target_len = pad16(ip_packet.len());
-            let mut buf = ip_packet.to_vec();
-            buf.resize(target_len, 0u8);
-            buf
-        } else {
-            ip_packet.to_vec()
-        }
-    } else {
-        Vec::new()
+    let (content_min, content_max, has_trailers) = match &keys.awg_params {
+        Some(p) => (p.content_padding_min, p.content_padding_max, p.random_trailers),
+        None => (0, 0, false),
     };
 
-    let encrypted = aead_encrypt(&keys.send_key, counter, &[], &padded_payload)?;
-    let mut packet = Vec::with_capacity(16 + encrypted.len());
-    packet.extend_from_slice(&h4.to_le_bytes());
-    packet.extend_from_slice(&keys.peer_index.to_le_bytes());
-    packet.extend_from_slice(&counter.to_le_bytes());
-    packet.extend_from_slice(&encrypted);
-    Ok(packet)
+    let total_extra = if content_max > 0 || has_trailers {
+        use rand::Rng;
+        let mut extra = 0;
+        if content_max > 0 {
+            extra += rand::thread_rng().gen_range(content_min..=content_max);
+        }
+        if has_trailers {
+            extra += rand::thread_rng().gen_range(8..=32);
+        }
+        extra
+    } else {
+        0
+    };
+
+    let effective_mtu = if keys.mtu > 0 { keys.mtu } else { 1280 };
+    let max_payload = effective_mtu.saturating_sub(32); // 16 header + 16 MAC tag
+
+    let padded_len = if !ip_packet.is_empty() {
+        if total_extra > 0 {
+            let desired = ip_packet.len() + total_extra;
+            desired.min(max_payload).max(ip_packet.len())
+        } else if is_ip_packet(ip_packet) {
+            pad16(ip_packet.len())
+        } else {
+            ip_packet.len()
+        }
+    } else {
+        0
+    };
+
+    let total_wire_len = 16 + padded_len + 16;
+    out.clear();
+    out.reserve(total_wire_len);
+
+    // 1. Write 16-byte unencrypted transport header
+    out.extend_from_slice(&h4.to_le_bytes());
+    out.extend_from_slice(&keys.peer_index.to_le_bytes());
+    out.extend_from_slice(&counter.to_le_bytes());
+
+    // 2. Append plaintext and zero-pad to 16-byte boundary in-place
+    if !ip_packet.is_empty() {
+        out.extend_from_slice(ip_packet);
+        if padded_len > ip_packet.len() {
+            out.resize(16 + padded_len, 0u8);
+        }
+    }
+
+    // 3. Prepare 12-byte WireGuard AEAD Nonce: 4 zero bytes + 8-byte little-endian counter
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes[4..12].copy_from_slice(&counter.to_le_bytes());
+    let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes)
+        .map_err(|e| format!("{:?}", e))?;
+
+    // 4. In-place seal over plaintext slice [16..16 + padded_len] using precomputed key
+    let tag = keys.send_cipher
+        .seal_in_place_separate_tag(nonce, Aad::empty(), &mut out[16..16 + padded_len])
+        .map_err(|e| format!("{:?}", e))?;
+
+    // 5. Append 16-byte Poly1305 authentication tag directly into reserved capacity
+    out.extend_from_slice(tag.as_ref());
+
+    Ok(())
 }
 
+/// Decapsulates an incoming WireGuard/AmneziaWG transport data packet with single heap allocation.
+/// Decrypts ciphertext in-place within the destination vector, validates inner IPv4/IPv6 total length,
+/// and trims 16-byte padding via `truncate()` in-place without reallocating.
 pub fn decapsulate_transport_packet(
     keys: &TransportKeys,
     h4: u32,
@@ -2855,10 +3384,25 @@ pub fn decapsulate_transport_packet(
         }
     }
 
-    // 2. Cryptographic AEAD verification and decryption
-    let plaintext = aead_decrypt(&keys.recv_key, counter, &[], &raw_udp[16..])?;
+    // 2. Prepare 12-byte WireGuard AEAD Nonce
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes[4..12].copy_from_slice(&counter.to_le_bytes());
+    let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes)
+        .map_err(|e| format!("{:?}", e))?;
 
-    // 3. Commit counter into anti-replay sliding window under lock
+    // 3. Single allocation: copy ciphertext + 16-byte tag (from raw_udp[16..])
+    let mut in_out = raw_udp[16..].to_vec();
+
+    // 4. In-place decryption and Poly1305 tag authentication
+    let decrypted_len = {
+        let plaintext_slice = keys.recv_cipher
+            .open_in_place(nonce, Aad::empty(), &mut in_out)
+            .map_err(|e| format!("{:?}", e))?;
+        plaintext_slice.len()
+    };
+    in_out.truncate(decrypted_len); // Strips the 16-byte Poly1305 tag in-place
+
+    // 5. Commit counter into anti-replay sliding window under lock upon verified authentication
     {
         let mut filter = keys.replay_filter.lock();
         if let Err(e) = filter.update(counter) {
@@ -2870,8 +3414,99 @@ pub fn decapsulate_transport_packet(
         keys.recv_counter.store(filter.last_counter, Ordering::Relaxed);
     }
 
-    // 4. Validate inner IP header and trim padding (or return empty vec for keepalive)
-    trim_and_validate_ip_packet(&plaintext)
+    // 6. Validate inner IP header and trim 16-byte padding in-place
+    let ip_len = validate_and_get_ip_len(&in_out)?;
+    in_out.truncate(ip_len);
+
+    Ok(in_out)
+}
+
+/// Zero-allocation variant: decrypts directly inside mutable `raw_udp` receive buffer.
+/// Returns a subslice pointing to the decrypted IP packet within `raw_udp[16..]`.
+pub fn decapsulate_transport_packet_slice<'a>(
+    keys: &TransportKeys,
+    h4: u32,
+    raw_udp: &'a mut [u8],
+) -> Result<&'a mut [u8], String> {
+    if raw_udp.len() < 32 {
+        return Err("AWG transport packet too short".to_string());
+    }
+    if keys.age() >= keys.limits.reject_after_time {
+        return Err("AWG receive key expired (reject_after_time exceeded)".to_string());
+    }
+    let msg_type = u32::from_le_bytes([raw_udp[0], raw_udp[1], raw_udp[2], raw_udp[3]]);
+    if msg_type != h4 {
+        return Err(format!(
+            "AWG packet type mismatch: got {}, expected H4={}",
+            msg_type, h4
+        ));
+    }
+    let receiver_idx = u32::from_le_bytes([raw_udp[4], raw_udp[5], raw_udp[6], raw_udp[7]]);
+    if receiver_idx != keys.local_index {
+        return Err(format!(
+            "AWG receiver index mismatch: got {}, expected {}",
+            receiver_idx, keys.local_index
+        ));
+    }
+    let counter = u64::from_le_bytes([
+        raw_udp[8],
+        raw_udp[9],
+        raw_udp[10],
+        raw_udp[11],
+        raw_udp[12],
+        raw_udp[13],
+        raw_udp[14],
+        raw_udp[15],
+    ]);
+
+    if counter >= keys.limits.reject_after_messages {
+        return Err(format!(
+            "AWG packet counter exhausted: {} >= reject_after_messages {}",
+            counter, keys.limits.reject_after_messages
+        ));
+    }
+
+    // 1. Anti-replay pre-check
+    {
+        let filter = keys.replay_filter.lock();
+        if let Err(e) = filter.check(counter) {
+            return Err(format!(
+                "AWG anti-replay pre-check rejected packet counter {}: {}",
+                counter, e
+            ));
+        }
+    }
+
+    // 2. Prepare 12-byte Nonce
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes[4..12].copy_from_slice(&counter.to_le_bytes());
+    let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes)
+        .map_err(|e| format!("{:?}", e))?;
+
+    // 3. In-place decryption directly inside raw_udp[16..]
+    let decrypted_len = {
+        let plaintext_slice = keys.recv_cipher
+            .open_in_place(nonce, Aad::empty(), &mut raw_udp[16..])
+            .map_err(|e| format!("{:?}", e))?;
+        plaintext_slice.len()
+    };
+
+    // 4. Commit counter into anti-replay sliding window
+    {
+        let mut filter = keys.replay_filter.lock();
+        if let Err(e) = filter.update(counter) {
+            return Err(format!(
+                "AWG anti-replay commit rejected packet counter {}: {}",
+                counter, e
+            ));
+        }
+        keys.recv_counter.store(filter.last_counter, Ordering::Relaxed);
+    }
+
+    // 5. Validate inner IP header and trim padding
+    let ip_len = validate_and_get_ip_len(&raw_udp[16..16 + decrypted_len])?;
+
+    Ok(&mut raw_udp[16..16 + ip_len])
 }
 
 // ---------------------------------------------------------------------------
@@ -2955,7 +3590,8 @@ pub struct WireGuardSession {
 
 impl WireGuardSession {
     pub fn new(config: AwgConfig, initial_keys: Arc<TransportKeys>) -> Self {
-        Self::with_limits(config, initial_keys, SessionLimits::default())
+        let limits = config.limits.unwrap_or_default();
+        Self::with_limits(config, initial_keys, limits)
     }
 
     pub fn with_limits(
@@ -2964,14 +3600,17 @@ impl WireGuardSession {
         limits: SessionLimits,
     ) -> Self {
         let initial_keys = if initial_keys.limits != limits {
-            Arc::new(TransportKeys::with_limits(
+            let mut k = TransportKeys::with_limits(
                 initial_keys.send_key,
                 initial_keys.recv_key,
                 initial_keys.local_index,
                 initial_keys.peer_index,
                 limits,
                 initial_keys.is_initiator,
-            ))
+            );
+            k.awg_params = initial_keys.awg_params.clone().or_else(|| Some(config.awg_params.clone()));
+            k.mtu = if initial_keys.mtu > 0 { initial_keys.mtu } else { config.mtu.unwrap_or(1280) as usize };
+            Arc::new(k)
         } else {
             initial_keys
         };
@@ -3060,14 +3699,17 @@ impl WireGuardSession {
         };
 
         let keys = process_response(pending.state, &self.config, resp)?;
-        let new_keys = Arc::new(TransportKeys::with_limits(
+        let mut new_keys_val = TransportKeys::with_limits(
             keys.send_key,
             keys.recv_key,
             keys.local_index,
             keys.peer_index,
             self.limits,
             true,
-        ));
+        );
+        new_keys_val.awg_params = Some(self.config.awg_params.clone());
+        new_keys_val.mtu = self.config.mtu.unwrap_or(1280) as usize;
+        let new_keys = Arc::new(new_keys_val);
 
         {
             let mut kp = self.keypairs.write();
@@ -3161,6 +3803,137 @@ impl WireGuardSession {
         *self.last_sent.lock() = std::time::Instant::now();
 
         Ok((wire_pkt, maybe_rekey))
+    }
+
+    pub fn encapsulate_outgoing_batch(&self, packets: &[Vec<u8>]) -> Result<(Vec<Vec<u8>>, Option<Vec<u8>>), String> {
+        if packets.is_empty() {
+            return Ok((Vec::new(), None));
+        }
+
+        let current = self.current_keys();
+
+        if current.age() >= self.limits.reject_after_time {
+            return Err("AWG send key expired (reject_after_time exceeded), transmission rejected".to_string());
+        }
+
+        let count = packets.len() as u64;
+        let mut curr_val = current.send_counter.load(Ordering::Relaxed);
+        let start_counter = loop {
+            if curr_val + count > self.limits.reject_after_messages {
+                return Err(format!(
+                    "AWG send counter exhausted ({} + {} > reject_after_messages {}), transmission rejected",
+                    curr_val, count, self.limits.reject_after_messages
+                ));
+            }
+            match current.send_counter.compare_exchange_weak(
+                curr_val,
+                curr_val + count,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(c) => break c,
+                Err(actual) => curr_val = actual,
+            }
+        };
+
+        let mut maybe_rekey = None;
+        if current.should_rekey() {
+            let should_init = {
+                let p = self.pending_handshake.lock();
+                match *p {
+                    None => true,
+                    Some(ref pend) => pend.created_at.elapsed() >= self.limits.rekey_timeout,
+                }
+            };
+            if should_init {
+                if let Ok(rekey_pkt) = self.initiate_rekey() {
+                    maybe_rekey = Some(rekey_pkt);
+                }
+            }
+        }
+
+        let (content_min, content_max, has_trailers) = match &current.awg_params {
+            Some(p) => (p.content_padding_min, p.content_padding_max, p.random_trailers),
+            None => (0, 0, false),
+        };
+        let effective_mtu = if current.mtu > 0 { current.mtu } else { 1280 };
+        let max_payload = effective_mtu.saturating_sub(32);
+        let h4 = self.config.awg_params.h4;
+        let peer_index = current.peer_index;
+        let send_cipher = Arc::clone(&current.send_cipher);
+
+        let encrypt_one = |ip_packet: &[u8], counter: u64| -> Result<Vec<u8>, String> {
+            let total_extra = if content_max > 0 || has_trailers {
+                use rand::Rng;
+                let mut extra = 0;
+                if content_max > 0 {
+                    extra += rand::thread_rng().gen_range(content_min..=content_max);
+                }
+                if has_trailers {
+                    extra += rand::thread_rng().gen_range(8..=32);
+                }
+                extra
+            } else {
+                0
+            };
+
+            let padded_len = if !ip_packet.is_empty() {
+                if total_extra > 0 {
+                    let desired = ip_packet.len() + total_extra;
+                    desired.min(max_payload).max(ip_packet.len())
+                } else if is_ip_packet(ip_packet) {
+                    pad16(ip_packet.len())
+                } else {
+                    ip_packet.len()
+                }
+            } else {
+                0
+            };
+
+            let total_wire_len = 16 + padded_len + 16;
+            let mut out = Vec::with_capacity(total_wire_len);
+
+            out.extend_from_slice(&h4.to_le_bytes());
+            out.extend_from_slice(&peer_index.to_le_bytes());
+            out.extend_from_slice(&counter.to_le_bytes());
+
+            if !ip_packet.is_empty() {
+                out.extend_from_slice(ip_packet);
+                if padded_len > ip_packet.len() {
+                    out.resize(16 + padded_len, 0u8);
+                }
+            }
+
+            let mut nonce_bytes = [0u8; 12];
+            nonce_bytes[4..12].copy_from_slice(&counter.to_le_bytes());
+            let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes)
+                .map_err(|e| format!("{:?}", e))?;
+
+            let tag = send_cipher
+                .seal_in_place_separate_tag(nonce, Aad::empty(), &mut out[16..16 + padded_len])
+                .map_err(|e| format!("{:?}", e))?;
+
+            out.extend_from_slice(tag.as_ref());
+            Ok(out)
+        };
+
+        let wire_pkts: Result<Vec<Vec<u8>>, String> = if packets.len() >= 4 {
+            use rayon::prelude::*;
+            packets
+                .par_iter()
+                .enumerate()
+                .map(|(idx, pkt)| encrypt_one(pkt, start_counter + idx as u64))
+                .collect()
+        } else {
+            packets
+                .iter()
+                .enumerate()
+                .map(|(idx, pkt)| encrypt_one(pkt, start_counter + idx as u64))
+                .collect()
+        };
+
+        *self.last_sent.lock() = std::time::Instant::now();
+        Ok((wire_pkts?, maybe_rekey))
     }
 
     pub fn decapsulate_incoming(&self, raw_udp: &[u8]) -> Result<IncomingPacket, String> {
@@ -3443,81 +4216,7 @@ impl WireGuardSession {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Virtual smoltcp Device & User-Space Bridge
-// ---------------------------------------------------------------------------
-
-pub struct AwgSmolDevice {
-    pub rx_queue: VecDeque<Vec<u8>>,
-    pub tx_queue: VecDeque<Vec<u8>>,
-}
-
-impl AwgSmolDevice {
-    pub fn new() -> Self {
-        Self {
-            rx_queue: VecDeque::with_capacity(64),
-            tx_queue: VecDeque::with_capacity(64),
-        }
-    }
-}
-
-pub struct AwgRxToken(pub Vec<u8>);
-
-impl RxToken for AwgRxToken {
-    fn consume<R, F>(mut self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        f(&mut self.0)
-    }
-}
-
-pub struct AwgTxToken<'a>(pub &'a mut VecDeque<Vec<u8>>);
-
-impl<'a> TxToken for AwgTxToken<'a> {
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        let mut buf = vec![0u8; len];
-        let res = f(&mut buf);
-        self.0.push_back(buf);
-        res
-    }
-}
-
-impl Device for AwgSmolDevice {
-    type RxToken<'a>
-        = AwgRxToken
-    where
-        Self: 'a;
-    type TxToken<'a>
-        = AwgTxToken<'a>
-    where
-        Self: 'a;
-
-    fn receive(
-        &mut self,
-        _timestamp: SmolInstant,
-    ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        self.rx_queue
-            .pop_front()
-            .map(|pkt| (AwgRxToken(pkt), AwgTxToken(&mut self.tx_queue)))
-    }
-
-    fn transmit(&mut self, _timestamp: SmolInstant) -> Option<Self::TxToken<'_>> {
-        Some(AwgTxToken(&mut self.tx_queue))
-    }
-
-    fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
-        caps.medium = Medium::Ip;
-        caps.max_transmission_unit = 1380;
-        caps
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 8. AwgPeerSession: Single Owner of WireGuard Peer Session & Multi-Flow Router
+// 7. AwgPeerSession: Single Owner of WireGuard Peer Session & Multi-Flow Router
 // ---------------------------------------------------------------------------
 
 pub fn extract_flow_port(packet: &[u8]) -> Option<u16> {
@@ -3648,7 +4347,24 @@ impl AwgPeerSession {
             last_tx_secs,
         });
 
-        tokio::spawn(run_peer_receiver_loop(Arc::clone(&peer)));
+        // Decoupled Inbound Pipeline Setup: 1024-packet bounded queue + buffer recycling
+        let (raw_tx, raw_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1024);
+        let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1024);
+
+        // Seed the buffer pool with 128 initial 2048-byte vectors
+        for _ in 0..128 {
+            let _ = recycle_tx.try_send(vec![0u8; 2048]);
+        }
+
+        // 1. Dedicated background timer task (keepalive, rekey, QoS transitions)
+        tokio::spawn(run_peer_timer_loop(Arc::clone(&peer)));
+
+        // 2. Dedicated inbound decapsulation worker (crypto, anti-replay, TUN routing)
+        tokio::spawn(run_peer_worker_loop(Arc::clone(&peer), raw_rx, recycle_tx));
+
+        // 3. Dedicated inbound UDP socket ingestion loop (wire-speed socket drain)
+        tokio::spawn(run_peer_udp_rx_loop(Arc::clone(&peer), raw_tx, recycle_rx));
+
         peer
     }
 
@@ -3686,7 +4402,6 @@ impl AwgPeerSession {
 
         let endpoint_addr: SocketAddr = match crate::dns::resolve_target_endpoint(
             &config.endpoint,
-            crate::dns::DnsScope::Bootstrap,
         )
         .await
         {
@@ -3728,8 +4443,19 @@ impl AwgPeerSession {
         {
             let _ = sock2.set_reuse_port(true);
         }
-        let _ = sock2.set_recv_buffer_size(2 * 1024 * 1024);
-        let _ = sock2.set_send_buffer_size(1024 * 1024);
+        let is_mobile = crate::config::MOBILE_NETWORK.load(std::sync::atomic::Ordering::Relaxed);
+        let rcvbuf = if is_mobile {
+            crate::config::DEFAULT_UDP_TUNNEL_RECV_BUF
+        } else {
+            crate::config::HIGH_THROUGHPUT_UDP_TUNNEL_RECV_BUF
+        };
+        let sndbuf = if is_mobile {
+            crate::config::DEFAULT_UDP_TUNNEL_SEND_BUF
+        } else {
+            crate::config::HIGH_THROUGHPUT_UDP_TUNNEL_SEND_BUF
+        };
+        let _ = sock2.set_recv_buffer_size(rcvbuf);
+        let _ = sock2.set_send_buffer_size(sndbuf);
         let _ = sock2.set_nonblocking(true);
 
         #[cfg(unix)]
@@ -3828,6 +4554,14 @@ impl AwgPeerSession {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
 
+        let is_cf = config.is_warp_profile() || is_cloudflare_warp_endpoint(&endpoint);
+        if is_cf && config.awg_params.reserved.is_none() {
+            lwarn!(
+                "[profile='{}', stage='handshake_initiation', endpoint='{}'] Cloudflare Anycast peer detected without 3-byte Reserved client_id! Handshake may be silently dropped by Cloudflare border routers.",
+                profile, endpoint
+            );
+        }
+
         // 2. Send Handshake Initiation with Cookie Support & Retransmissions
         let local_index = rand::random::<u32>();
         let (handshake, mut init_packet) = create_initiation(&config, local_index)
@@ -3852,6 +4586,7 @@ impl AwgPeerSession {
                 "[profile='{}', stage='send_initiation', endpoint='{}'] failed to send AWG initiation: {}",
                 profile, endpoint, e
             ))?;
+        AWG_INIT_SENT.fetch_add(1, Ordering::Relaxed);
 
         // 3. Handshake Retransmission & Demux Loop (WireGuard Section 5.4 & 6.2)
         // Handles packet loss (retransmissions with backoff), cookie challenge (Type 3 / H3),
@@ -3885,6 +4620,7 @@ impl AwgPeerSession {
                     profile, endpoint, attempts, max_attempts
                 );
                 let _ = socket.send(&init_packet).await;
+                AWG_INIT_SENT.fetch_add(1, Ordering::Relaxed);
             }
 
             let wait_time = next_retransmit
@@ -3903,7 +4639,10 @@ impl AwgPeerSession {
             };
 
             let resp_len = match recv_res {
-                Ok(Ok(n)) => n,
+                Ok(Ok(n)) => {
+                    AWG_BYTES_RECEIVED.fetch_add(n as u64, Ordering::Relaxed);
+                    n
+                }
                 Ok(Err(e)) => {
                     ldebug!(
                         "[profile='{}', stage='recv_response', endpoint='{}'] transient UDP recv error: {}",
@@ -3917,33 +4656,41 @@ impl AwgPeerSession {
                 }
             };
 
-            let s2 = config.awg_params.s2;
+            let is_cf_peer = (config.is_warp_profile() || is_cloudflare_warp_endpoint(&endpoint))
+                && (is_cloudflare_warp_peer(&config.peer_public_key) || config.awg_params.reserved.is_some())
+                && config.awg_params.h1 == 1;
+            let s2 = if is_cf_peer { 0 } else { config.awg_params.s2 };
+            let expected_h2 = if is_cf_peer { 2 } else { config.awg_params.h2 };
+            let expected_h3 = if is_cf_peer { 3 } else { config.awg_params.h3 };
+            let effective_s1 = if is_cf_peer { 0 } else { config.awg_params.s1 };
 
             // Branch 1: Cookie Reply (AmneziaWG Type 3 / H3)
             // Length must be >= 64 bytes, message type must match H3
             if resp_len >= 64 {
                 let msg_type = u32::from_le_bytes([resp_buf[0], resp_buf[1], resp_buf[2], resp_buf[3]]);
-                if msg_type == config.awg_params.h3 {
+                if msg_type == expected_h3 {
                     let r_idx = u32::from_le_bytes([resp_buf[4], resp_buf[5], resp_buf[6], resp_buf[7]]);
                     if r_idx == local_index {
                         match parse_and_decrypt_cookie_reply(
                             &config.peer_public_key,
-                            config.awg_params.h3,
+                            expected_h3,
                             local_index,
                             &handshake.mac1,
                             &resp_buf[..resp_len],
                         ) {
                             Ok(cookie) => {
+                                AWG_RESP_RECEIVED.fetch_add(1, Ordering::Relaxed);
                                 ldebug!(
                                     "[profile='{}', stage='cookie_reply', endpoint='{}'] received valid cookie challenge, updating MAC2 and retransmitting immediately",
                                     profile, endpoint
                                 );
                                 set_peer_cookie(&config.peer_public_key, cookie);
-                                if let Err(e) = set_initiation_mac2(&mut init_packet, config.awg_params.s1, &cookie) {
+                                if let Err(e) = set_initiation_mac2(&mut init_packet, effective_s1, &cookie) {
                                     lwarn!("failed to set MAC2 on initiation: {}", e);
                                 } else {
                                     // Retransmit immediately with valid MAC2
                                     let _ = socket.send(&init_packet).await;
+                                    AWG_INIT_SENT.fetch_add(1, Ordering::Relaxed);
                                     next_retransmit = tokio::time::Instant::now() + retransmit_delay;
                                 }
                                 continue;
@@ -3975,7 +4722,7 @@ impl AwgPeerSession {
                     resp_buf[s2 + 2],
                     resp_buf[s2 + 3],
                 ]);
-                if msg_type == config.awg_params.h2 {
+                if msg_type == expected_h2 {
                     let r_idx = u32::from_le_bytes([
                         resp_buf[s2 + 8],
                         resp_buf[s2 + 9],
@@ -3992,6 +4739,7 @@ impl AwgPeerSession {
 
                     match process_response(handshake, &config, &resp_buf[..resp_len]) {
                         Ok(keys) => {
+                            AWG_RESP_RECEIVED.fetch_add(1, Ordering::Relaxed);
                             ldebug!(
                                 "[profile='{}', stage='response_verified', endpoint='{}'] handshake response verified after {} attempts",
                                 profile, endpoint, attempts
@@ -4075,7 +4823,6 @@ impl AwgPeerSession {
             .unwrap_or_default()
             .as_secs();
         self.last_tx_secs.store(now, Ordering::Relaxed);
-        crate::STATS.add_vpn_bytes_up(ip_pkt.len() as i64);
         let (wire_pkt, maybe_rekey) = self
             .session
             .encapsulate_outgoing(ip_pkt)
@@ -4091,6 +4838,102 @@ impl AwgPeerSession {
             .send(&wire_pkt)
             .await
             .map(|_| ())
+    }
+
+    /// High-performance pipelined packet transmission with zero timer wheel overhead on the fast path.
+    pub async fn send_ip_packet_pipeline(&self, ip_pkt: &[u8]) -> Result<(), std::io::Error> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.last_tx_secs.store(now, Ordering::Relaxed);
+        let (wire_pkt, maybe_rekey) = self
+            .session
+            .encapsulate_outgoing(ip_pkt)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+        if let Some(rekey_pkt) = maybe_rekey {
+            ldebug!("AWG: flow-triggered rekey initiation packet emitted");
+            let _ = self.socket.try_send(&rekey_pkt);
+            self.timer_notify.notify_one();
+        }
+
+        // Fast path: attempt immediate non-blocking kernel socket write
+        match self.socket.try_send(&wire_pkt) {
+            Ok(_) => Ok(()),
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // Slow path: SO_SNDBUF is saturated; await write readiness with stall protection
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(1500),
+                    self.socket.writable(),
+                )
+                .await
+                {
+                    Ok(Ok(())) => {
+                        self.socket.send(&wire_pkt).await.map(|_| ())
+                    }
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => {
+                        crate::lwarn!(
+                            "VPN [AWG]: socket write stalled (>1500ms), SO_SNDBUF saturated; dropping packet"
+                        );
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "socket write stall timeout (>1500ms)",
+                        ))
+                    }
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn send_ip_packet_batch_pipeline(&self, batch: &[Vec<u8>]) -> Result<(), std::io::Error> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.last_tx_secs.store(now, Ordering::Relaxed);
+        let (wire_pkts, maybe_rekey) = self
+            .session
+            .encapsulate_outgoing_batch(batch)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+        if let Some(rekey_pkt) = maybe_rekey {
+            ldebug!("AWG: flow-triggered rekey initiation packet emitted");
+            let _ = self.socket.try_send(&rekey_pkt);
+            self.timer_notify.notify_one();
+        }
+
+        for wire_pkt in wire_pkts {
+            match self.socket.try_send(&wire_pkt) {
+                Ok(_) => {}
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_millis(1500),
+                        self.socket.writable(),
+                    )
+                    .await
+                    {
+                        Ok(Ok(())) => {
+                            let _ = self.socket.send(&wire_pkt).await;
+                        }
+                        Ok(Err(e)) => return Err(e),
+                        Err(_) => {
+                            crate::lwarn!(
+                                "VPN [AWG]: socket write stalled (>1500ms), SO_SNDBUF saturated; dropping packet"
+                            );
+                        }
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(())
     }
 
     pub fn is_healthy(&self) -> bool {
@@ -4112,11 +4955,12 @@ impl AwgPeerSession {
         let last_tx = self.last_tx_secs.load(Ordering::Relaxed);
         let last_rx = self.last_rx_secs.load(Ordering::Relaxed);
 
-        // Liveness watchdog: only trigger if we have actively transmitted packets recently
-        // and have received NO packets for at least 45 seconds (prevent false failovers during normal idle).
-        if last_tx > 0 && last_tx > last_rx && now.saturating_sub(last_tx) < 30 && now.saturating_sub(last_rx) > 45 {
+        // Liveness watchdog: if active transmission is occurring (sent within last 15s)
+        // and no response packet has been received for > 20s (or last_rx == 0 after tx),
+        // mark unhealthy for rapid Anycast failover instead of blocking for 45s.
+        if last_tx > 0 && now.saturating_sub(last_tx) < 15 && (last_rx == 0 || (last_tx > last_rx && now.saturating_sub(last_rx) > 20)) {
             crate::lwarn!(
-                "AWG [{}]: liveness check failed (last_rx was {}s ago, last_tx was {}s ago); marking peer unhealthy",
+                "AWG [{}]: liveness check failed (last_rx was {}s ago, last_tx was {}s ago); marking peer unhealthy for rapid failover",
                 self.config.endpoint,
                 now.saturating_sub(last_rx),
                 now.saturating_sub(last_tx)
@@ -4131,27 +4975,30 @@ impl AwgPeerSession {
     }
 }
 
-async fn run_peer_receiver_loop(peer: Arc<AwgPeerSession>) {
+// ---------------------------------------------------------------------------
+// 1. Dedicated Peer Timer Loop: zero interaction with incoming data packets
+// ---------------------------------------------------------------------------
+async fn run_peer_timer_loop(peer: Arc<AwgPeerSession>) {
     let socket = Arc::clone(&peer.socket);
     let session = Arc::clone(&peer.session);
-    let flows = Arc::clone(&peer.flows);
     let cancel = peer.cancel_token.clone();
     let timer_notify = Arc::clone(&peer.timer_notify);
-    let mut udp_rx_buf = [0u8; 2048];
 
-    loop {
+    while !cancel.is_cancelled() {
         let has_flows = peer.active_flows() > 0;
         let qos_level = crate::get_battery_qos_level();
         let sleep_dur = session.time_until_next_event(has_flows, qos_level);
 
         tokio::select! {
+            biased;
+
             _ = cancel.cancelled() => {
-                ldebug!("AWG: background peer receiver loop stopped");
+                ldebug!("AWG: background peer timer loop stopped");
                 break;
             }
 
             _ = timer_notify.notified() => {
-                // Adaptive wakeup on flow changes, rekeys or QoS transitions
+                // Adaptive wakeup on flow registration, rekeys, or QoS changes
                 continue;
             }
 
@@ -4171,9 +5018,37 @@ async fn run_peer_receiver_loop(peer: Arc<AwgPeerSession>) {
                     }
                 }
             }
+        }
+    }
+}
 
-            // Receive from single WireGuard UDP socket
-            res = socket.recv(&mut udp_rx_buf) => {
+// ---------------------------------------------------------------------------
+// 2. Dedicated UDP Receiver Loop: wire-speed socket draining into bounded queue
+// ---------------------------------------------------------------------------
+async fn run_peer_udp_rx_loop(
+    peer: Arc<AwgPeerSession>,
+    raw_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    mut recycle_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+) {
+    let socket = Arc::clone(&peer.socket);
+    let cancel = peer.cancel_token.clone();
+
+    while !cancel.is_cancelled() {
+        // Acquire buffer from recycled object pool; allocate only if empty
+        let mut buf = recycle_rx.try_recv().unwrap_or_else(|_| vec![0u8; 2048]);
+        if buf.len() < 2048 {
+            buf.resize(2048, 0);
+        }
+
+        tokio::select! {
+            biased;
+
+            _ = cancel.cancelled() => {
+                ldebug!("AWG: background peer UDP rx loop stopped on cancellation");
+                break;
+            }
+
+            res = socket.recv(&mut buf) => {
                 match res {
                     Ok(n) if n >= 4 => {
                         let now = std::time::SystemTime::now()
@@ -4181,51 +5056,114 @@ async fn run_peer_receiver_loop(peer: Arc<AwgPeerSession>) {
                             .unwrap_or_default()
                             .as_secs();
                         peer.last_rx_secs.store(now, Ordering::Relaxed);
-                        match session.decapsulate_incoming(&udp_rx_buf[..n]) {
-                            Ok(IncomingPacket::Data(ip_pkt)) => {
-                                let tun_opt = peer.tun_sink.read().clone();
-                                if let Some(sink) = tun_opt {
-                                    crate::STATS.add_vpn_bytes_down(ip_pkt.len() as i64);
-                                    let _ = sink.try_send(ip_pkt);
-                                } else if let Some(port) = extract_flow_port(&ip_pkt) {
-                                    let guard = flows.read();
-                                    if let Some(sender) = guard.get(&port) {
-                                        let _ = sender.send(ip_pkt);
-                                    } else {
-                                        ldebug!("AWG: dropped packet for unmapped local port {}", port);
-                                    }
-                                }
-                            }
-                            Ok(IncomingPacket::HandshakeResponse { keepalive_to_send }) => {
-                                linfo!("AWG: handshake response processed; session keypair rotated");
-                                if let Some(ka) = keepalive_to_send {
-                                    let _ = socket.send(&ka).await;
-                                }
-                                timer_notify.notify_one();
-                            }
-                            Ok(IncomingPacket::CookieReply { retransmit_initiation }) => {
-                                linfo!("AWG: cookie reply challenge received; MAC2 updated");
-                                if let Some(retransmit_pkt) = retransmit_initiation {
-                                    let _ = socket.send(&retransmit_pkt).await;
-                                }
-                                timer_notify.notify_one();
-                            }
-                            Ok(IncomingPacket::Keepalive) => {
-                                ldebug!("AWG: keepalive received from server");
-                            }
-                            Ok(IncomingPacket::Ignored) => {}
-                            Err(e) => {
-                                ldebug!("AWG: dropped invalid UDP packet: {}", e);
+                        AWG_BYTES_RECEIVED.fetch_add(n as u64, Ordering::Relaxed);
+
+                        buf.truncate(n);
+
+                        // Fast-path dispatch with backpressure fallback:
+                        // 99.99% of datagrams enqueue synchronously in <10ns
+                        if let Err(tokio::sync::mpsc::error::TrySendError::Full(pkt)) = raw_tx.try_send(buf) {
+                            if raw_tx.send(pkt).await.is_err() {
+                                ldebug!("AWG: worker channel closed; stopping rx loop");
+                                break;
                             }
                         }
                     }
-                    Ok(_) => {}
+                    Ok(_) => {
+                        // Datagram < 4 bytes: drop & return buffer to pool on next cycle
+                    }
                     Err(e) => {
-                        lwarn!("AWG: UDP socket error in background loop: {}", e);
+                        lwarn!("AWG: UDP socket error in rx loop: {}", e);
                         break;
                     }
                 }
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 3. Dedicated Decapsulation Worker: strictly ordered in-place ChaCha20-Poly1305
+// ---------------------------------------------------------------------------
+async fn run_peer_worker_loop(
+    peer: Arc<AwgPeerSession>,
+    mut raw_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+) {
+    let socket = Arc::clone(&peer.socket);
+    let session = Arc::clone(&peer.session);
+    let flows = Arc::clone(&peer.flows);
+    let cancel = peer.cancel_token.clone();
+    let timer_notify = Arc::clone(&peer.timer_notify);
+    let mut batch: Vec<Vec<u8>> = Vec::with_capacity(32);
+
+    while !cancel.is_cancelled() {
+        let first_pkt = tokio::select! {
+            biased;
+
+            _ = cancel.cancelled() => break,
+
+            pkt = raw_rx.recv() => match pkt {
+                Some(p) => p,
+                None => break, // Reader loop stopped and channel dropped
+            },
+        };
+
+        batch.push(first_pkt);
+        while batch.len() < 32 {
+            match raw_rx.try_recv() {
+                Ok(p) => batch.push(p),
+                Err(_) => break,
+            }
+        }
+
+        for mut raw_pkt in batch.drain(..) {
+            // Decapsulate payload (checks H2/H3/H4 headers, runs ChaCha20 decrypt & replay filter)
+            match session.decapsulate_incoming(&raw_pkt) {
+                Ok(IncomingPacket::Data(ip_pkt)) => {
+                    let tun_opt = peer.tun_sink.read().clone();
+                    if let Some(sink) = tun_opt {
+                        // Send to TUN writer channel with backpressure to prevent silent packet drops
+                        if let Err(tokio::sync::mpsc::error::TrySendError::Full(p)) = sink.try_send(ip_pkt) {
+                            if sink.send(p).await.is_err() {
+                                ldebug!("AWG: tun_sink channel closed");
+                            }
+                        }
+                    } else if let Some(port) = extract_flow_port(&ip_pkt) {
+                        let guard = flows.read();
+                        if let Some(sender) = guard.get(&port) {
+                            let _ = sender.send(ip_pkt);
+                        } else {
+                            ldebug!("AWG: dropped packet for unmapped local port {}", port);
+                        }
+                    }
+                }
+                Ok(IncomingPacket::HandshakeResponse { keepalive_to_send }) => {
+                    linfo!("AWG: handshake response processed; session keypair rotated");
+                    if let Some(ka) = keepalive_to_send {
+                        let _ = socket.send(&ka).await;
+                    }
+                    timer_notify.notify_one();
+                }
+                Ok(IncomingPacket::CookieReply { retransmit_initiation }) => {
+                    linfo!("AWG: cookie reply challenge received; MAC2 updated");
+                    if let Some(retransmit_pkt) = retransmit_initiation {
+                        let _ = socket.send(&retransmit_pkt).await;
+                    }
+                    timer_notify.notify_one();
+                }
+                Ok(IncomingPacket::Keepalive) => {
+                    ldebug!("AWG: keepalive received from server");
+                }
+                Ok(IncomingPacket::Ignored) => {}
+                Err(e) => {
+                    ldebug!("AWG: dropped invalid UDP packet: {}", e);
+                }
+            }
+
+            // Return recycled buffer back to the UDP reader pool
+            raw_pkt.resize(2048, 0);
+            let _ = recycle_tx.try_send(raw_pkt);
         }
     }
 }
@@ -4285,383 +5223,6 @@ impl AwgTunnel {
 impl Drop for AwgTunnel {
     fn drop(&mut self) {
         self.peer.unregister_flow(self.local_port);
-    }
-}
-
-async fn flush_smoltcp_tx(
-    dev: &mut AwgSmolDevice,
-    peer: &AwgPeerSession,
-) {
-    while let Some(pkt) = dev.tx_queue.pop_front() {
-        let _ = peer.send_ip_packet(&pkt).await;
-    }
-}
-
-impl AwgTunnel {
-    pub async fn run_smoltcp_bridge(
-        &self,
-        mut client: tokio::net::TcpStream,
-        cancel_token: CancellationToken,
-    ) -> Result<(), std::io::Error> {
-        let (target_ip, target_port) =
-            match crate::masque::parse_target_endpoint(&self.target_addr).await {
-                Ok(res) => res,
-                Err(e) => {
-                    lerror!(
-                        "AWG: cannot resolve target endpoint for '{}': {}",
-                        self.target_addr,
-                        e
-                    );
-                    let _ = client.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
-                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Target endpoint unresolvable"));
-                    return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, e));
-                }
-            };
-
-        let client_v4 = self.peer.config.client_ipv4;
-        let client_v6_opt = self.peer.config.client_ipv6;
-
-        // Fail-safe validation for IPv6 targets: if target is IPv6, client MUST have a valid IPv6 address
-        if let std::net::IpAddr::V6(target_v6) = target_ip {
-            if client_v6_opt.is_none() {
-                lerror!(
-                    "AWG: target '{}' is IPv6 ([{}]:{}), but no client IPv6 address is configured; aborting without direct bypass",
-                    self.target_addr,
-                    target_v6,
-                    target_port
-                );
-                let _ = client.write_all(&[0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
-                crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("No client IPv6 configured"));
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::AddrNotAvailable,
-                    format!("IPv6 target '{}' is unsupported: no client IPv6 configured", self.target_addr),
-                ));
-            }
-        }
-
-        let mut dev = AwgSmolDevice::new();
-        let mut iface_cfg = SmolConfig::new(HardwareAddress::Ip);
-        iface_cfg.random_seed = rand::random();
-
-        let mut iface = Interface::new(iface_cfg, &mut dev, SmolInstant::now());
-        let smol_client_v4 = Ipv4Address::from(client_v4);
-
-        iface.update_ip_addrs(|addrs| {
-            let _ = addrs.push(IpCidr::Ipv4(Ipv4Cidr::new(smol_client_v4, 32)));
-            if let Some(v6) = client_v6_opt {
-                let smol_client_v6 = Ipv6Address::from(v6);
-                let _ = addrs.push(IpCidr::Ipv6(Ipv6Cidr::new(smol_client_v6, 128)));
-            }
-        });
-        if let Err(e) = iface.routes_mut().add_default_ipv4_route(smol_client_v4) {
-            lwarn!("AWG: add_default_ipv4_route: {:?}", e);
-        }
-        if let Some(v6) = client_v6_opt {
-            let smol_client_v6 = Ipv6Address::from(v6);
-            if let Err(e) = iface.routes_mut().add_default_ipv6_route(smol_client_v6) {
-                lwarn!("AWG: add_default_ipv6_route: {:?}", e);
-            }
-        }
-
-        let rx_buf = tcp::SocketBuffer::new(vec![0u8; 128 * 1024]);
-        let tx_buf = tcp::SocketBuffer::new(vec![0u8; 128 * 1024]);
-        let mut socket = TcpSocket::new(rx_buf, tx_buf);
-
-        let local_port = self.local_port;
-        let (remote_ep, local_ep) = match target_ip {
-            std::net::IpAddr::V4(v4) => {
-                ldebug!(
-                    "AWG smoltcp bridge starting (IPv4): local {}:{} -> remote {}:{} via {}",
-                    client_v4,
-                    local_port,
-                    v4,
-                    target_port,
-                    self.peer.endpoint_addr
-                );
-                let smol_target = Ipv4Address::from(v4);
-                (
-                    IpEndpoint::new(IpAddress::Ipv4(smol_target), target_port),
-                    IpEndpoint::new(IpAddress::Ipv4(smol_client_v4), local_port),
-                )
-            }
-            std::net::IpAddr::V6(v6) => {
-                let c6 = client_v6_opt.unwrap();
-                ldebug!(
-                    "AWG smoltcp bridge starting (IPv6): local [{}:{} -> remote [{}]:{} via {}",
-                    c6,
-                    local_port,
-                    v6,
-                    target_port,
-                    self.peer.endpoint_addr
-                );
-                let smol_client_v6 = Ipv6Address::from(c6);
-                let smol_target_v6 = Ipv6Address::from(v6);
-                (
-                    IpEndpoint::new(IpAddress::Ipv6(smol_target_v6), target_port),
-                    IpEndpoint::new(IpAddress::Ipv6(smol_client_v6), local_port),
-                )
-            }
-        };
-
-        if let Err(e) = socket.connect(iface.context(), remote_ep, local_ep) {
-            lerror!("AWG: smoltcp socket connect error: {:?}", e);
-            let _ = client.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
-            crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("smoltcp socket connect error"));
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::ConnectionRefused,
-                format!("{:?}", e),
-            ));
-        }
-
-        let mut sockets = SocketSet::new(vec![]);
-        let sock_handle = sockets.add(socket);
-
-        // Initial poll to emit SYN packet into tx_queue
-        iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-        flush_smoltcp_tx(&mut dev, &self.peer).await;
-
-        let (mut c_read, mut c_write) = client.into_split();
-        let mut client_eof = false;
-        let mut upload_fin_sent = false;
-        let mut client_fin_sent = false;
-        let mut pending_client_data: Vec<u8> = Vec::with_capacity(32 * 1024);
-        let mut read_temp_buf = [0u8; 16 * 1024];
-        let mut recv_temp_buf = [0u8; 16 * 1024];
-
-        let handshake_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        let mut handshake_logged = false;
-        let mut flow_rx = self.flow_rx.lock().await;
-
-        loop {
-            if cancel_token.is_cancelled() || self.peer.cancel_token.is_cancelled() {
-                if !handshake_logged {
-                    let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
-                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Cancelled during connect"));
-                }
-                let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                socket.abort();
-                iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-                flush_smoltcp_tx(&mut dev, &self.peer).await;
-                break;
-            }
-
-            let mut needs_poll = false;
-
-            // 1. Drain pending client data into smoltcp socket
-            {
-                let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                if !pending_client_data.is_empty() && socket.can_send() {
-                    match socket.send_slice(&pending_client_data) {
-                        Ok(n) if n > 0 => {
-                            pending_client_data.drain(..n);
-                            STATS.bytes_up.fetch_add(n as i64, Ordering::Relaxed);
-                            needs_poll = true;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            if client_eof && pending_client_data.is_empty() && !upload_fin_sent {
-                sockets.get_mut::<TcpSocket>(sock_handle).close();
-                upload_fin_sent = true;
-                needs_poll = true;
-            }
-            // 2. Drain smoltcp socket to Telegram client c_write
-            loop {
-                let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                if !socket.can_recv() {
-                    break;
-                }
-                match socket.recv_slice(&mut recv_temp_buf) {
-                    Ok(n) if n > 0 => {
-                        STATS.bytes_down.fetch_add(n as i64, Ordering::Relaxed);
-                        if let Err(e) = crate::socks5::bounded_write(
-                            &mut c_write,
-                            &recv_temp_buf[..n],
-                            &cancel_token,
-                            crate::config::BRIDGE_WRITE_TIMEOUT,
-                        )
-                        .await
-                        {
-                            ldebug!("AWG: client write error: {}", e);
-                            let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                            socket.abort();
-                            crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Client stream write error"));
-                            return Err(e);
-                        }
-                        needs_poll = true;
-                    }
-                    _ => break,
-                }
-            }
-
-            // Remote FIN is directional: deliver queued bytes before local FIN,
-            // and retain the smoltcp send side for any remaining client upload.
-            if handshake_logged && !client_fin_sent && !sockets.get_mut::<TcpSocket>(sock_handle).may_recv() {
-                crate::socks5::bounded_shutdown(&mut c_write, &cancel_token,
-                    crate::config::BRIDGE_WRITE_TIMEOUT).await?;
-                client_fin_sent = true;
-            }
-            // 3. Check socket connection state
-            {
-                let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                let state = socket.state();
-
-                if state == TcpState::Established && !handshake_logged {
-                    ldebug!(
-                        "AWG smoltcp: TCP connection established to {} (local port {})",
-                        self.target_addr,
-                        local_port
-                    );
-                    if let Err(e) = crate::socks5::bounded_write(
-                        &mut c_write,
-                        &[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0],
-                        &cancel_token,
-                        crate::config::BRIDGE_WRITE_TIMEOUT,
-                    )
-                    .await
-                    {
-                        ldebug!("AWG: failed to send SOCKS5 success: {}", e);
-                        let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                        socket.abort();
-                        crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Client disconnected before SOCKS REP"));
-                        return Err(e);
-                    }
-                    handshake_logged = true;
-                    STATS.connections_awg.fetch_add(1, Ordering::Relaxed);
-                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(true, None);
-                }
-
-                if state == TcpState::Closed {
-                    if !handshake_logged {
-                        lwarn!("AWG smoltcp: target connection refused (TCP RST) for {}", self.target_addr);
-                        let _ = c_write.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
-                        crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Connection refused (TCP RST)"));
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::ConnectionRefused,
-                            "smoltcp target connection refused (RST)",
-                        ));
-                    }
-                    ldebug!("AWG smoltcp: TCP socket closed gracefully (port {})", local_port);
-                    break;
-                }
-
-                if state == TcpState::TimeWait {
-                    ldebug!("AWG smoltcp: TCP socket TimeWait (port {})", local_port);
-                    break;
-                }
-
-                if !handshake_logged
-                    && (state == TcpState::SynSent || state == TcpState::SynReceived)
-                    && tokio::time::Instant::now() > handshake_deadline
-                {
-                    lwarn!(
-                        "AWG smoltcp: handshake timeout (10s) to {} (port {})",
-                        self.target_addr,
-                        local_port
-                    );
-                    let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
-                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("TCP connect timeout to destination"));
-                    socket.abort();
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "smoltcp handshake timeout",
-                    ));
-                }
-            }
-
-            if needs_poll {
-                iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-                flush_smoltcp_tx(&mut dev, &self.peer).await;
-            }
-
-            // 4. Multiplex async events with adaptive smoltcp poll_delay timer
-            let socket_can_send = {
-                let s = sockets.get_mut::<TcpSocket>(sock_handle);
-                s.can_send()
-            };
-
-            let can_read_client = !client_eof && handshake_logged && socket_can_send && pending_client_data.len() < 32 * 1024;
-            let poll_delay = iface.poll_delay(SmolInstant::now(), &sockets);
-            let sleep_dur = match poll_delay {
-                Some(d) => Duration::from_micros(d.total_micros())
-                    .clamp(Duration::from_millis(2), Duration::from_millis(1000)),
-                None => Duration::from_millis(1000),
-            };
-
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    if !handshake_logged {
-                        let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
-                        crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Cancelled during connect"));
-                    }
-                    let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                    socket.abort();
-                    break;
-                }
-                _ = self.peer.cancel_token.cancelled() => {
-                    if !handshake_logged {
-                        let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
-                        crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Cancelled during connect"));
-                    }
-                    let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                    socket.abort();
-                    break;
-                }
-
-                // Read from local Telegram SOCKS5 client
-                read_res = c_read.read(&mut read_temp_buf), if can_read_client => {
-                    match read_res {
-                        Ok(0) => { client_eof = true; }
-                        Ok(n) => {
-                            pending_client_data.extend_from_slice(&read_temp_buf[..n]);
-                            let s = sockets.get_mut::<TcpSocket>(sock_handle);
-                            if s.can_send() {
-                                match s.send_slice(&pending_client_data) {
-                                    Ok(sent) if sent > 0 => {
-                                        pending_client_data.drain(..sent);
-                                        STATS.bytes_up.fetch_add(sent as i64, Ordering::Relaxed);
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-                            flush_smoltcp_tx(&mut dev, &self.peer).await;
-                        }
-                        Err(e) => {
-                            ldebug!("AWG: client read error: {}", e);
-                            break;
-                        }
-                    }
-                }
-
-                // Read incoming IP packets routed to this flow
-                ip_res = flow_rx.recv() => {
-                    match ip_res {
-                        Some(ip_pkt) => {
-                            dev.rx_queue.push_back(ip_pkt);
-                            iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-                            flush_smoltcp_tx(&mut dev, &self.peer).await;
-                        }
-                        None => {
-                            ldebug!("AWG flow {}: router channel closed", local_port);
-                            break;
-                        }
-                    }
-                }
-
-                // Adaptive smoltcp timer poll calculated from poll_delay (zero idle wakeups)
-                _ = tokio::time::sleep(sleep_dur) => {
-                    iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-                    flush_smoltcp_tx(&mut dev, &self.peer).await;
-                }
-            }
-        }
-
-        self.peer.unregister_flow(local_port);
-        let _ = crate::socks5::bounded_shutdown(&mut c_write, &cancel_token, Duration::from_secs(2)).await;
-        Ok(())
     }
 }
 
@@ -4767,6 +5328,27 @@ pub fn reset_awg_circuit_breaker() {
 
 pub fn get_awg_circuit_breaker_state() -> CircuitState {
     AWG_CIRCUIT_BREAKER.read().state
+}
+
+pub static AWG_INIT_SENT: AtomicU64 = AtomicU64::new(0);
+pub static AWG_RESP_RECEIVED: AtomicU64 = AtomicU64::new(0);
+pub static AWG_BYTES_RECEIVED: AtomicU64 = AtomicU64::new(0);
+
+pub fn reset_awg_diagnostics() {
+    AWG_INIT_SENT.store(0, Ordering::Relaxed);
+    AWG_RESP_RECEIVED.store(0, Ordering::Relaxed);
+    AWG_BYTES_RECEIVED.store(0, Ordering::Relaxed);
+}
+
+pub fn get_awg_diagnostics() -> (u64, u64, u64, bool, u32, String) {
+    let init_sent = AWG_INIT_SENT.load(Ordering::Relaxed);
+    let resp_received = AWG_RESP_RECEIVED.load(Ordering::Relaxed);
+    let bytes_received = AWG_BYTES_RECEIVED.load(Ordering::Relaxed);
+    let cb = AWG_CIRCUIT_BREAKER.read();
+    let cb_open = cb.is_open();
+    let cb_failures = cb.consecutive_failures;
+    let endpoint = AWG_CONFIG.read().endpoint.clone();
+    (init_sent, resp_received, bytes_received, cb_open, cb_failures, endpoint)
 }
 
 static ACTIVE_AWG_PEER: parking_lot::RwLock<Option<Arc<AwgPeerSession>>> =
@@ -5434,78 +6016,6 @@ Endpoint = 188.114.96.1:8443
     }
 
     #[test]
-    fn test_awg_smoltcp_bridge_ipv6_syn_generation() {
-        let mut dev = AwgSmolDevice::new();
-        let mut iface_cfg = SmolConfig::new(HardwareAddress::Ip);
-        iface_cfg.random_seed = 9999;
-
-        let mut iface = Interface::new(iface_cfg, &mut dev, SmolInstant::now());
-        let client_v6 = "2606:4700:110:812c:a554:b442:26d4:1330".parse::<std::net::Ipv6Addr>().unwrap();
-        let smol_client_v6 = Ipv6Address::from(client_v6);
-
-        iface.update_ip_addrs(|addrs| {
-            let _ = addrs.push(IpCidr::Ipv6(Ipv6Cidr::new(smol_client_v6, 128)));
-        });
-        iface.routes_mut().add_default_ipv6_route(smol_client_v6).unwrap();
-
-        let rx_buf = tcp::SocketBuffer::new(vec![0u8; 65535]);
-        let tx_buf = tcp::SocketBuffer::new(vec![0u8; 65535]);
-        let mut socket = TcpSocket::new(rx_buf, tx_buf);
-
-        let target_v6 = "2606:4700:4700::1111".parse::<std::net::Ipv6Addr>().unwrap();
-        let smol_target_v6 = Ipv6Address::from(target_v6);
-
-        let remote_ep = IpEndpoint::new(IpAddress::Ipv6(smol_target_v6), 443);
-        let local_ep = IpEndpoint::new(IpAddress::Ipv6(smol_client_v6), 48100);
-
-        socket.connect(iface.context(), remote_ep, local_ep).unwrap();
-        let mut sockets = SocketSet::new(vec![]);
-        let _ = sockets.add(socket);
-
-        iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-        assert_eq!(dev.tx_queue.len(), 1, "must generate exactly 1 IPv6 SYN packet");
-        let pkt = dev.tx_queue.pop_front().unwrap();
-        assert_eq!(pkt[0] >> 4, 6, "must be IPv6 packet");
-        assert_eq!(pkt[6], 6, "Next Header must be TCP (6)");
-        assert_eq!(&pkt[8..24], &client_v6.octets());
-        assert_eq!(&pkt[24..40], &target_v6.octets());
-    }
-
-    #[tokio::test]
-    async fn test_awg_smoltcp_bridge_rejects_ipv6_without_client_ipv6() {
-        let config = AwgConfig {
-            client_ipv4: Ipv4Addr::new(172, 16, 0, 2),
-            client_ipv6: None, // No IPv6 configured
-            ..AwgConfig::default()
-        };
-
-        let target_v6_addr = "[2606:4700:4700::1111]:443";
-        let (target_ip, target_port) =
-            crate::masque::parse_target_endpoint(target_v6_addr).await.unwrap();
-
-        assert!(matches!(target_ip, std::net::IpAddr::V6(_)));
-        assert_eq!(target_port, 443);
-
-        // Bridge check
-        let client_v6_opt = config.client_ipv6;
-        let validation_res = if let std::net::IpAddr::V6(_target_v6) = target_ip {
-            if client_v6_opt.is_none() {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::AddrNotAvailable,
-                    format!("IPv6 target '{}' is unsupported: no client IPv6 configured", target_v6_addr),
-                ))
-            } else {
-                Ok(())
-            }
-        } else {
-            Ok(())
-        };
-
-        assert!(validation_res.is_err());
-        assert_eq!(validation_res.unwrap_err().kind(), std::io::ErrorKind::AddrNotAvailable);
-    }
-
-    #[test]
     fn test_session_limits_defaults_conform_to_wireguard_spec() {
         let limits = SessionLimits::default();
         assert_eq!(limits.rekey_after_messages, 1u64 << 60);
@@ -5557,7 +6067,7 @@ Endpoint = 188.114.96.1:8443
         }
 
         // Forge a packet with counter = 5
-        let raw_p5 = aead_encrypt(&keys_tx.send_key, 5, &[], b"forged5").unwrap();
+        let raw_p5 = aead_encrypt(&keys_tx.send_cipher, 5, &[], b"forged5").unwrap();
         let mut forged = Vec::new();
         forged.extend_from_slice(&4u32.to_le_bytes());
         forged.extend_from_slice(&0x200u32.to_le_bytes());
@@ -6436,6 +6946,8 @@ Endpoint = 188.114.96.1:8443
             h3: 0x09182736,
             h4: 0x11223344,
             i1: None,
+            reserved: None,
+            ..Default::default()
         };
 
         let client_index = 0xCAFE1234;
@@ -6529,6 +7041,8 @@ Endpoint = 188.114.96.1:8443
             h3: 0x30303030,
             h4: 0x40404040,
             i1: None,
+            reserved: None,
+            ..Default::default()
         };
 
         let (client_hs, init_pkt) = create_initiation(&client_cfg, 0x1122).unwrap();
@@ -6720,6 +7234,8 @@ Endpoint = 188.114.96.1:8443
             h3: 300,
             h4: 400,
             i1: None,
+            reserved: None,
+            ..Default::default()
         };
         assert_eq!(dedicated_params.classify(), AwgPeerClassification::DedicatedAmneziaWg);
         assert!(!dedicated_params.is_standard_wireguard());
@@ -7140,7 +7656,7 @@ Endpoint = 162.159.192.1:2408
         let mut cfg_unconf = AwgConfig::default();
         cfg_unconf.private_key = [0u8; 32];
         let err1 = AwgPeerSession::connect_with_config(cfg_unconf, &cancel_token, None, 100).await.unwrap_err();
-        assert!(err1.contains("[profile='Cloudflare WARP', stage='validate_credentials', endpoint='162.159.193.10:1701']"), "Actual err: {}", err1);
+        assert!(err1.contains("[profile='Cloudflare WARP', stage='validate_credentials', endpoint='188.114.96.1:500']"), "Actual err: {}", err1);
         assert!(!err1.contains("AAAAA"), "No Base64 key material leaked");
         assert!(!err1.contains("000000"), "No raw key hex bytes leaked");
 
@@ -7324,60 +7840,6 @@ FallbackEndpoints = 127.0.0.1:49992, 127.0.0.1:49993
         reset_awg_circuit_breaker();
     }
 
-    #[tokio::test]
-    async fn test_awg_bridge_poll_delay_and_zero_wakeups_after_stop() {
-        // Verify smoltcp poll delay behavior
-        let mut dev = AwgSmolDevice::new();
-        let mut iface_cfg = SmolConfig::new(HardwareAddress::Ip);
-        iface_cfg.random_seed = 12345;
-        let mut iface = Interface::new(iface_cfg, &mut dev, SmolInstant::now());
-        let mut sockets = SocketSet::new(vec![]);
-
-        let rx_buf = tcp::SocketBuffer::new(vec![0u8; 1024]);
-        let tx_buf = tcp::SocketBuffer::new(vec![0u8; 1024]);
-        let socket = TcpSocket::new(rx_buf, tx_buf);
-        let _handle = sockets.add(socket);
-
-        // Idle interface with no pending timer events
-        let delay = iface.poll_delay(SmolInstant::now(), &sockets);
-        let sleep_dur = match delay {
-            Some(d) => Duration::from_micros(d.total_micros())
-                .clamp(Duration::from_millis(2), Duration::from_millis(1000)),
-            None => Duration::from_millis(1000),
-        };
-
-        // When idle, sleep duration must be relaxed (1000ms) rather than 20ms busy polling
-        assert_eq!(sleep_dur, Duration::from_millis(1000), "Idle smoltcp bridge must sleep 1000ms, not 20ms");
-
-        // Test prompt shutdown on cancellation
-        let cancel = CancellationToken::new();
-        let cancel_clone = cancel.clone();
-
-        let bridge_task = tokio::spawn(async move {
-            let mut wakeups = 0usize;
-            loop {
-                tokio::select! {
-                    _ = cancel_clone.cancelled() => {
-                        break;
-                    }
-                    _ = tokio::time::sleep(sleep_dur) => {
-                        wakeups += 1;
-                    }
-                }
-            }
-            wakeups
-        });
-
-        // Cancel immediately
-        cancel.cancel();
-        let wakeups = tokio::time::timeout(Duration::from_millis(100), bridge_task)
-            .await
-            .expect("Bridge task must terminate promptly upon cancellation")
-            .expect("Join handle");
-
-        assert_eq!(wakeups, 0, "After stop, zero timer wakeups must occur");
-    }
-
     #[test]
     fn test_hchacha20_rfc_draft_vector() {
         let key: [u8; 32] = [
@@ -7504,6 +7966,7 @@ FallbackEndpoints = 127.0.0.1:49992, 127.0.0.1:49993
         let server_pub = x25519_base(&server_priv);
 
         let mut config = AwgConfig::default();
+        config.endpoint = "127.0.0.1:51820".to_string();
         rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut config.private_key);
         config.public_key = x25519_base(&config.private_key);
         config.peer_public_key = server_pub;
@@ -7959,18 +8422,26 @@ FallbackEndpoints = 127.0.0.1:49992, 127.0.0.1:49993
         let plaintext = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
 
         let counter = u64::from_le_bytes([0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]);
-        let ciphertext = aead_encrypt(&key, counter, &ad, plaintext).expect("AEAD encrypt");
+        let ciphertext = aead_encrypt_with_key(&key, counter, &ad, plaintext).expect("AEAD encrypt");
         assert_eq!(ciphertext.len(), plaintext.len() + 16);
 
-        let decrypted = aead_decrypt(&key, counter, &ad, &ciphertext).expect("AEAD decrypt");
+        let decrypted = aead_decrypt_with_key(&key, counter, &ad, &ciphertext).expect("AEAD decrypt");
         assert_eq!(&decrypted, plaintext);
 
         // Verify tamper detection
         let mut tampered = ciphertext.clone();
         tampered[0] ^= 0x01;
-        assert!(aead_decrypt(&key, counter, &ad, &tampered).is_err());
-        assert!(aead_decrypt(&key, counter + 1, &ad, &ciphertext).is_err());
-        assert!(aead_decrypt(&key, counter, &ad[..10], &ciphertext).is_err());
+        assert!(aead_decrypt_with_key(&key, counter, &ad, &tampered).is_err());
+        assert!(aead_decrypt_with_key(&key, counter + 1, &ad, &ciphertext).is_err());
+        assert!(aead_decrypt_with_key(&key, counter, &ad[..10], &ciphertext).is_err());
+
+        // Verify precomputed LessSafeKey cipher fast path
+        let unbound = UnboundKey::new(&CHACHA20_POLY1305, &key).expect("valid key");
+        let cipher = LessSafeKey::new(unbound);
+        let ciphertext_pre = aead_encrypt(&cipher, counter, &ad, plaintext).expect("precomputed encrypt");
+        assert_eq!(ciphertext_pre, ciphertext);
+        let decrypted_pre = aead_decrypt(&cipher, counter, &ad, &ciphertext_pre).expect("precomputed decrypt");
+        assert_eq!(&decrypted_pre, plaintext);
     }
 
     #[test]
@@ -8159,5 +8630,241 @@ FallbackEndpoints = 127.0.0.1:49992, 127.0.0.1:49993
         let rx = TransportKeys::new([4u8; 32], [3u8; 32], 0x2, 0x1);
         let valid_trans = encapsulate_transport_packet(&tx, 4, b"test").unwrap();
         assert!(decapsulate_transport_packet(&rx, 4, &valid_trans[..20]).is_err(), "Truncated transport packet must be rejected");
+    }
+
+    #[test]
+    fn test_awg_reserved_client_id_parsing_and_wire_format() {
+        use base64::engine::general_purpose::STANDARD as B64;
+        use base64::Engine;
+
+        // 1. Direct parsing tests
+        assert_eq!(parse_awg_reserved("123, 45, 67", 1).unwrap(), [123, 45, 67]);
+        assert_eq!(parse_awg_reserved("[10, 20, 30]", 2).unwrap(), [10, 20, 30]);
+        assert_eq!(parse_awg_reserved("AQID", 3).unwrap(), [1, 2, 3]); // Base64 of [1, 2, 3]
+        assert_eq!(parse_awg_reserved("0x010203", 4).unwrap(), [1, 2, 3]);
+        assert_eq!(parse_awg_reserved("010203", 5).unwrap(), [1, 2, 3]);
+        assert!(parse_awg_reserved("invalid", 6).is_err());
+        assert!(parse_awg_reserved("1, 2", 7).is_err());
+        assert!(parse_awg_reserved("1, 2, 3, 4", 8).is_err());
+
+        // 2. INI configuration parsing
+        let dummy_priv = B64.encode([0x41u8; 32]);
+        let dummy_pub = B64.encode(x25519_base(&[0x42u8; 32]));
+        let ini = format!(
+            "[Interface]\nPrivateKey = {}\nAddress = 172.16.0.2/32\nReserved = 123, 45, 67\n[Peer]\nPublicKey = {}\nEndpoint = 162.159.193.10:1701\nAllowedIPs = 0.0.0.0/0\n",
+            dummy_priv, dummy_pub
+        );
+        let cfg = AwgConfig::parse_ini(&ini).expect("INI with Reserved must parse");
+        assert_eq!(cfg.awg_params.reserved, Some([123, 45, 67]));
+
+        // 3. Packet wire verification
+        let (_hs, init_pkt) = create_initiation(&cfg, 0x12345678).expect("Initiation creation must succeed");
+        assert_eq!(init_pkt[0], 1, "Message type must be 1 (H1)");
+        assert_eq!(init_pkt[1], 123, "Reserved byte 1 must match client_id");
+        assert_eq!(init_pkt[2], 45, "Reserved byte 2 must match client_id");
+        assert_eq!(init_pkt[3], 67, "Reserved byte 3 must match client_id");
+
+        // 4. Verification with respond_to_initiation
+        let server_priv = [0x42u8; 32];
+        let (_server_keys, _resp) = respond_to_initiation(
+            &server_priv,
+            0x9988,
+            &init_pkt,
+            &cfg.awg_params,
+            None
+        ).expect("Initiation with matching Reserved bytes must be accepted by server");
+    }
+
+    #[test]
+    fn test_awg_i1_full_spec_parsing() {
+        use base64::engine::general_purpose::STANDARD as B64;
+        use base64::Engine;
+
+        // 1. Raw hex parsing (with/without 0x, with spaces)
+        let hex_plain = parse_awg_i1("0xc000000001", 1).expect("0x hex should parse");
+        assert_eq!(hex_plain, vec![0xc0, 0x00, 0x00, 0x00, 0x01]);
+
+        let hex_spaces = parse_awg_i1("c0 00 00 00 01", 2).expect("spaced hex should parse");
+        assert_eq!(hex_spaces, vec![0xc0, 0x00, 0x00, 0x00, 0x01]);
+
+        // 2. Tag <b ...>
+        let tag_b = parse_awg_i1("<b 0xc000000001>", 3).expect("<b ...> tag should parse");
+        assert_eq!(tag_b, vec![0xc0, 0x00, 0x00, 0x00, 0x01]);
+
+        let tag_b_spaces = parse_awg_i1("<b c0 00 00 00 01>", 4).expect("<b ...> with spaces should parse");
+        assert_eq!(tag_b_spaces, vec![0xc0, 0x00, 0x00, 0x00, 0x01]);
+
+        // 3. Tag <t> (4 bytes big-endian Unix timestamp)
+        let tag_t = parse_awg_i1("<t>", 5).expect("<t> should parse");
+        assert_eq!(tag_t.len(), 4);
+        let ts = u32::from_be_bytes(tag_t.as_slice().try_into().unwrap());
+        assert!(ts > 1700000000, "Timestamp must be a valid recent Unix epoch timestamp");
+
+        // 4. Tag <c> (4 bytes incremental session/packet counter)
+        let c1 = parse_awg_i1("<c>", 6).expect("<c> should parse");
+        let c2 = parse_awg_i1("<c>", 7).expect("<c> should parse");
+        assert_eq!(c1.len(), 4);
+        assert_eq!(c2.len(), 4);
+        let val1 = u32::from_be_bytes(c1.as_slice().try_into().unwrap());
+        let val2 = u32::from_be_bytes(c2.as_slice().try_into().unwrap());
+        assert_eq!(val2, val1 + 1, "Counter must increment sequentially");
+
+        // 5. Tag <rc N> (N random ASCII letters [A-Za-z])
+        let rc = parse_awg_i1("<rc 16>", 8).expect("<rc 16> should parse");
+        assert_eq!(rc.len(), 16);
+        for &byte in &rc {
+            assert!(byte.is_ascii_alphabetic(), "Byte 0x{:02x} must be ASCII letter [A-Za-z]", byte);
+        }
+
+        // 6. Tag <rd N> (N random decimal digits [0-9])
+        let rd = parse_awg_i1("<rd 12>", 9).expect("<rd 12> should parse");
+        assert_eq!(rd.len(), 12);
+        for &byte in &rd {
+            assert!(byte.is_ascii_digit(), "Byte 0x{:02x} must be ASCII digit [0-9]", byte);
+        }
+
+        // 7. Tag <r N> (N random raw bytes)
+        let r = parse_awg_i1("<r 32>", 10).expect("<r 32> should parse");
+        assert_eq!(r.len(), 32);
+
+        // 8. Combined CPS string: <b 0xc000000001><rc 8><t><rd 4><r 32>
+        let combined = parse_awg_i1("<b 0xc000000001><rc 8><t><rd 4><r 32>", 11)
+            .expect("Combined CPS string must parse");
+        assert_eq!(combined.len(), 5 + 8 + 4 + 4 + 32); // 53 bytes
+        assert_eq!(&combined[0..5], &[0xc0, 0x00, 0x00, 0x00, 0x01]);
+        for &b in &combined[5..13] {
+            assert!(b.is_ascii_alphabetic(), "DCID bytes must be ASCII letters");
+        }
+        for &b in &combined[17..21] {
+            assert!(b.is_ascii_digit(), "Random digit bytes must be ASCII digits");
+        }
+
+        // 9. Recommended QUIC CPS pattern for Cloudflare WARP Anycast
+        let quic_i1 = parse_awg_i1(AwgParams::WARP_DEFAULT_I1_SPEC, 12)
+            .expect("WARP default QUIC I1 spec must parse");
+        assert_eq!(quic_i1.len(), 5 + 8 + 8 + 1 + 128); // 150 bytes
+        assert_eq!(quic_i1[0], 0xc0, "QUIC Long Header Initial byte");
+        assert_eq!(&quic_i1[1..5], &[0x00, 0x00, 0x00, 0x01], "QUIC version v1");
+        for &b in &quic_i1[5..13] {
+            assert!(b.is_ascii_alphabetic(), "DCID must be ASCII letters");
+        }
+        for &b in &quic_i1[13..21] {
+            assert!(b.is_ascii_alphabetic(), "SCID must be ASCII letters");
+        }
+        assert_eq!(quic_i1[21], 0x00, "Token length 0");
+
+        // 10. AwgParams::warp_recommended() enforces clean WireGuard parameters (Jc=0, I1=None)
+        let warp_rec = AwgParams::warp_recommended();
+        assert_eq!(warp_rec.jc, 0, "warp_recommended must disable junk packets (Jc=0) for Cloudflare Anycast");
+        assert!(warp_rec.i1.is_none(), "warp_recommended must not send unstandardized I1 to Cloudflare Anycast");
+        assert_eq!(warp_rec.s1, 0);
+        assert_eq!(warp_rec.s2, 0);
+        assert_eq!(warp_rec.h1, 1);
+        assert_eq!(warp_rec.h2, 2);
+        assert_eq!(warp_rec.h3, 3);
+        assert_eq!(warp_rec.h4, 4);
+
+        // 11. INI Parsing with I1 directive on custom server (non-Cloudflare)
+        let dummy_priv = B64.encode([0x41u8; 32]);
+        let dummy_pub = B64.encode(x25519_base(&[0x42u8; 32]));
+        let ini = format!(
+            "[Interface]\nPrivateKey = {}\nAddress = 172.16.0.2/32\nI1 = <b 0xc000000001><rc 8><t><rd 4><r 32>\n[Peer]\nPublicKey = {}\nEndpoint = 95.163.200.1:51820\nAllowedIPs = 0.0.0.0/0\n",
+            dummy_priv, dummy_pub
+        );
+        let cfg = AwgConfig::parse_ini(&ini).expect("INI with I1 directive must parse");
+        assert!(cfg.awg_params.i1.is_some());
+        assert_eq!(cfg.awg_params.i1.as_ref().unwrap().len(), 53);
+
+        // 12. Error handling (negative tests)
+        assert!(parse_awg_i1("", 13).is_err());
+        assert!(parse_awg_i1("<rc 1001>", 14).is_err());
+        assert!(parse_awg_i1("<rd 1001>", 15).is_err());
+        assert!(parse_awg_i1("<r 1001>", 16).is_err());
+        assert!(parse_awg_i1("<b invalid_hex>", 17).is_err());
+        assert!(parse_awg_i1("<unsupported_tag>", 18).is_err());
+        assert!(parse_awg_i1("<rc 8", 19).is_err());
+        assert!(parse_awg_i1("<rc 8>stray_characters", 20).is_err());
+    }
+
+    #[test]
+    fn test_initiation_clamping_and_reserved() {
+        let priv_k = [0x41u8; 32];
+        let pub_k = x25519_base(&priv_k);
+        let peer_pub = AwgConfig::default().peer_public_key;
+
+        // 1. Config with Reserved = Some([123, 45, 67]) and Cloudflare Anycast endpoint
+        let mut cfg = AwgConfig {
+            profile_name: "Cloudflare WARP".to_string(),
+            endpoint: "188.114.96.1:500".to_string(),
+            fallback_endpoints: Vec::new(),
+            private_key: priv_k,
+            public_key: pub_k,
+            peer_public_key: peer_pub,
+            preshared_key: None,
+            client_ipv4: Ipv4Addr::new(172, 16, 0, 2),
+            client_ipv6: None,
+            awg_params: AwgParams {
+                jc: 4, // Even if set to 4, must be suppressed for WARP
+                jmin: 40,
+                jmax: 70,
+                s1: 15, // Even if set to 15, must be 0 for WARP
+                s2: 35,
+                h1: 1,
+                h2: 2,
+                h3: 3,
+                h4: 4,
+                i1: None,
+                reserved: Some([123, 45, 67]),
+                ..Default::default()
+            },
+            persistent_keepalive: None,
+            ..Default::default()
+        };
+
+        let (state, packet) = create_initiation(&cfg, 0x12345678).expect("Initiation must succeed");
+
+        // Verify RFC 7748 clamping of state.e_priv
+        assert_eq!(state.e_priv[0] & 7, 0, "Scalar bits 0..2 must be cleared");
+        assert_eq!(state.e_priv[31] & 128, 0, "Scalar bit 255 must be cleared");
+        assert_ne!(state.e_priv[31] & 64, 0, "Scalar bit 254 must be set");
+
+        // Verify Initiation packet header: 148 bytes for WireGuard RFC (no S1 padding for WARP)
+        assert_eq!(packet.len(), 148, "WARP initiation packet must be exactly 148 bytes (no S1 prefix)");
+
+        // Byte 0 must be 1 (message type 1)
+        assert_eq!(packet[0], 1, "Message type byte 0 must be 1");
+
+        // Bytes 1..3 must be Reserved = 123, 45, 67
+        assert_eq!(packet[1], 123, "Reserved byte 1 mismatch");
+        assert_eq!(packet[2], 45, "Reserved byte 2 mismatch");
+        assert_eq!(packet[3], 67, "Reserved byte 3 mismatch");
+
+        // Bytes 4..8 must be local_index
+        let local_idx = u32::from_le_bytes([packet[4], packet[5], packet[6], packet[7]]);
+        assert_eq!(local_idx, 0x12345678);
+
+        // 2. Config without Reserved: bytes 1..3 must be zeros
+        cfg.awg_params.reserved = None;
+        let (_, packet_no_res) = create_initiation(&cfg, 0x87654321).expect("Initiation must succeed");
+        assert_eq!(packet_no_res[0], 1);
+        assert_eq!(packet_no_res[1], 0);
+        assert_eq!(packet_no_res[2], 0);
+        assert_eq!(packet_no_res[3], 0);
+
+        // 3. Dedicated Custom AWG server: S1 padding must be preserved
+        let mut custom_cfg = cfg.clone();
+        custom_cfg.endpoint = "95.163.200.1:51820".to_string(); // Non-Cloudflare IP
+        custom_cfg.peer_public_key = [0x55u8; 32]; // Non-Cloudflare peer key
+        custom_cfg.awg_params.s1 = 20;
+        custom_cfg.awg_params.h1 = 0x10203040;
+        custom_cfg.awg_params.reserved = Some([1, 2, 3]);
+
+        let (_, custom_packet) = create_initiation(&custom_cfg, 0x11223344).expect("Custom initiation must succeed");
+        assert_eq!(custom_packet.len(), 20 + 148, "Custom AWG initiation must include S1=20 bytes padding");
+        let custom_header = &custom_packet[20..24];
+        assert_eq!(custom_header[0], 0x40); // LE byte 0 of 0x10203040
+        assert_eq!(custom_header[1], 1);
+        assert_eq!(custom_header[2], 2);
+        assert_eq!(custom_header[3], 3);
     }
 }

@@ -1,13 +1,13 @@
 param(
     [string]$SingleTarget = ""
 )
-# Mirrly TG Proxy - Portable Rust Native Engine Build Script (PowerShell)
+# Mirrly TG Proxy - Native Rust Engine Build Script (NDK + Stale Cache Pruning)
 $ErrorActionPreference = "Stop"
 
 $currentDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Resolve project root (whether run from root or tools/build)
 $projectRoot = if (Test-Path "$currentDir\..\..\mirrlyengine") {
-    Resolve-Path "$currentDir\..\.."
+    (Resolve-Path "$currentDir\..\..").Path
 } elseif (Test-Path "$currentDir\mirrlyengine") {
     $currentDir
 } else {
@@ -15,7 +15,7 @@ $projectRoot = if (Test-Path "$currentDir\..\..\mirrlyengine") {
 }
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "Mirrly TG Proxy - Building Native Rust Engine" -ForegroundColor White
+Write-Host "Mirrly TG Proxy - Native Rust Engine (NDK)" -ForegroundColor White
 Write-Host "Project Root: $projectRoot" -ForegroundColor DarkGray
 Write-Host "=============================================" -ForegroundColor Cyan
 
@@ -27,6 +27,22 @@ $candidatePaths = @(
     $env:NDK_HOME
 )
 
+# Check local.properties for sdk.dir / ndk.dir
+$localProps = "$projectRoot\local.properties"
+if (Test-Path $localProps) {
+    Get-Content $localProps | ForEach-Object {
+        if ($_ -match "^\s*sdk\.dir\s*=\s*(.+)$") {
+            $sdkFromProp = $matches[1].Trim().Replace('\\', '\').Replace('\:', ':')
+            if (Test-Path "$sdkFromProp\ndk") {
+                $candidatePaths += Get-ChildItem -Path "$sdkFromProp\ndk\*" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+            }
+        }
+        if ($_ -match "^\s*ndk\.dir\s*=\s*(.+)$") {
+            $candidatePaths += $matches[1].Trim().Replace('\\', '\').Replace('\:', ':')
+        }
+    }
+}
+
 if ($env:ANDROID_HOME) {
     $candidatePaths += Get-ChildItem -Path "$env:ANDROID_HOME\ndk\*" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
 }
@@ -37,33 +53,35 @@ if ($env:LOCALAPPDATA) {
     $candidatePaths += Get-ChildItem -Path "$env:LOCALAPPDATA\Android\Sdk\ndk\*" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
 }
 
-# Sort descending to pick latest NDK version
-$validNdkDirs = $candidatePaths | Where-Object { $_ -and (Test-Path "$_\toolchains\llvm\prebuilt\windows-x86_64\bin") } | Sort-Object -Descending
-
+$validNdkDirs = $candidatePaths | Where-Object { $_ -and (Test-Path "$_\toolchains\llvm\prebuilt") } | Sort-Object -Descending
 if ($validNdkDirs -and $validNdkDirs.Count -gt 0) {
     $ndkDir = $validNdkDirs[0]
 }
 
 if (-not $ndkDir) {
-    Write-Error "Android NDK not found. Please set ANDROID_NDK_HOME environment variable or install NDK via Android Studio SDK Manager."
+    Write-Error "Android NDK not found. Please set ANDROID_NDK_HOME or configure sdk.dir in local.properties."
     exit 1
 }
 
-$ndkBin = "$ndkDir\toolchains\llvm\prebuilt\windows-x86_64\bin"
-Write-Host "Using Android NDK: $ndkDir"
-Write-Host "Toolchain bin:    $ndkBin"
+$env:ANDROID_NDK_HOME = $ndkDir
+$env:NDK_HOME = $ndkDir
+Write-Host "Using Android NDK: $ndkDir" -ForegroundColor Green
 
-# Add NDK bin to PATH
-$env:PATH = "$ndkBin;$env:PATH"
+$isWin = $IsWindows -or $env:OS -like "*Windows*"
+$ndkBinDir = Get-ChildItem -Path "$ndkDir\toolchains\llvm\prebuilt\*\bin" -Directory -ErrorAction SilentlyContinue |
+    Select-Object -First 1 -ExpandProperty FullName
+if (-not $ndkBinDir -or -not (Test-Path $ndkBinDir)) {
+    Write-Error "Android NDK LLVM bin directory not found under $ndkDir"
+    exit 1
+}
 
-# Configure MSVC and Windows SDK LIB paths for host build scripts and proc-macros
-if ($IsWindows -or $env:OS -like "*Windows*") {
+# 2. Configure MSVC and Windows SDK LIB paths for host build scripts and proc-macros
+if ($isWin) {
     $msvcCandidates = @(
         "C:\Program Files\Microsoft Visual Studio\*\Community\VC\Tools\MSVC\*\lib\onecore\x64",
-        "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\*\lib\x64",
         "C:\Program Files\Microsoft Visual Studio\*\Community\VC\Tools\MSVC\*\lib\x64",
-        "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\*\lib\onecore\x64",
-        "C:\Program Files (x86)\Microsoft Visual Studio\*\Community\VC\Tools\MSVC\*\lib\onecore\x64"
+        "C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\lib\x64",
+        "C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\lib\onecore\x64"
     )
     $msvcLibDir = $msvcCandidates | ForEach-Object { Resolve-Path $_ -ErrorAction SilentlyContinue } | Where-Object { Test-Path (Join-Path $_.Path "msvcrt.lib") } | Select-Object -First 1 -ExpandProperty Path
     $sdkUmDir = Resolve-Path "C:\Program Files (x86)\Windows Kits\10\Lib\*\um\x64" -ErrorAction SilentlyContinue | Select-Object -Last 1 -ExpandProperty Path
@@ -75,125 +93,240 @@ if ($IsWindows -or $env:OS -like "*Windows*") {
     }
 }
 
-# 2. Configure API Level (minSdk = 26)
-$apiLevel = 26
+# 3. Auto-enable sccache if installed & preserve .cargo/config.toml rustflags
+if (-not $env:RUSTC_WRAPPER) {
+    $sccacheCmd = Get-Command sccache -ErrorAction SilentlyContinue
+    if ($sccacheCmd) {
+        $env:RUSTC_WRAPPER = $sccacheCmd.Source
+        Write-Host "Using sccache: $($sccacheCmd.Source)" -ForegroundColor Green
+    }
+}
+Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
+Remove-Item Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue
 
-$env:CC_aarch64_linux_android = "$ndkBin\aarch64-linux-android$($apiLevel)-clang.cmd"
-$env:CC_armv7_linux_androideabi = "$ndkBin\armv7a-linux-androideabi$($apiLevel)-clang.cmd"
-$env:CC_i686_linux_android = "$ndkBin\i686-linux-android$($apiLevel)-clang.cmd"
-$env:CC_x86_64_linux_android = "$ndkBin\x86_64-linux-android$($apiLevel)-clang.cmd"
-
-$env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = "$ndkBin\aarch64-linux-android$($apiLevel)-clang.cmd"
-$env:CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER = "$ndkBin\armv7a-linux-androideabi$($apiLevel)-clang.cmd"
-$env:CARGO_TARGET_I686_LINUX_ANDROID_LINKER = "$ndkBin\i686-linux-android$($apiLevel)-clang.cmd"
-$env:CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER = "$ndkBin\x86_64-linux-android$($apiLevel)-clang.cmd"
-
-$env:AR_aarch64_linux_android = "$ndkBin\llvm-ar.exe"
-$env:AR_armv7_linux_androideabi = "$ndkBin\llvm-ar.exe"
-$env:AR_i686_linux_android = "$ndkBin\llvm-ar.exe"
-$env:AR_x86_64_linux_android = "$ndkBin\llvm-ar.exe"
-
-$targets = @(
-    @{ rust = "aarch64-linux-android"; jni = "arm64-v8a" },
-    @{ rust = "armv7-linux-androideabi"; jni = "armeabi-v7a" },
-    @{ rust = "i686-linux-android"; jni = "x86" },
-    @{ rust = "x86_64-linux-android"; jni = "x86_64" }
+# 4. Ensure Rust targets are installed
+$installedTargets = @(rustup target list --installed)
+$requiredTargets = @(
+    @{ rust = "aarch64-linux-android";   abi = "arm64-v8a";   clangPrefix = "aarch64-linux-android";    envLower = "aarch64_linux_android";   envUpper = "AARCH64_LINUX_ANDROID" },
+    @{ rust = "armv7-linux-androideabi"; abi = "armeabi-v7a"; clangPrefix = "armv7a-linux-androideabi"; envLower = "armv7_linux_androideabi"; envUpper = "ARMV7_LINUX_ANDROIDEABI" },
+    @{ rust = "i686-linux-android";      abi = "x86";         clangPrefix = "i686-linux-android";       envLower = "i686_linux_android";      envUpper = "I686_LINUX_ANDROID" },
+    @{ rust = "x86_64-linux-android";    abi = "x86_64";      clangPrefix = "x86_64-linux-android";     envLower = "x86_64_linux_android";    envUpper = "X86_64_LINUX_ANDROID" }
 )
 
-if ($SingleTarget) {
-    $targets = @($targets | Where-Object { $_.rust -eq $SingleTarget -or $_.jni -eq $SingleTarget })
-    Write-Host "Filtered to target: $SingleTarget (Count: $($targets.Count))" -ForegroundColor Yellow
-}
-
-# 3. Ensure Rust targets are installed
-$installedTargets = @(rustup target list --installed)
-foreach ($t in $targets) {
+foreach ($t in $requiredTargets) {
     if ($installedTargets -notcontains $t.rust) {
-        Write-Host "Installing target $($t.rust)..."
+        Write-Host "Installing rustup target $($t.rust)..." -ForegroundColor Yellow
         rustup target add $t.rust | Out-Null
     }
 }
 
-# 4. Configure external cargo target directory to keep repository lightweight
-if (-not $env:CARGO_TARGET_DIR) {
-    $cargoCacheRoot = if ($env:USERPROFILE) { "$env:USERPROFILE\.cargo\target-cache\mirrlyengine" } else { "$projectRoot\mirrlyengine\target" }
-    $env:CARGO_TARGET_DIR = $cargoCacheRoot
+# Helper: prune stale hashed Cargo artifacts inside a single profile dir (target/<triple>/release or target/release)
+function Prune-CargoProfileDir {
+    param(
+        [string]$ProfileDir,
+        [System.Collections.Generic.HashSet[string]]$ActivePaths,
+        [string]$RootCrateName = "mirrlyengine"
+    )
+
+    if (-not (Test-Path $ProfileDir)) { return }
+    $normProfileDir = [System.IO.Path]::GetFullPath($ProfileDir).TrimEnd('\', '/')
+    $depsDir = Join-Path $normProfileDir "deps"
+    $buildDir = Join-Path $normProfileDir "build"
+    $fpDir = Join-Path $normProfileDir ".fingerprint"
+    $incDir = Join-Path $normProfileDir "incremental"
+
+    if (Test-Path $incDir) {
+        Remove-Item -Path $incDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $activeDepsFiles = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    $activeBuildDirs = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    $activeHashes = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+
+    $depsPrefix = "$depsDir\"
+    $buildPrefix = "$buildDir\"
+    foreach ($p in $ActivePaths) {
+        if ($p.StartsWith($depsPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            [void]$activeDepsFiles.Add($p)
+            $name = [System.IO.Path]::GetFileName($p)
+            if ($name -match '-([0-9a-f]{16})(?:\.|$)') {
+                [void]$activeHashes.Add($matches[1])
+            }
+        } elseif ($p.StartsWith($buildPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $rel = $p.Substring($buildPrefix.Length)
+            $topDir = ($rel -split '[\\/]', 2)[0]
+            if ($topDir) {
+                [void]$activeBuildDirs.Add($topDir)
+                if ($topDir -match '-([0-9a-f]{16})$') {
+                    [void]$activeHashes.Add($matches[1])
+                }
+            }
+        }
+    }
+
+    if ($activeDepsFiles.Count -eq 0 -and $activeHashes.Count -eq 0) {
+        return
+    }
+
+    $removedCount = 0
+    if (Test-Path $depsDir) {
+        foreach ($file in (Get-ChildItem -Path $depsDir -File -ErrorAction SilentlyContinue)) {
+            $full = [System.IO.Path]::GetFullPath($file.FullName)
+            $keep = $activeDepsFiles.Contains($full) -or
+                $file.Name.StartsWith("$RootCrateName.", [System.StringComparison]::OrdinalIgnoreCase) -or
+                $file.Name.StartsWith("lib$RootCrateName.", [System.StringComparison]::OrdinalIgnoreCase)
+            if (-not $keep -and $file.Name -match '-([0-9a-f]{16})(?:\.|$)') {
+                $keep = $activeHashes.Contains($matches[1])
+            }
+            if (-not $keep) {
+                Remove-Item -Path $full -Force -ErrorAction SilentlyContinue
+                $removedCount++
+            }
+        }
+    }
+
+    if (Test-Path $buildDir) {
+        foreach ($dir in (Get-ChildItem -Path $buildDir -Directory -ErrorAction SilentlyContinue)) {
+            if (-not $activeBuildDirs.Contains($dir.Name)) {
+                Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                $removedCount++
+            }
+        }
+    }
+
+    if (Test-Path $fpDir) {
+        $latestRootFp = Get-ChildItem -Path $fpDir -Directory -Filter "$RootCrateName-*" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1 -ExpandProperty Name
+        foreach ($dir in (Get-ChildItem -Path $fpDir -Directory -ErrorAction SilentlyContinue)) {
+            $keep = ($dir.Name -eq $latestRootFp)
+            if (-not $keep -and $dir.Name -match '-([0-9a-f]{16})$') {
+                $keep = $activeHashes.Contains($matches[1])
+            }
+            if (-not $keep) {
+                Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                $removedCount++
+            }
+        }
+    }
+
+    if ($removedCount -gt 0) {
+        $label = $normProfileDir.Replace("$projectRoot\", "")
+        Write-Host "  Pruned $removedCount stale cache entries in $label" -ForegroundColor DarkGray
+    }
 }
-$targetDir = $env:CARGO_TARGET_DIR
-Write-Host "Cargo Target Dir: $targetDir"
 
-# 4.1. Configure Rust path remapping to eliminate local developer paths from binaries and enable symbol stripping
-$normProjectRoot = $projectRoot.ToString().TrimEnd('\', '/')
-$normUser = if ($env:USERPROFILE) { $env:USERPROFILE.TrimEnd('\', '/') } else { "" }
-$normTarget = $targetDir.ToString().TrimEnd('\', '/')
+# 5. Select targets and build via Cargo + NDK LLVM toolchain
+$outJniLibs = "$projectRoot\app\src\main\jniLibs"
+$apiLevel = 26
+$effectiveSingleTarget = if ($SingleTarget) { $SingleTarget } elseif ($env:MIRRLY_SINGLE_ABI) { $env:MIRRLY_SINGLE_ABI } else { "" }
 
-$remapList = @()
-if ($normProjectRoot) {
-    $remapList += "--remap-path-prefix=$normProjectRoot\mirrlyengine=/mirrlyengine"
-    $remapList += "--remap-path-prefix=$($normProjectRoot.Replace('\', '/'))/mirrlyengine=/mirrlyengine"
-    $remapList += "--remap-path-prefix=$normProjectRoot=/mirrly"
-    $remapList += "--remap-path-prefix=$($normProjectRoot.Replace('\', '/'))=/mirrly"
-}
-if ($normTarget) {
-    $remapList += "--remap-path-prefix=$normTarget=/cargo-target"
-    $remapList += "--remap-path-prefix=$($normTarget.Replace('\', '/'))=/cargo-target"
-}
-if ($normUser) {
-    $remapList += "--remap-path-prefix=$normUser\.cargo=/cargo"
-    $remapList += "--remap-path-prefix=$($normUser.Replace('\', '/'))/.cargo=/cargo"
-    $remapList += "--remap-path-prefix=$normUser\.rustup=/rustup"
-    $remapList += "--remap-path-prefix=$($normUser.Replace('\', '/'))/.rustup=/rustup"
-    $remapList += "--remap-path-prefix=$normUser=/user"
-    $remapList += "--remap-path-prefix=$($normUser.Replace('\', '/'))=/user"
-}
-$remapList += "--remap-path-prefix=C:\Users\iplii=/user"
-$remapList += "--remap-path-prefix=C:/Users/iplii=/user"
-$remapList += "--remap-path-prefix=c:\projects\Mirrly dev=/projects"
-$remapList += "--remap-path-prefix=c:/projects/Mirrly dev=/projects"
-$remapList += "-C"
-$remapList += "strip=symbols"
-$remapList += "-C"
-$remapList += "debuginfo=0"
-
-$env:RUSTFLAGS = $null
-$env:CARGO_ENCODED_RUSTFLAGS = $remapList -join [char]0x1F
-Write-Host "CARGO_ENCODED_RUSTFLAGS configured with path remapping & symbol stripping"
-
-# 5. Build each target
-Set-Location "$projectRoot\mirrlyengine"
-
-foreach ($t in $targets) {
-    Write-Host "---------------------------------------------"
-    Write-Host "Building for $($t.rust) -> $($t.jni)..."
-    Write-Host "---------------------------------------------"
-    cargo build --target $($t.rust) --release
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to build $($t.rust)"
+$targetsToBuild = @()
+if ($effectiveSingleTarget) {
+    $matched = @($requiredTargets | Where-Object { $_.rust -eq $effectiveSingleTarget -or $_.abi -eq $effectiveSingleTarget })
+    if ($matched.Count -eq 0) {
+        Write-Error "Unknown target/ABI '$effectiveSingleTarget'. Expected one of: arm64-v8a, armeabi-v7a, x86, x86_64."
         exit 1
     }
-    $src = "$targetDir\$($t.rust)\release\libmirrlyengine.so"
-    $dstDir = "$projectRoot\app\src\main\jniLibs\$($t.jni)"
-    if (-not (Test-Path $dstDir)) {
-        New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
-    }
-    $dst = "$dstDir\libmirrlyengine.so"
-    Copy-Item -Path $src -Destination $dst -Force
-    Write-Host "Copied $src -> $dst"
+    $targetsToBuild = $matched
+    Write-Host "Target filtered to: $($matched[0].abi)" -ForegroundColor Yellow
+} else {
+    $targetsToBuild = $requiredTargets
+}
 
-    # Post-process with NDK llvm-strip to ensure zero leftover debug/comment symbols
-    $stripTool = "$ndkBin\llvm-strip.exe"
-    if (Test-Path $stripTool) {
-        Start-Sleep -Milliseconds 250
-        Write-Host "Running llvm-strip on $dst..."
-        & $stripTool --strip-all "$dst"
-        & $stripTool --strip-debug "$dst"
-        & $stripTool --remove-section=.comment "$dst" 2>$null
-        & $stripTool --remove-section=.note.GNU-stack "$dst" 2>$null
+$clangExt = if ($isWin) { ".cmd" } else { "" }
+$exeExt = if ($isWin) { ".exe" } else { "" }
+$arTool = Join-Path $ndkBinDir "llvm-ar$exeExt"
+$ranlibTool = Join-Path $ndkBinDir "llvm-ranlib$exeExt"
+
+Set-Location "$projectRoot\mirrlyengine"
+$targetRoot = "$projectRoot\mirrlyengine\target"
+$allActivePaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+
+foreach ($t in $targetsToBuild) {
+    $ccTool = Join-Path $ndkBinDir "$($t.clangPrefix)$apiLevel-clang$clangExt"
+    $cxxTool = Join-Path $ndkBinDir "$($t.clangPrefix)$apiLevel-clang++$clangExt"
+    if (-not (Test-Path $ccTool)) {
+        Write-Error "NDK compiler not found: $ccTool"
+        exit 1
+    }
+
+    Set-Item -Path "Env:CC_$($t.envLower)" -Value $ccTool
+    Set-Item -Path "Env:CXX_$($t.envLower)" -Value $cxxTool
+    Set-Item -Path "Env:AR_$($t.envLower)" -Value $arTool
+    Set-Item -Path "Env:RANLIB_$($t.envLower)" -Value $ranlibTool
+    Set-Item -Path "Env:CARGO_TARGET_$($t.envUpper)_LINKER" -Value $ccTool
+    Set-Item -Path "Env:CARGO_TARGET_$($t.envUpper)_AR" -Value $arTool
+
+    Write-Host "Building mirrlyengine [$($t.abi) / $($t.rust)] (API $apiLevel)..." -ForegroundColor Cyan
+    $jsonLines = & cargo build --release --lib --target $t.rust --message-format=json-render-diagnostics
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "cargo build failed for $($t.rust) with exit code $LASTEXITCODE"
+        exit 1
+    }
+
+    $targetActivePaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    $builtSo = $null
+    foreach ($line in $jsonLines) {
+        if (-not $line -or -not $line.StartsWith("{")) { continue }
+        $msg = $line | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if (-not $msg) { continue }
+        if ($msg.reason -eq "compiler-artifact") {
+            foreach ($f in $msg.filenames) {
+                $full = [System.IO.Path]::GetFullPath($f)
+                [void]$targetActivePaths.Add($full)
+                [void]$allActivePaths.Add($full)
+                if ($msg.target.name -eq "mirrlyengine" -and $full.EndsWith("libmirrlyengine.so", [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $builtSo = $full
+                }
+            }
+        } elseif ($msg.reason -eq "build-script-executed" -and $msg.out_dir) {
+            $full = [System.IO.Path]::GetFullPath($msg.out_dir)
+            [void]$targetActivePaths.Add($full)
+            [void]$allActivePaths.Add($full)
+        }
+    }
+
+    if (-not $builtSo) {
+        $builtSo = "$targetRoot\$($t.rust)\release\libmirrlyengine.so"
+    }
+    if (-not (Test-Path $builtSo)) {
+        Write-Error "Built shared library not found: $builtSo"
+        exit 1
+    }
+
+    $abiOutDir = Join-Path $outJniLibs $t.abi
+    if (-not (Test-Path $abiOutDir)) {
+        New-Item -ItemType Directory -Path $abiOutDir -Force | Out-Null
+    }
+    $destSo = Join-Path $abiOutDir "libmirrlyengine.so"
+    Copy-Item -Path $builtSo -Destination $destSo -Force
+
+    Prune-CargoProfileDir -ProfileDir "$targetRoot\$($t.rust)\release" -ActivePaths $targetActivePaths
+}
+
+Prune-CargoProfileDir -ProfileDir "$targetRoot\release" -ActivePaths $allActivePaths
+
+# 6. Post-processing with llvm-strip (single pass per library)
+$stripTool = Join-Path $ndkBinDir "llvm-strip$exeExt"
+if (-not (Test-Path $stripTool)) {
+    $stripTool = Get-ChildItem -Path "$ndkDir\toolchains\llvm\prebuilt\*\bin\llvm-strip*" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+}
+
+if ($stripTool -and (Test-Path $stripTool)) {
+    Write-Host "Running llvm-strip on output libraries..." -ForegroundColor DarkGray
+    foreach ($t in $targetsToBuild) {
+        $soPath = "$outJniLibs\$($t.abi)\libmirrlyengine.so"
+        if (Test-Path $soPath) {
+            & $stripTool --strip-all --remove-section=.comment --remove-section=.note.GNU-stack "$soPath" 2>$null
+            $size = (Get-Item $soPath).Length
+            Write-Host "  -> $($t.abi)/libmirrlyengine.so ($size bytes)" -ForegroundColor Green
+        }
     }
 }
 
 Set-Location "$projectRoot"
 
 Write-Host "=============================================" -ForegroundColor Green
-Write-Host "All 4 JNI libraries successfully built and verified!" -ForegroundColor Green
+Write-Host "Native build complete: all JNI libs updated in app/src/main/jniLibs/" -ForegroundColor Green
 Write-Host "=============================================" -ForegroundColor Green

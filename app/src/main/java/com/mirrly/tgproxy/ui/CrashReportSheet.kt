@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -38,7 +39,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -146,8 +146,8 @@ fun CrashReportSheet(
                         }),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_close),
+                    MirrlyIcon(
+                        id = R.drawable.ic_close,
                         contentDescription = null,
                         tint = TextMuted,
                         modifier = Modifier.size(14.dp)
@@ -176,8 +176,8 @@ fun CrashReportSheet(
                             .clip(RoundedCornerShape(10.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_bug),
+                        MirrlyIcon(
+                            id = R.drawable.ic_bug,
                             contentDescription = null,
                             tint = EmergencyCarmine,
                             modifier = Modifier.size(18.dp)
@@ -248,8 +248,8 @@ fun CrashReportSheet(
                             .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_export),
+                        MirrlyIcon(
+                            id = R.drawable.ic_export,
                             contentDescription = null,
                             tint = TextWhite,
                             modifier = Modifier.size(16.dp)
@@ -391,8 +391,8 @@ fun CrashReportSheet(
                         }
 
                         val rotation by animateFloatAsState(targetValue = if (isStackTraceExpanded) 180f else 0f, label = "arrow")
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_close),
+                        MirrlyIcon(
+                            id = R.drawable.ic_close,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier
@@ -456,8 +456,8 @@ fun CrashReportSheet(
                             }
 
                             val rotation by animateFloatAsState(targetValue = if (isLogsExpanded) 180f else 0f, label = "arrow")
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_close),
+                            MirrlyIcon(
+                                id = R.drawable.ic_close,
                                 contentDescription = null,
                                 tint = TextMuted,
                                 modifier = Modifier
@@ -514,8 +514,8 @@ fun CrashReportSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_github),
+                    MirrlyIcon(
+                        id = R.drawable.ic_github,
                         contentDescription = null,
                         tint = EmergencyCarmine,
                         modifier = Modifier.size(18.dp)
@@ -554,8 +554,8 @@ fun CrashReportSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_export),
+                        MirrlyIcon(
+                            id = R.drawable.ic_export,
                             contentDescription = null,
                             tint = TextWhite,
                             modifier = Modifier.size(15.dp)
@@ -589,8 +589,8 @@ fun CrashReportSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_copy),
+                        MirrlyIcon(
+                            id = R.drawable.ic_copy,
                             contentDescription = null,
                             tint = TextWhite,
                             modifier = Modifier.size(15.dp)

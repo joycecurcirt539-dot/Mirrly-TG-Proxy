@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
@@ -11,7 +12,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -168,8 +168,8 @@ private fun ExportActionCard(
                 modifier = Modifier.size(38.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        painter = painterResource(id = iconRes),
+                    MirrlyIcon(
+                        id = iconRes,
                         contentDescription = null,
                         tint = accentColor,
                         modifier = Modifier.size(19.dp)

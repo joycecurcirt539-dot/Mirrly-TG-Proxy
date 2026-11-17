@@ -31,7 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -81,8 +81,8 @@ fun CloudflareDeleteConfirmSheet(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_stat_proxy_error),
+                    MirrlyIcon(
+                        id = R.drawable.ic_stat_proxy_error,
                         contentDescription = null,
                         tint = Color(0xFFEF4444),
                         modifier = Modifier.size(20.dp)

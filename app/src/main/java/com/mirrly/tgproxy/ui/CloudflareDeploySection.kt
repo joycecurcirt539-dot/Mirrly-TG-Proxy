@@ -47,7 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -77,10 +77,10 @@ fun CloudflareDeploySection(
     val scope = rememberCoroutineScope()
     val protoColors = LocalProtocolColors.current
 
-    var isAuthorized by remember { mutableStateOf(prefs.isCloudflareAuthorized()) }
-    var accountId by remember { mutableStateOf(prefs.getCloudflareAccountId() ?: "") }
-    var accountName by remember { mutableStateOf(prefs.getCloudflareAccountName() ?: "") }
-    var subdomain by remember { mutableStateOf(prefs.getCloudflareSubdomain() ?: "") }
+    val isAuthorized by prefs.isCloudflareAuthorizedFlow.collectAsState()
+    val accountId by prefs.cloudflareAccountIdFlow.collectAsState()
+    val accountName by prefs.cloudflareAccountNameFlow.collectAsState()
+    val subdomain by prefs.cloudflareSubdomainFlow.collectAsState()
 
     var isSessionExpired by remember { mutableStateOf(false) }
     val authServerState by CloudflareOAuthManager.authState.collectAsState()
@@ -136,38 +136,16 @@ fun CloudflareDeploySection(
             is ServerAuthState.Success -> {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 val tokens = state.tokens
-                val accRes = CloudflareApiClient.getAccounts(tokens.accessToken, prefs)
-                val firstAcc = accRes.getOrNull()?.firstOrNull()
-                val accId = firstAcc?.id ?: ""
-                val accLabel = firstAcc?.name ?: "Мой аккаунт"
-
-                var foundSubdomain = ""
-                if (accId.isNotEmpty()) {
-                    val subRes = CloudflareApiClient.getSubdomain(tokens.accessToken, accId, prefs)
-                    foundSubdomain = subRes.getOrNull() ?: ""
-                }
-
-                prefs.saveCloudflareSession(
-                    accessToken = tokens.accessToken,
-                    refreshToken = tokens.refreshToken,
-                    accountId = accId,
-                    accountName = accLabel,
-                    subdomain = foundSubdomain
-                )
-
-                isAuthorized = true
-                isSessionExpired = false
-                accountId = accId
-                accountName = accLabel
-                subdomain = foundSubdomain
-
-                Toast.makeText(context, "Cloudflare: Авторизация успешна", Toast.LENGTH_SHORT).show()
-                CloudflareOAuthManager.cancelActiveListener()
-
-                if (foundSubdomain.isEmpty()) {
-                    showSubdomainDialog = true
-                } else {
-                    refreshWorkersList()
+                val ok = CloudflareOAuthManager.finalizeSuccessfulAuth(tokens, prefs)
+                if (ok) {
+                    isSessionExpired = false
+                    Toast.makeText(context, "Cloudflare: Авторизация успешна", Toast.LENGTH_SHORT).show()
+                    val foundSubdomain = prefs.getCloudflareSubdomain().orEmpty()
+                    if (foundSubdomain.isEmpty()) {
+                        showSubdomainDialog = true
+                    } else {
+                        refreshWorkersList()
+                    }
                 }
             }
             is ServerAuthState.Error -> {
@@ -366,8 +344,8 @@ fun CloudflareDeploySection(
                                         .background(activeProtoColor.copy(alpha = 0.15f)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_check),
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_check,
                                         contentDescription = null,
                                         tint = activeProtoColor,
                                         modifier = Modifier.size(10.dp)
@@ -660,8 +638,8 @@ fun CloudflareDeploySection(
                                         )
                                     }
                                     is ServerAuthState.Error -> {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_stat_proxy_error),
+                                        MirrlyIcon(
+                                            id = R.drawable.ic_stat_proxy_error,
                                             contentDescription = null,
                                             tint = Color(0xFFEF4444),
                                             modifier = Modifier.size(22.dp)
@@ -724,8 +702,8 @@ fun CloudflareDeploySection(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_diag_cloudflare),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_diag_cloudflare,
                                     contentDescription = null,
                                     tint = Color.White,
                                     modifier = Modifier.size(18.dp)
@@ -940,8 +918,8 @@ fun CloudflareDeploySection(
                             },
                             modifier = Modifier.size(28.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_refresh),
+                            MirrlyIcon(
+                                id = R.drawable.ic_refresh,
                                 contentDescription = stringResource(R.string.cf_deploy_btn_random_name),
                                 tint = CfOrange,
                                 modifier = Modifier.size(16.dp)
@@ -1001,8 +979,8 @@ fun CloudflareDeploySection(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_info_circle),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_info_circle,
                                     contentDescription = null,
                                     tint = CfOrange,
                                     modifier = Modifier.size(14.dp)
@@ -1086,8 +1064,8 @@ fun CloudflareDeploySection(
                         onClick = { refreshWorkersList() },
                         modifier = Modifier.size(28.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_refresh),
+                        MirrlyIcon(
+                            id = R.drawable.ic_refresh,
                             contentDescription = stringResource(R.string.cf_deploy_refresh_list),
                             tint = if (isLoadingWorkers) CfOrange else TextMuted,
                             modifier = Modifier.size(15.dp)
@@ -1285,8 +1263,8 @@ fun CloudflareDeploySection(
                                             },
                                             modifier = Modifier.size(28.dp)
                                         ) {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_copy),
+                                            MirrlyIcon(
+                                                id = R.drawable.ic_copy,
                                                 contentDescription = null,
                                                 tint = TextMuted,
                                                 modifier = Modifier.size(14.dp)
@@ -1298,8 +1276,8 @@ fun CloudflareDeploySection(
                                             onClick = { workerToDelete = worker },
                                             modifier = Modifier.size(28.dp)
                                         ) {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_trash),
+                                            MirrlyIcon(
+                                                id = R.drawable.ic_trash,
                                                 contentDescription = stringResource(R.string.cf_deploy_btn_delete),
                                                 tint = Color(0xFFFF5252).copy(alpha = 0.85f),
                                                 modifier = Modifier.size(14.dp)
@@ -1322,11 +1300,7 @@ fun CloudflareDeploySection(
             onDismiss = { showManualTokenDialog = false },
             onTokenSaved = { savedToken, accId, accName, sub ->
                 showManualTokenDialog = false
-                isAuthorized = true
                 isSessionExpired = false
-                accountId = accId
-                accountName = accName
-                subdomain = sub
                 if (sub.isEmpty()) {
                     showSubdomainDialog = true
                 } else {
@@ -1345,7 +1319,6 @@ fun CloudflareDeploySection(
             },
             onSubdomainConfigured = { registered ->
                 showSubdomainDialog = false
-                subdomain = registered
                 if (pendingDeployAfterSubdomain) {
                     pendingDeployAfterSubdomain = false
                     deployNewWorker()
@@ -1389,11 +1362,7 @@ fun CloudflareDeploySection(
                 val app = com.mirrly.tgproxy.MirrlyApplication.instance
                 app.config.customCfDomain = ""
                 app.prefsManager.saveConfig(app.config)
-                isAuthorized = false
                 isSessionExpired = false
-                accountName = ""
-                accountId = ""
-                subdomain = ""
                 cfWorkers = emptyList()
                 startBrowserAuth()
             },
@@ -1403,11 +1372,7 @@ fun CloudflareDeploySection(
                 val app = com.mirrly.tgproxy.MirrlyApplication.instance
                 app.config.customCfDomain = ""
                 app.prefsManager.saveConfig(app.config)
-                isAuthorized = false
                 isSessionExpired = false
-                accountName = ""
-                accountId = ""
-                subdomain = ""
                 cfWorkers = emptyList()
                 Toast.makeText(context, context.getString(R.string.cf_session_reset), Toast.LENGTH_SHORT).show()
             },

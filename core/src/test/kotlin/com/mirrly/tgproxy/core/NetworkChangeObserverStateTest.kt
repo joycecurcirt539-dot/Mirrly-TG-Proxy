@@ -56,7 +56,7 @@ class NetworkChangeObserverStateTest {
     @Test
     fun testStaleResultRejectedAfterWifiToLteHandover() {
         val config = ProxyConfig()
-        config.uplinkModeName = UplinkMode.MASQUE.name
+        config.uplinkModeName = UplinkMode.AWG.name
         config.warpPeerEndpoint = "162.159.192.1:2408"
         val server = LocalProxyServer(config)
         val genA = server.currentProfileGeneration.get()
@@ -68,7 +68,7 @@ class NetworkChangeObserverStateTest {
         val rejected = server.applyWarpEndpoint(
             "162.159.193.55:500",
             expectedGeneration = genA,
-            expectedMode = UplinkMode.MASQUE
+            expectedMode = UplinkMode.AWG
         )
         assertFalse(rejected, "Устаревший результат genA должен быть отклонён после смены сети")
         assertEquals("162.159.192.1:2408", config.warpPeerEndpoint)
@@ -92,7 +92,7 @@ class NetworkChangeObserverStateTest {
     @Test
     fun testSetNetworkDormancyTrueIncrementsGeneration() {
         val config = ProxyConfig()
-        config.uplinkModeName = UplinkMode.MASQUE.name
+        config.uplinkModeName = UplinkMode.AWG.name
         config.warpPeerEndpoint = "old-ep:2408"
         val server = LocalProxyServer(config)
         val genBefore = server.currentProfileGeneration.get()
@@ -104,7 +104,7 @@ class NetworkChangeObserverStateTest {
         val rejected = server.applyWarpEndpoint(
             "new-ep:1070",
             expectedGeneration = genBefore,
-            expectedMode = UplinkMode.MASQUE
+            expectedMode = UplinkMode.AWG
         )
         assertFalse(rejected, "Результат с genBefore должен быть отклонён после dormancy")
         assertEquals("old-ep:2408", config.warpPeerEndpoint)

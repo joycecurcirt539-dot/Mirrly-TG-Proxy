@@ -20,18 +20,35 @@ package com.mirrly.tgproxy.service
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProxyResurrectionTest {
 
     @Test
-    fun testActionConstant() {
+    fun testActionConstants() {
         assertEquals("com.mirrly.tgproxy.ACTION_RESURRECT_PROXY", ProxyResurrectionManager.ACTION_RESURRECT_PROXY)
+        assertEquals("com.mirrly.tgproxy.ACTION_WATCHDOG_HEARTBEAT", ProxyResurrectionManager.ACTION_WATCHDOG_HEARTBEAT)
+    }
+
+    @Test
+    fun testWatchdogIntervalContract() {
+        // Гарантируем, что интервал сторожевого пульса равен 15 минутам (900,000 мс)
+        // для согласования с минимальным окном Doze / WorkManager
+        assertEquals(15L * 60 * 1000L, ProxyResurrectionManager.WATCHDOG_INTERVAL_MS)
+        assertTrue(ProxyResurrectionManager.WATCHDOG_INTERVAL_MS >= 15L * 60 * 1000L)
     }
 
     @Test
     fun testProxyResurrectionReceiverInstantiation() {
         val receiver = ProxyResurrectionReceiver()
         assertNotNull(receiver)
+    }
+
+    @Test
+    fun testWorkerClassReflect() {
+        val workerClass = ProxyResurrectionWorker::class.java
+        assertNotNull(workerClass)
+        assertEquals("com.mirrly.tgproxy.service.ProxyResurrectionWorker", workerClass.name)
     }
 }

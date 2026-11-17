@@ -15,19 +15,21 @@
 
 package com.mirrly.tgproxy.ui
 
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -37,6 +39,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,6 +48,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -59,11 +64,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -78,24 +83,27 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -103,21 +111,18 @@ import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ai.AiKeyManager
 import com.mirrly.tgproxy.ai.AiPrompts
-import com.mirrly.tgproxy.service.PreferencesManager
 import com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager
 import com.mirrly.tgproxy.service.cloudflare.ServerAuthState
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
+import com.mirrly.tgproxy.ui.theme.AmoledBackground
 import com.mirrly.tgproxy.ui.theme.AmoledBorder
-import com.mirrly.tgproxy.ui.theme.ColorEngine
-import com.mirrly.tgproxy.ui.theme.MtprotoAccent
+import com.mirrly.tgproxy.ui.theme.LocalProtocolColors
 import com.mirrly.tgproxy.ui.theme.Socks5Accent
 import com.mirrly.tgproxy.ui.theme.TextMuted
 import com.mirrly.tgproxy.ui.theme.TextWhite
-import com.mirrly.tgproxy.ui.theme.ThemeAccentMode
-import com.mirrly.tgproxy.ui.theme.ThemePresets
 import com.mirrly.tgproxy.ui.theme.VpnAccent
 import com.mirrly.tgproxy.ui.theme.adaptiveContainerWidth
 import com.mirrly.tgproxy.ui.theme.fadingEdges
-import com.mirrly.tgproxy.ui.theme.horizontalFadingEdges
 import com.mirrly.tgproxy.ui.theme.lightSweep
 import com.mirrly.tgproxy.ui.theme.springPress
 import kotlinx.coroutines.delay
@@ -126,18 +131,14 @@ import kotlinx.coroutines.launch
 /**
  * Интерактивное вводное руководство Mirrly AI BYOK Engine (5 шагов).
  *
- * Архитектурный стиль:
- * - Точное соответствие дизайну OnboardingScreen.kt (Zero-Popup, Outline-Only, Zero Emojis).
- * - Затемненный фон Color.Black.copy(alpha = 0.88f) с поддержкой размытия подложки.
- * - Точный честный таймер ознакомления: 5 секунд (5000 мс) на каждый шаг.
- * - Обязательные действия пользователя для разблокировки перехода по шагам:
- *   1. Шаг 1: Обязательный выбор провайдера.
- *   2. Шаг 2: Обязательный переход по ссылке / авторизация + 5 секунд.
- *   3. Шаг 3: Обязательный выбор модели + возможность ввода ключей (с кнопкой видимости) + 5 секунд.
- *   4. Шаг 4: Обязательное ознакомление с системной инструкцией + 5 секунд.
- *   5. Шаг 5: Обязательное ознакомление с инструментами + 5 секунд.
- * - При преждевременном выходе статус не сохраняется, обучение начнется заново с 1 шага.
- * - При завершении шага 5 сохраняется hasSeenAiOnboarding = true.
+ * Архитектурные стандарты MirrlyUI и no-ai-slop:
+ * - Полноэкранный оверлей Color.Black.copy(alpha = 0.88f) с аппаратным размытием подложки (rememberDialogBlurState).
+ * - Сворачиваемые компактные карточки по образцу VpnOnboardingDialog с шевроном MirrlyExpandChevronBadge.
+ * - Интерактивный процедурный Canvas-превью генератора векторных SVG-иконок кнопок.
+ * - Переходы по внешним ссылкам строго через ExternalLinkConfirmDialog с размытием фона.
+ * - Отсутствие искусственной нумерации «01 / 02 / 03» и декоративного ИИ-слопа.
+ * - Честный таймер чтения: 5000 мс на шагах при первом просмотре, отключен при повторе (isReplay).
+ * - Обязательные действия пользователя для разблокировки перехода по шагам.
  */
 @Composable
 fun AiOnboardingScreen(
@@ -151,38 +152,42 @@ fun AiOnboardingScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { MirrlyApplication.instance.prefsManager }
 
-    val currentThemeMode by prefs.themeAccentModeFlow.collectAsState()
-    val currentPresetId = prefs.getThemePresetId()
-    val customHex = prefs.getThemeCustomColorHex()
+    val protocolColors = LocalProtocolColors.current
+    val activeAccentColor = accentColor ?: protocolColors.primary
 
-    val activeAccentColor = remember(accentColor, currentThemeMode, currentPresetId, customHex) {
-        accentColor ?: when (currentThemeMode) {
-            ThemeAccentMode.PROTOCOL_DEFAULT -> MtprotoAccent
-            ThemeAccentMode.STEALTH -> Color.White
-            ThemeAccentMode.PRESET -> ThemePresets.getPresetById(currentPresetId)?.primaryColor ?: MtprotoAccent
-            ThemeAccentMode.MONET -> ColorEngine.getSystemMonetAccent(context)
-            ThemeAccentMode.CUSTOM -> ColorEngine.parseHexColor(customHex) ?: MtprotoAccent
-        }
-    }
+    // Активация аппаратного размытия экрана под оверлеем руководства
+    rememberDialogBlurState(blurRadiusPx = 60)
 
     val isReplayMode = isReplay
-
-    var currentStep by remember { mutableIntStateOf(0) }
     val totalSteps = 5
+    var currentStep by rememberSaveable { mutableIntStateOf(0) }
 
-    // Локальные состояния конфигурации ИИ (при первом запуске провайдер и модель требуют явного выбора)
-    var selectedProvider by remember { mutableStateOf<String?>(if (isReplayMode) prefs.getAiProvider() else null) }
-    var selectedModel by remember { mutableStateOf<String?>(if (isReplayMode) prefs.getAiModel() else null) }
-    var promptMode by remember { mutableStateOf(prefs.getAiSystemPromptMode()) }
+    // Локальные состояния конфигурации ИИ
+    var selectedProvider by rememberSaveable { mutableStateOf<String?>(if (isReplayMode) prefs.getAiProvider() else null) }
+    var selectedModel by rememberSaveable { mutableStateOf<String?>(if (isReplayMode) prefs.getAiModel() else null) }
+    var promptMode by rememberSaveable { mutableStateOf(prefs.getAiSystemPromptMode()) }
     var geminiKey by remember { mutableStateOf(AiKeyManager.getApiKey(context)) }
     var openRouterKey by remember { mutableStateOf(AiKeyManager.getOpenRouterApiKey(context)) }
     var cfAccountId by remember { mutableStateOf(prefs.getCloudflareAccountId().orEmpty()) }
     var cfToken by remember { mutableStateOf(prefs.getCloudflareToken().orEmpty()) }
 
     // Контроллеры обязательных действий пользователя на шагах
-    var hasPerformedStep2Action by remember(selectedProvider) { mutableStateOf(isReplayMode) }
-    var hasInteractedStep4 by remember { mutableStateOf(isReplayMode) }
-    var hasInteractedStep5 by remember { mutableStateOf(isReplayMode) }
+    var hasPerformedStep2Action by rememberSaveable(selectedProvider) { mutableStateOf(isReplayMode) }
+    var hasInteractedStep4 by rememberSaveable { mutableStateOf(isReplayMode) }
+    var hasInteractedStep5 by rememberSaveable { mutableStateOf(isReplayMode) }
+
+    // Состояние подтверждения внешнего перехода (MirrlyUI External Link Warning Contract)
+    var pendingExternalUrl by remember { mutableStateOf<String?>(null) }
+    if (pendingExternalUrl != null) {
+        ExternalLinkConfirmDialog(
+            url = pendingExternalUrl!!,
+            onDismiss = { pendingExternalUrl = null },
+            onConfirmed = {
+                hasPerformedStep2Action = true
+                pendingExternalUrl = null
+            }
+        )
+    }
 
     // Отслеживание авторизации через Cloudflare OAuth
     val cfAuthState by CloudflareOAuthManager.authState.collectAsState()
@@ -200,7 +205,7 @@ fun AiOnboardingScreen(
         }
     }
 
-    // Честный таймер чтения: ровно 5000 мс (wall-clock по системному времени)
+    // Честный таймер чтения: ровно 5000 мс (wall-clock)
     val stepDurationMs = 5000L
     var remainingMs by remember(currentStep, isReplayMode) {
         mutableStateOf(if (isReplayMode) 0L else stepDurationMs)
@@ -295,9 +300,9 @@ fun AiOnboardingScreen(
     val exitVal = exitProgress.value
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val safeBottomMargin = bottomInset + 20.dp
+    val safeBottomMargin = bottomInset + 18.dp
 
-    // Валидация готовности к переходу на следующий шаг
+    // Валидация готовности к переходу
     val canProceed = isReplayMode || (isTimerFinished && when (currentStep) {
         0 -> selectedProvider != null
         1 -> hasPerformedStep2Action
@@ -310,7 +315,7 @@ fun AiOnboardingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.88f))
+            .background(AmoledBackground)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -344,9 +349,9 @@ fun AiOnboardingScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "MIRRLY AI · ВВОДНОЕ РУКОВОДСТВО",
+                            text = "ВВОДНОЕ РУКОВОДСТВО ПО ИИ",
                             color = TextWhite,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold,
@@ -380,7 +385,7 @@ fun AiOnboardingScreen(
                             )
                         }
 
-                        // Кнопка закрытия (без сохранения прохождения)
+                        // Кнопка закрытия
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = Color.Transparent,
@@ -393,8 +398,8 @@ fun AiOnboardingScreen(
                                 })
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_close),
+                                MirrlyIcon(
+                                    id = R.drawable.ic_close,
                                     contentDescription = "Закрыть",
                                     tint = TextWhite.copy(alpha = 0.7f),
                                     modifier = Modifier.size(14.dp)
@@ -438,7 +443,6 @@ fun AiOnboardingScreen(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
                                 ) {
-                                    // Пользователь может свободно возвращаться на ранее изученные шаги
                                     if (i <= currentStep && !isExiting) {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         currentStep = i
@@ -489,7 +493,7 @@ fun AiOnboardingScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         when (step) {
                             0 -> StepProviderSelection(
@@ -498,18 +502,18 @@ fun AiOnboardingScreen(
                                 onSelectProvider = { prov ->
                                     selectedProvider = prov
                                     prefs.setAiProvider(prov)
-                                    // Сбрасываем модель для обязательного явного выбора пользователем на Шаге 3
                                     selectedModel = null
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 }
                             )
+
                             1 -> StepConnectionInstructions(
                                 selectedProvider = selectedProvider,
                                 accentColor = activeAccentColor,
-                                onActionCompleted = {
-                                    hasPerformedStep2Action = true
-                                }
+                                onRequestOpenUrl = { url -> pendingExternalUrl = url },
+                                onActionCompleted = { hasPerformedStep2Action = true }
                             )
+
                             2 -> StepCredentialsAndModel(
                                 selectedProvider = selectedProvider ?: "Gemini",
                                 selectedModel = selectedModel,
@@ -540,6 +544,7 @@ fun AiOnboardingScreen(
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 }
                             )
+
                             3 -> StepSystemPrompts(
                                 currentMode = promptMode,
                                 accentColor = activeAccentColor,
@@ -553,6 +558,7 @@ fun AiOnboardingScreen(
                                     hasInteractedStep4 = true
                                 }
                             )
+
                             4 -> StepFeaturesAndTools(
                                 accentColor = activeAccentColor,
                                 onAccordionInteracted = {
@@ -571,7 +577,7 @@ fun AiOnboardingScreen(
                     .padding(bottom = safeBottomMargin, top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Всплывающий стильный баннер ошибки валидации (Zero-Popup)
+                // Всплывающий баннер ошибки валидации (Zero-Popup)
                 AnimatedVisibility(
                     visible = validationMessage != null,
                     enter = fadeIn() + expandVertically(),
@@ -603,51 +609,16 @@ fun AiOnboardingScreen(
                                     text = msg,
                                     color = Color(0xFFFFCDD2),
                                     fontSize = 11.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
+                                    lineHeight = 15.sp,
+                                    fontFamily = FontFamily.Monospace
                                 )
                             }
                         }
                     }
                 }
 
-                // Линия таймера ознакомления (5 секунд)
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val statusText = when {
-                            isReplayMode -> "Повторный просмотр · Свободная навигация"
-                            !isTimerFinished -> "Ознакомление с шагом: $remainingSeconds с"
-                            currentStep == 0 && selectedProvider == null -> "Выберите провайдера для продолжения"
-                            currentStep == 1 && !hasPerformedStep2Action -> "Выполните действие для продолжения"
-                            currentStep == 2 && selectedModel == null -> "Выберите модель для продолжения"
-                            currentStep == 3 && !hasInteractedStep4 -> "Раскройте описание инструкции"
-                            currentStep == 4 && !hasInteractedStep5 -> "Раскройте описание инструмента"
-                            else -> "Ознакомление завершено"
-                        }
-
-                        Text(
-                            text = statusText,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = if (canProceed) activeAccentColor else TextMuted
-                        )
-
-                        Text(
-                            text = "${(timerProgress * 100).toInt()}%",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = if (canProceed) activeAccentColor else TextMuted
-                        )
-                    }
-
+                // Индикатор честного таймера чтения (5 секунд)
+                if (!isReplayMode) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -659,143 +630,98 @@ fun AiOnboardingScreen(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .fillMaxWidth(fraction = timerProgress)
-                                .background(
-                                    if (canProceed) {
-                                        Brush.horizontalGradient(
-                                            listOf(
-                                                activeAccentColor.copy(alpha = 0.70f),
-                                                activeAccentColor
-                                            )
-                                        )
-                                    } else {
-                                        Brush.horizontalGradient(
-                                            listOf(
-                                                activeAccentColor.copy(alpha = 0.35f),
-                                                activeAccentColor.copy(alpha = 0.65f)
-                                            )
-                                        )
-                                    }
-                                )
+                                .background(activeAccentColor)
                         )
                     }
                 }
 
-                // Кнопки навигации: Назад / Закрыть и Далее
+                // Кнопки навигации (НАЗАД / ДАЛЕЕ / НАЧАТЬ РАБОТУ)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Кнопка Назад
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier
-                            .height(48.dp)
-                            .springPress(onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (currentStep > 0) {
-                                    currentStep -= 1
-                                } else {
-                                    executeExit(isCompleted = false)
-                                }
-                            })
-                    ) {
-                        Box(
+                    if (currentStep > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, AmoledBorder),
                             modifier = Modifier
-                                .fillMaxHeight()
-                                .padding(horizontal = 20.dp),
-                            contentAlignment = Alignment.Center
+                                .weight(0.40f)
+                                .height(46.dp)
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    currentStep -= 1
+                                })
                         ) {
-                            Text(
-                                text = if (currentStep > 0) "Назад" else "Закрыть",
-                                color = Color(0xFFD4D4DC),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "НАЗАД",
+                                    color = TextWhite.copy(alpha = 0.8f),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
                     }
 
-                    // Кнопка Далее / Завершить
+                    val isLastStep = currentStep == totalSteps - 1
+                    val buttonBorderColor by animateColorAsState(
+                        targetValue = if (canProceed) activeAccentColor else AmoledBorder,
+                        animationSpec = tween(240),
+                        label = "aiProceedButtonBorder"
+                    )
+
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = Color.Transparent,
-                        border = if (canProceed) {
-                            BorderStroke(1.5.dp, activeAccentColor.copy(alpha = 0.85f))
-                        } else {
-                            BorderStroke(1.dp, AmoledBorder)
-                        },
+                        border = BorderStroke(1.dp, buttonBorderColor),
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
-                            .lightSweep(isEnabled = canProceed, shape = RoundedCornerShape(14.dp))
-                            .springPress(
-                                onClick = {
-                                    if (!canProceed) {
-                                        when {
-                                            currentStep == 0 && selectedProvider == null ->
-                                                showWarning("Выберите провайдера нейросети для продолжения")
-                                            currentStep == 1 && !hasPerformedStep2Action ->
-                                                showWarning("Выполните переход по ссылке или авторизацию для продолжения")
-                                            currentStep == 2 && selectedModel == null ->
-                                                showWarning("Выберите модель нейросети для продолжения")
-                                            currentStep == 3 && !hasInteractedStep4 ->
-                                                showWarning("Раскройте описание инструкции для ознакомления")
-                                            currentStep == 4 && !hasInteractedStep5 ->
-                                                showWarning("Раскройте описание инструмента для ознакомления")
-                                            !isTimerFinished ->
-                                                showWarning("Ознакомьтесь с материалом шага (осталось $remainingSeconds с)")
-                                        }
-                                        return@springPress
+                            .height(46.dp)
+                            .springPress(onClick = {
+                                if (!canProceed) {
+                                    when {
+                                        currentStep == 0 && selectedProvider == null ->
+                                            showWarning("Выберите провайдера нейросети для продолжения")
+                                        currentStep == 1 && !hasPerformedStep2Action ->
+                                            showWarning("Ознакомьтесь с этапом или откройте ссылку портала")
+                                        currentStep == 2 && selectedModel == null ->
+                                            showWarning("Выберите активную модель для продолжения")
+                                        currentStep == 3 && !hasInteractedStep4 ->
+                                            showWarning("Раскройте описание директивы для ознакомления")
+                                        currentStep == 4 && !hasInteractedStep5 ->
+                                            showWarning("Раскройте описание инструмента для ознакомления")
+                                        !isTimerFinished ->
+                                            showWarning("Ознакомьтесь с материалом шага (осталось $remainingSeconds с)")
                                     }
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (currentStep < totalSteps - 1) {
-                                        currentStep += 1
-                                    } else {
-                                        executeExit(isCompleted = true)
-                                    }
+                                    return@springPress
                                 }
-                            )
+
+                                if (isLastStep) {
+                                    executeExit(isCompleted = true)
+                                } else {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    currentStep += 1
+                                }
+                            })
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val buttonLabel = when {
-                                    !isReplayMode && !isTimerFinished -> "Далее (${remainingSeconds}с)"
-                                    !isReplayMode && currentStep == 0 && selectedProvider == null -> "Выберите провайдера"
-                                    !isReplayMode && currentStep == 1 && !hasPerformedStep2Action -> "Выполните действие"
-                                    !isReplayMode && currentStep == 2 && selectedModel == null -> "Выберите модель"
-                                    !isReplayMode && currentStep == 3 && !hasInteractedStep4 -> "Ознакомьтесь с режимами"
-                                    !isReplayMode && currentStep == 4 && !hasInteractedStep5 -> "Ознакомьтесь с функциями"
-                                    currentStep == totalSteps - 1 -> "Завершить и начать работу"
-                                    else -> "Далее"
-                                }
-
-                                Text(
-                                    text = buttonLabel,
-                                    color = if (canProceed) activeAccentColor else TextMuted,
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.3.sp
-                                )
-
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (currentStep == totalSteps - 1 && canProceed) R.drawable.ic_check else R.drawable.ic_chevron_right
-                                    ),
-                                    contentDescription = null,
-                                    tint = if (canProceed) activeAccentColor else TextMuted,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = when {
+                                    isLastStep -> "НАЧАТЬ РАБОТУ С ИИ"
+                                    !canProceed && !isTimerFinished -> "ОЗНАКОМЛЕНИЕ · $remainingSeconds С"
+                                    currentStep == 0 && selectedProvider == null -> "ВЫБЕРИТЕ ПРОВАЙДЕРА"
+                                    currentStep == 2 && selectedModel == null -> "ВЫБЕРИТЕ МОДЕЛЬ"
+                                    else -> "ДАЛЕЕ"
+                                },
+                                color = if (canProceed) activeAccentColor else TextMuted,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = 0.8.sp
+                            )
                         }
                     }
                 }
@@ -805,7 +731,7 @@ fun AiOnboardingScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ШАГ 1: ВЫБОР ПРОВАЙДЕРА НЕЙРОСЕТИ
+// ШАГ 1: ВЫБОР ПРОВАЙДЕРА НЕЙРОСЕТИ (СВОРАЧИВАЕМЫЕ КАРТОЧКИ)
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -815,184 +741,113 @@ private fun StepProviderSelection(
     onSelectProvider: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "ШАГ 1: ВЫБОР ПРОВАЙДЕРА НЕЙРОСЕТИ",
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 1.2.sp,
-                color = accentColor
-            )
-            Text(
-                text = "Mirrly AI работает по принципу BYOK (Bring Your Own Key) — подключите персональный ключ или аккаунт выбранного провайдера без подписок и посредников.",
-                fontSize = 13.sp,
-                color = Color(0xFFD4D4DC),
-                lineHeight = 18.sp
-            )
-        }
+        AiStepHeader(
+            badge = "ШАГ 1 · ПРОВАЙДЕР НЕЙРОСЕТИ",
+            title = "Выберите провайдера интеллекта",
+            subtitle = "Прямой доступ BYOK без подписок, посредников и внешних комиссий",
+            accentColor = accentColor
+        )
 
         // 1. Google Gemini (Рекомендуется)
-        ProviderCardItem(
+        AiProviderOptionCard(
             name = "Google Gemini",
-            badge = "РЕКОМЕНДУЕТСЯ",
+            tagline = "Бесплатные лимиты Google AI Studio · 15 RPM · 1M Context",
+            badgeText = "РЕКОМЕНДУЕТСЯ",
             badgeColor = accentColor,
-            desc = "Бесплатные лимиты Google AI Studio, мгновенный отклик, вызов системных диагностических инструментов (Function Calling) и генерация векторных SVG-иконок кнопок.",
-            features = listOf("gemini-3.6-flash", "Инструменты", "Бесплатно"),
             isSelected = (selectedProvider == "Gemini"),
             accentColor = accentColor,
-            onClick = { onSelectProvider("Gemini") }
-        )
-
-        // 2. Cloudflare Workers AI
-        ProviderCardItem(
-            name = "Cloudflare Workers AI",
-            badge = "EDGE ИНФЕРЕНС",
-            badgeColor = Socks5Accent,
-            desc = "Автономный серверлесс-инференс моделей на глобальной распределенной сети Cloudflare. Поддерживает быстрый вход через OAuth или персональный API Token.",
-            features = listOf("Llama 3.3 70B", "DeepSeek R1", "OAuth / Токен"),
-            isSelected = (selectedProvider == "Cloudflare"),
-            accentColor = accentColor,
-            onClick = { onSelectProvider("Cloudflare") }
-        )
-
-        // 3. OpenRouter
-        ProviderCardItem(
-            name = "OpenRouter",
-            badge = "МУЛЬТИ-ПРОВАЙДЕР",
-            badgeColor = VpnAccent,
-            desc = "Универсальный шлюз к сотням моделей: DeepSeek, Claude 3.5, Mistral, Qwen и Gemini по единому стандартизированному API-ключу sk-or-v1-...",
-            features = listOf("DeepSeek V3", "Claude 3.5", "Бесплатно :free"),
-            isSelected = (selectedProvider == "OpenRouter"),
-            accentColor = accentColor,
-            onClick = { onSelectProvider("OpenRouter") }
-        )
-
-        // 4. OpenAI (Скоро)
-        ProviderCardItem(
-            name = "OpenAI",
-            badge = "В РАЗРАБОТКЕ",
-            badgeColor = TextMuted,
-            desc = "Прямое подключение к API OpenAI (модели GPT-4o, o3-mini). Находится в стадии интеграции.",
-            features = listOf("GPT-4o", "Скоро"),
-            isSelected = false,
-            isEnabled = false,
-            accentColor = accentColor,
-            onClick = {}
-        )
-    }
-}
-
-@Composable
-private fun ProviderCardItem(
-    name: String,
-    badge: String,
-    badgeColor: Color,
-    desc: String,
-    features: listOfString,
-    isSelected: Boolean,
-    isEnabled: Boolean = true,
-    accentColor: Color,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Color.Transparent,
-        border = if (isSelected) {
-            BorderStroke(1.5.dp, accentColor)
-        } else {
-            BorderStroke(1.dp, AmoledBorder.copy(alpha = if (isEnabled) 1f else 0.5f))
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .lightSweep(isEnabled = isSelected, shape = RoundedCornerShape(16.dp))
-            .springPress(
-                onClick = { if (isEnabled) onClick() }
-            )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            onSelect = { onSelectProvider("Gemini") }
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isEnabled) TextWhite else TextMuted
+                    text = "Идеальный выбор для приложения: бесплатные квоты Google AI Studio, мгновенный отклик, системный вызов инструментов Function Calling и генератор векторных SVG-иконок кнопок.",
+                    fontSize = 11.5.sp,
+                    color = TextWhite.copy(alpha = 0.85f),
+                    lineHeight = 16.sp
                 )
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.6f))
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = badge,
-                        color = badgeColor,
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 0.6.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
-                }
-            }
-
-            Text(
-                text = desc,
-                fontSize = 12.sp,
-                color = if (isEnabled) Color(0xFFD4D4DC) else TextMuted.copy(alpha = 0.6f),
-                lineHeight = 17.sp
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                features.forEach { feat ->
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.6f))
-                    ) {
-                        Text(
-                            text = feat,
-                            color = if (isSelected) accentColor.copy(alpha = 0.9f) else TextMuted,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
+                    AiTechChip("gemini-3.6-flash", accentColor)
+                    AiTechChip("Function Calling", accentColor)
+                    AiTechChip("Генерация SVG", accentColor)
+                    AiTechChip("15 RPM Free", accentColor)
                 }
             }
         }
+
+        // 2. Cloudflare Workers AI
+        AiProviderOptionCard(
+            name = "Cloudflare Workers AI",
+            tagline = "Edge-инференс в 300+ городах · Вход через OAuth в 1 клик",
+            badgeText = "EDGE ИНФЕРЕНС",
+            badgeColor = Socks5Accent,
+            isSelected = (selectedProvider == "Cloudflare"),
+            accentColor = accentColor,
+            onSelect = { onSelectProvider("Cloudflare") }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Автономный серверлесс-инференс на глобальной сети Cloudflare. Поддерживает быстрый вход через OAuth или ручной токен Workers AI Read. 10 000 бесплатных Neurons в день.",
+                    fontSize = 11.5.sp,
+                    color = TextWhite.copy(alpha = 0.85f),
+                    lineHeight = 16.sp
+                )
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    AiTechChip("Llama 3.3 70B", Socks5Accent)
+                    AiTechChip("DeepSeek R1", Socks5Accent)
+                    AiTechChip("OAuth вход", Socks5Accent)
+                }
+            }
+        }
+
+        // 3. OpenRouter
+        AiProviderOptionCard(
+            name = "OpenRouter",
+            tagline = "Единый шлюз ко всем мировым моделям · Ключ sk-or-v1-...",
+            badgeText = "МУЛЬТИ-ШЛЮЗ",
+            badgeColor = VpnAccent,
+            isSelected = (selectedProvider == "OpenRouter"),
+            accentColor = accentColor,
+            onSelect = { onSelectProvider("OpenRouter") }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Единый доступ к сотням моделей: DeepSeek V3, Claude 3.5 Sonnet, Mistral Large и Qwen по одному API-ключу. Модели с пометкой :free работают полностью бесплатно.",
+                    fontSize = 11.5.sp,
+                    color = TextWhite.copy(alpha = 0.85f),
+                    lineHeight = 16.sp
+                )
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    AiTechChip("DeepSeek V3", VpnAccent)
+                    AiTechChip("Claude 3.5 Sonnet", VpnAccent)
+                    AiTechChip("Модели :free", VpnAccent)
+                }
+            }
+        }
+
+        // Важное примечание об архитектуре BYOK
+        AiHighlightNoteCard(
+            title = "ПРИНЦИП BYOK (BRING YOUR OWN KEY)",
+            note = "Приложение не берет плату за использование ИИ и не использует сторонние прокси-серверы.",
+            detail = "Все сетевые запросы отправляются напрямую с вашего устройства в официальный API выбранного провайдера. Ваши личные ключи шифруются аппаратно в Keystore.",
+            accentColor = accentColor
+        )
     }
 }
-
-// Typealias helper
-private typealias listOfString = List<String>
-
-private data class OnboardingModelDetail(
-    val id: String,
-    val shortName: String,
-    val badge: String,
-    val badgeColor: Color,
-    val tierLabel: String,
-    val description: String,
-    val bestFor: String
-)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ШАГ 2: ИНСТРУКЦИЯ ПО ПОДКЛЮЧЕНИЮ И ПОЛУЧЕНИЮ КЛЮЧА
@@ -1002,336 +857,272 @@ private data class OnboardingModelDetail(
 private fun StepConnectionInstructions(
     selectedProvider: String?,
     accentColor: Color,
+    onRequestOpenUrl: (String) -> Unit,
     onActionCompleted: () -> Unit
 ) {
-    val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val prov = selectedProvider ?: "Gemini"
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "ШАГ 2: ИНСТРУКЦИЯ ДЛЯ $prov",
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 1.2.sp,
-                color = accentColor
-            )
-            Text(
-                text = "Пошаговый регламент получения доступа и обхода сетевых ограничений.",
-                fontSize = 13.sp,
-                color = TextWhite
-            )
-        }
+        AiStepHeader(
+            badge = "ШАГ 2 · ПОДКЛЮЧЕНИЕ И КЛЮЧИ",
+            title = "Регламент получения доступа для $prov",
+            subtitle = "Нажмите на карточку этапа для раскрытия подробностей и безопасного перехода",
+            accentColor = accentColor
+        )
 
         when (prov) {
             "Gemini" -> {
-                InstructionBlockItem(
-                    stepNum = "01",
-                    title = "Откройте Google AI Studio",
-                    desc = "Портал разработчиков Google AI Studio предоставляет бесплатный персональный API-ключ для Gemini.",
-                    accentColor = accentColor
+                AiExpandableCard(
+                    title = "1. Личный кабинет Google AI Studio",
+                    summary = "Получение бесплатного ключа формата AIzaSy... за 30 секунд",
+                    accentColor = accentColor,
+                    initiallyExpanded = true
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.7f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .springPress(onClick = {
-                                onActionCompleted()
-                                uriHandler.openUri("https://aistudio.google.com/app/apikey")
-                            })
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Открыть aistudio.google.com",
-                                color = accentColor,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                InstructionBlockItem(
-                    stepNum = "02",
-                    title = "Сгенерируйте API-ключ",
-                    desc = "Нажмите «Get API key» → «Create API key in new project». Скопируйте строку ключа (начинается с AIzaSy...).",
-                    accentColor = accentColor
-                )
-
-                // Важный акцент на региональные ограничения Google
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.6f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(RoundedCornerShape(3.5.dp))
-                                    .background(Socks5Accent)
-                            )
-                            Text(
-                                text = "ВАЖНО: ОБХОД РЕГИОНАЛЬНЫХ ОГРАНИЧЕНИЙ",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = Socks5Accent
-                            )
-                        }
-
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Google блокирует запросы к Gemini с российских IP-адресов (ошибка «User location is not supported»). В Mirrly TG Proxy встроен модуль SmartDNS (DoH GeoHide DNS с резервным узлом dns-ai.ru), который активен по умолчанию и автоматически перенаправляет запросы к generativelanguage.googleapis.com в обход геоблокировок без снижения скорости и без постоянного VPN.",
+                            text = "Официальный портал Google AI Studio предоставляет бесплатный персональный ключ. Перейдите по ссылке, авторизуйтесь в Google и нажмите «Create API Key».",
                             fontSize = 11.5.sp,
-                            color = Color(0xFFD4D4DC),
+                            color = TextWhite.copy(alpha = 0.85f),
                             lineHeight = 16.sp
                         )
 
-                        Text(
-                            text = "Статус: встроенный SmartDNS (GeoHide DNS DoH / dns-ai.ru) активен",
-                            fontSize = 10.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = accentColor
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.70f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                                .springPress(onClick = {
+                                    onRequestOpenUrl("https://aistudio.google.com/app/apikey")
+                                })
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "ОТКРЫТЬ GOOGLE AI STUDIO",
+                                    color = accentColor,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                        }
                     }
                 }
 
-                InstructionBlockItem(
-                    stepNum = "03",
-                    title = "Флагманская модель 2026",
-                    desc = "Рекомендуем gemini-3.6-flash — она обладает высочайшим интеллектом линейки Flash, глубоким пониманием протоколов и гарантирует стабильный вызов Function Calling инструментов диагностики.",
-                    accentColor = accentColor
-                )
+                AiExpandableCard(
+                    title = "2. Бесплатные квоты и лимиты",
+                    summary = "15 запросов в минуту (RPM) и контекст 1 млн токенов",
+                    accentColor = accentColor,
+                    initiallyExpanded = false
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Ключ Google AI Studio полностью бесплатен и не требует привязки банковских карт. 15 запросов в минуту с избытком хватает для десятков сетевых диагностик и генерации векторных иконок каждый день.",
+                            fontSize = 11.5.sp,
+                            color = TextWhite.copy(alpha = 0.85f),
+                            lineHeight = 16.sp
+                        )
+                        @OptIn(ExperimentalLayoutApi::class)
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AiTechChip("15 RPM", accentColor)
+                            AiTechChip("1M Tokens", accentColor)
+                            AiTechChip("Без карт", accentColor)
+                        }
+                    }
+                }
+
+                AiExpandableCard(
+                    title = "3. Доступность из РФ и SmartDNS",
+                    summary = "Автоматический обход региональных блокировок через туннель",
+                    accentColor = accentColor,
+                    initiallyExpanded = false
+                ) {
+                    Text(
+                        text = "Если Google AI Studio недоступен в вашей сети, включите встроенный VPN или MTProto-прокси в Mirrly TG Proxy. Защищенный DoH SmartDNS гарантирует надежный инференс без сбоев.",
+                        fontSize = 11.5.sp,
+                        color = TextWhite.copy(alpha = 0.85f),
+                        lineHeight = 16.sp
+                    )
+                }
             }
 
             "Cloudflare" -> {
-                InstructionBlockItem(
-                    stepNum = "01",
-                    title = "Edge-инфраструктура Cloudflare",
-                    desc = "Workers AI выполняет инференс нейросетей непосредственно на всемирной сети дата-центров Cloudflare Edge. Доступ стабилен из РФ, соединение защищено прямым протоколом API.",
-                    accentColor = accentColor
-                )
-
-                InstructionBlockItem(
-                    stepNum = "02",
-                    title = "Авторизация в один клик через OAuth",
-                    desc = "Вы можете выполнить быстрый вход через аккаунт Cloudflare. Приложение автоматически получит Account ID и защищенный токен.",
-                    accentColor = accentColor
+                AiExpandableCard(
+                    title = "1. Авторизация через OAuth",
+                    summary = "Вход в учетную запись Cloudflare в одно касание",
+                    accentColor = Socks5Accent,
+                    initiallyExpanded = true
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.7f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .springPress(onClick = {
-                                onActionCompleted()
-                                CloudflareOAuthManager.startAuthSession(context)
-                            })
-                    ) {
-                        Box(
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Самый быстрый способ: нажмите кнопку ниже. Откроется системный браузер для подтверждения доступа Workers AI Read. Токен применится автоматически.",
+                            fontSize = 11.5.sp,
+                            color = TextWhite.copy(alpha = 0.85f),
+                            lineHeight = 16.sp
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.70f)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
+                                .height(40.dp)
+                                .springPress(onClick = {
+                                    CloudflareOAuthManager.startAuthSession(context)
+                                })
                         ) {
-                            Text(
-                                text = "Войти через Cloudflare (OAuth)",
-                                color = Socks5Accent,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "ВОЙТИ ЧЕРЕЗ CLOUDFLARE (OAUTH)",
+                                    color = Socks5Accent,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
                         }
                     }
                 }
 
-                InstructionBlockItem(
-                    stepNum = "03",
-                    title = "Ручной ввод Account ID и API Token",
-                    desc = "Если вы предпочитаете ручную настройку, откройте Cloudflare Dashboard (dash.cloudflare.com), скопируйте Account ID и сгенерируйте токен с правами «Workers AI Read».",
-                    accentColor = accentColor
+                AiExpandableCard(
+                    title = "2. Ручной токен API (dash.cloudflare.com)",
+                    summary = "Копирование Account ID и токена Workers AI Read",
+                    accentColor = Socks5Accent,
+                    initiallyExpanded = false
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .springPress(onClick = {
-                                onActionCompleted()
-                                uriHandler.openUri("https://dash.cloudflare.com")
-                            })
-                    ) {
-                        Box(
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Для ручной настройки откройте Cloudflare Dashboard, скопируйте Account ID на главной странице и сгенерируйте токен с шаблоном Workers AI Read.",
+                            fontSize = 11.5.sp,
+                            color = TextWhite.copy(alpha = 0.85f),
+                            lineHeight = 16.sp
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, AmoledBorder),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
+                                .height(38.dp)
+                                .springPress(onClick = {
+                                    onRequestOpenUrl("https://dash.cloudflare.com")
+                                })
                         ) {
-                            Text(
-                                text = "Открыть dash.cloudflare.com",
-                                color = Color(0xFFD4D4DC),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "ОТКРЫТЬ DASH.CLOUDFLARE.COM",
+                                    color = TextWhite.copy(alpha = 0.85f),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
                     }
                 }
 
-                InstructionBlockItem(
-                    stepNum = "04",
-                    title = "Рекомендуемые модели",
-                    desc = "Для основного анализа сокетов и логов используйте @cf/meta/llama-3.3-70b-instruct, а для пошагового логического рассуждения — @cf/deepseek-ai/deepseek-r1-distill-qwen-32b.",
-                    accentColor = accentColor
-                )
+                AiExpandableCard(
+                    title = "3. Бесплатный ежедневный лимит Neurons",
+                    summary = "10 000 единиц Neurons в сутки на бесплатном тарифе",
+                    accentColor = Socks5Accent,
+                    initiallyExpanded = false
+                ) {
+                    Text(
+                        text = "Cloudflare ежедневно начисляет 10 000 Neurons бесплатно. Этого достаточно для 50+ сессий анализа логов или ответов на вопросы по настройке.",
+                        fontSize = 11.5.sp,
+                        color = TextWhite.copy(alpha = 0.85f),
+                        lineHeight = 16.sp
+                    )
+                }
             }
 
             "OpenRouter" -> {
-                InstructionBlockItem(
-                    stepNum = "01",
-                    title = "Универсальный шлюз нейросетей",
-                    desc = "OpenRouter предоставляет доступ к сотням ведущих открытых и коммерческих моделей (DeepSeek R1, Claude 3.5 Sonnet, GPT-4o, Llama 3.3) через единый API.",
-                    accentColor = accentColor
+                AiExpandableCard(
+                    title = "1. Личный кабинет openrouter.ai/keys",
+                    summary = "Создание универсального ключа sk-or-v1-...",
+                    accentColor = VpnAccent,
+                    initiallyExpanded = true
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, VpnAccent.copy(alpha = 0.7f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .springPress(onClick = {
-                                onActionCompleted()
-                                uriHandler.openUri("https://openrouter.ai/keys")
-                            })
-                    ) {
-                        Box(
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "В разделе Keys нажмите «Create Key» и скопируйте созданный ключ. Он открывает доступ ко всем открытым и коммерческим моделям мира.",
+                            fontSize = 11.5.sp,
+                            color = TextWhite.copy(alpha = 0.85f),
+                            lineHeight = 16.sp
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, VpnAccent.copy(alpha = 0.70f)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
+                                .height(40.dp)
+                                .springPress(onClick = {
+                                    onRequestOpenUrl("https://openrouter.ai/keys")
+                                })
                         ) {
-                            Text(
-                                text = "Открыть openrouter.ai/keys",
-                                color = VpnAccent,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "ОТКРЫТЬ OPENROUTER.AI/KEYS",
+                                    color = VpnAccent,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
                         }
                     }
                 }
 
-                InstructionBlockItem(
-                    stepNum = "02",
-                    title = "Создание ключа доступа",
-                    desc = "В разделе «Keys» нажмите кнопку «Create Key» и скопируйте созданный ключ вида sk-or-v1-...",
-                    accentColor = accentColor
-                )
-
-                InstructionBlockItem(
-                    stepNum = "03",
-                    title = "Бесплатные модели (:free) и баланс",
-                    desc = "Модели с пометкой :free (например, deepseek/deepseek-r1:free) доступны бесплатно без необходимости пополнения баланса и без привязки карт.",
-                    accentColor = accentColor
-                )
-
-                InstructionBlockItem(
-                    stepNum = "04",
-                    title = "Защита DNS DoH",
-                    desc = "Запросы к API OpenRouter внутри приложения могут маршрутизироваться через встроенный DoH SmartDNS, защищая инференс от DNS-блокировок провайдера.",
-                    accentColor = accentColor
-                )
-            }
-
-            else -> {
-                InstructionBlockItem(
-                    stepNum = "01",
-                    title = "Интеграция в разработке",
-                    desc = "Модуль прямого подключения к OpenAI находится в стадии финального тестирования. Рекомендуем переключиться на Google Gemini на первом шаге.",
-                    accentColor = accentColor
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun InstructionBlockItem(
-    stepNum: String,
-    title: String,
-    desc: String,
-    accentColor: Color,
-    action: (@Composable () -> Unit)? = null
-) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, AmoledBorder),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f))
+                AiExpandableCard(
+                    title = "2. Бесплатные модели с пометкой :free",
+                    summary = "DeepSeek R1, DeepSeek V3, Llama 3.3 без пополнения баланса",
+                    accentColor = VpnAccent,
+                    initiallyExpanded = false
                 ) {
                     Text(
-                        text = stepNum,
-                        color = accentColor,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        text = "Модели с пометкой :free (например, deepseek/deepseek-r1:free) работают бесплатно без привязки карт и без депозита на счете.",
+                        fontSize = 11.5.sp,
+                        color = TextWhite.copy(alpha = 0.85f),
+                        lineHeight = 16.sp
                     )
                 }
 
-                Text(
-                    text = title,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite
-                )
-            }
-
-            Text(
-                text = desc,
-                fontSize = 12.sp,
-                color = Color(0xFFD4D4DC),
-                lineHeight = 17.sp
-            )
-
-            if (action != null) {
-                Spacer(modifier = Modifier.height(2.dp))
-                action()
+                AiExpandableCard(
+                    title = "3. Платные флагманы (Claude 3.5 Sonnet)",
+                    summary = "Посекундная тарификация за токены без ежемесячных подписок",
+                    accentColor = VpnAccent,
+                    initiallyExpanded = false
+                ) {
+                    Text(
+                        text = "При желании можно пополнить баланс на $5 и использовать Claude 3.5 Sonnet или GPT-4o с микро-тарификацией за каждый сгенерированный токен.",
+                        fontSize = 11.5.sp,
+                        color = TextWhite.copy(alpha = 0.85f),
+                        lineHeight = 16.sp
+                    )
+                }
             }
         }
+
+        // Нижнее примечание о безопасности ключей
+        AiHighlightNoteCard(
+            title = "БЕЗОПАСНОСТЬ И ЛОКАЛЬНОЕ ХРАНЕНИЕ КЛЮЧЕЙ",
+            note = "Ключи сохраняются исключительно в зашифрованном хранилище EncryptedSharedPreferences.",
+            detail = "Приложение никогда не передает ваши учетные данные третьим лицам. Исходный код сетевых клиентов полностью открыт под лицензией GNU GPL v3+.",
+            accentColor = accentColor
+        )
     }
 }
 
@@ -1357,41 +1148,32 @@ private fun StepCredentialsAndModel(
     val context = LocalContext.current
     val clipboard = remember { context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager }
 
-    var isGeminiKeyVisible by remember { mutableStateOf(false) }
-    var isCfTokenVisible by remember { mutableStateOf(false) }
-    var isOpenRouterKeyVisible by remember { mutableStateOf(false) }
+    var isGeminiKeyVisible by rememberSaveable { mutableStateOf(false) }
+    var isCfTokenVisible by rememberSaveable { mutableStateOf(false) }
+    var isOpenRouterKeyVisible by rememberSaveable { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "ШАГ 3: НАСТРОЙКА КЛЮЧА И МОДЕЛИ",
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 1.2.sp,
-                color = accentColor
-            )
-            Text(
-                text = "Введите персональный ключ доступа и выберите активную модель для запуска ядра Mirrly AI.",
-                fontSize = 13.sp,
-                color = Color(0xFFD4D4DC)
-            )
-        }
+        AiStepHeader(
+            badge = "ШАГ 3 · КЛЮЧ И ВЫБОР МОДЕЛИ",
+            title = "Настройте доступ и рабочую модель",
+            subtitle = "Введите API-ключ и выберите нейросеть под ваши задачи",
+            accentColor = accentColor
+        )
 
-        // Блок ввода ключей в зависимости от провайдера
+        // Блок ввода ключа
         when (selectedProvider) {
             "Gemini" -> {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = Color.Transparent,
-                    border = BorderStroke(1.dp, AmoledBorder),
+                    border = BorderStroke(1.dp, if (geminiKey.isNotBlank()) accentColor.copy(alpha = 0.6f) else AmoledBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1400,32 +1182,30 @@ private fun StepCredentialsAndModel(
                         ) {
                             Text(
                                 text = "Google Gemini API Key",
-                                fontSize = 13.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite
                             )
 
-                            // Кнопка вставки из буфера
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = Color.Transparent,
-                                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.5f)),
+                                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.60f)),
                                 modifier = Modifier.springPress(onClick = {
                                     val clip = clipboard?.primaryClip
                                     if (clip != null && clip.itemCount > 0) {
                                         val text = clip.getItemAt(0).text?.toString()?.trim().orEmpty()
-                                        if (text.isNotBlank()) {
-                                            onGeminiKeyChanged(text)
-                                        }
+                                        if (text.isNotBlank()) onGeminiKeyChanged(text)
                                     }
                                 })
                             ) {
                                 Text(
-                                    text = "Вставить",
+                                    text = "ВСТАВИТЬ",
                                     color = accentColor,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
                         }
@@ -1433,7 +1213,7 @@ private fun StepCredentialsAndModel(
                         OutlinedTextField(
                             value = geminiKey,
                             onValueChange = onGeminiKeyChanged,
-                            placeholder = { Text("Вставьте ключ AIzaSy...", fontSize = 12.sp, color = TextMuted) },
+                            placeholder = { Text("Вставьте ключ AIzaSy...", fontSize = 11.5.sp, color = TextMuted) },
                             singleLine = true,
                             visualTransformation = if (isGeminiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -1442,13 +1222,11 @@ private fun StepCredentialsAndModel(
                                     onClick = { isGeminiKeyVisible = !isGeminiKeyVisible },
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(
-                                            id = if (isGeminiKeyVisible) R.drawable.ic_eye else R.drawable.ic_eye_slash
-                                        ),
+                                    MirrlyIcon(
+                                        id = if (isGeminiKeyVisible) R.drawable.ic_eye else R.drawable.ic_eye_slash,
                                         contentDescription = "Видимость ключа",
                                         tint = if (isGeminiKeyVisible) accentColor else TextMuted,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             },
@@ -1458,13 +1236,13 @@ private fun StepCredentialsAndModel(
                                 focusedTextColor = TextWhite,
                                 unfocusedTextColor = TextWhite
                             ),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         )
 
                         Text(
-                            text = if (geminiKey.isNotBlank()) "Ключ сохранен в защищенном хранилище" else "Ключ можно ввести сейчас или позже в настройках ИИ",
-                            fontSize = 10.5.sp,
+                            text = if (geminiKey.isNotBlank()) "Ключ сохранен в локальном защищенном хранилище" else "Ключ можно ввести сейчас или позже в настройках ИИ",
+                            fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             color = if (geminiKey.isNotBlank()) accentColor else TextMuted
                         )
@@ -1474,7 +1252,7 @@ private fun StepCredentialsAndModel(
 
             "Cloudflare" -> {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = Color.Transparent,
                     border = BorderStroke(1.dp, AmoledBorder),
                     modifier = Modifier.fillMaxWidth()
@@ -1482,46 +1260,20 @@ private fun StepCredentialsAndModel(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
                             text = "Cloudflare Account ID & Token",
-                            fontSize = 13.sp,
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
                         )
 
-                        // Кнопка быстрого входа через OAuth
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.7f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .springPress(onClick = {
-                                    CloudflareOAuthManager.startAuthSession(context)
-                                })
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Войти через Cloudflare (OAuth)",
-                                    color = Socks5Accent,
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
                         OutlinedTextField(
                             value = cfAccountId,
                             onValueChange = onCfAccountIdChanged,
-                            placeholder = { Text("Cloudflare Account ID", fontSize = 12.sp, color = TextMuted) },
+                            placeholder = { Text("Cloudflare Account ID", fontSize = 11.5.sp, color = TextMuted) },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Socks5Accent,
@@ -1529,14 +1281,14 @@ private fun StepCredentialsAndModel(
                                 focusedTextColor = TextWhite,
                                 unfocusedTextColor = TextWhite
                             ),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         )
 
                         OutlinedTextField(
                             value = cfToken,
                             onValueChange = onCfTokenChanged,
-                            placeholder = { Text("API Token (Workers AI Read)", fontSize = 12.sp, color = TextMuted) },
+                            placeholder = { Text("API Token (Workers AI Read)", fontSize = 11.5.sp, color = TextMuted) },
                             singleLine = true,
                             visualTransformation = if (isCfTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -1545,13 +1297,11 @@ private fun StepCredentialsAndModel(
                                     onClick = { isCfTokenVisible = !isCfTokenVisible },
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(
-                                            id = if (isCfTokenVisible) R.drawable.ic_eye else R.drawable.ic_eye_slash
-                                        ),
+                                    MirrlyIcon(
+                                        id = if (isCfTokenVisible) R.drawable.ic_eye else R.drawable.ic_eye_slash,
                                         contentDescription = "Видимость токена",
                                         tint = if (isCfTokenVisible) Socks5Accent else TextMuted,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             },
@@ -1561,7 +1311,7 @@ private fun StepCredentialsAndModel(
                                 focusedTextColor = TextWhite,
                                 unfocusedTextColor = TextWhite
                             ),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -1570,16 +1320,16 @@ private fun StepCredentialsAndModel(
 
             "OpenRouter" -> {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = Color.Transparent,
-                    border = BorderStroke(1.dp, AmoledBorder),
+                    border = BorderStroke(1.dp, if (openRouterKey.isNotBlank()) VpnAccent.copy(alpha = 0.6f) else AmoledBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1588,7 +1338,7 @@ private fun StepCredentialsAndModel(
                         ) {
                             Text(
                                 text = "OpenRouter API Key",
-                                fontSize = 13.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite
                             )
@@ -1596,23 +1346,22 @@ private fun StepCredentialsAndModel(
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = Color.Transparent,
-                                border = BorderStroke(1.dp, VpnAccent.copy(alpha = 0.5f)),
+                                border = BorderStroke(1.dp, VpnAccent.copy(alpha = 0.60f)),
                                 modifier = Modifier.springPress(onClick = {
                                     val clip = clipboard?.primaryClip
                                     if (clip != null && clip.itemCount > 0) {
                                         val text = clip.getItemAt(0).text?.toString()?.trim().orEmpty()
-                                        if (text.isNotBlank()) {
-                                            onOpenRouterKeyChanged(text)
-                                        }
+                                        if (text.isNotBlank()) onOpenRouterKeyChanged(text)
                                     }
                                 })
                             ) {
                                 Text(
-                                    text = "Вставить",
+                                    text = "ВСТАВИТЬ",
                                     color = VpnAccent,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
                         }
@@ -1620,7 +1369,7 @@ private fun StepCredentialsAndModel(
                         OutlinedTextField(
                             value = openRouterKey,
                             onValueChange = onOpenRouterKeyChanged,
-                            placeholder = { Text("Вставьте sk-or-v1-...", fontSize = 12.sp, color = TextMuted) },
+                            placeholder = { Text("Вставьте sk-or-v1-...", fontSize = 11.5.sp, color = TextMuted) },
                             singleLine = true,
                             visualTransformation = if (isOpenRouterKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -1629,13 +1378,11 @@ private fun StepCredentialsAndModel(
                                     onClick = { isOpenRouterKeyVisible = !isOpenRouterKeyVisible },
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(
-                                            id = if (isOpenRouterKeyVisible) R.drawable.ic_eye else R.drawable.ic_eye_slash
-                                        ),
+                                    MirrlyIcon(
+                                        id = if (isOpenRouterKeyVisible) R.drawable.ic_eye else R.drawable.ic_eye_slash,
                                         contentDescription = "Видимость ключа",
                                         tint = if (isOpenRouterKeyVisible) VpnAccent else TextMuted,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             },
@@ -1645,7 +1392,7 @@ private fun StepCredentialsAndModel(
                                 focusedTextColor = TextWhite,
                                 unfocusedTextColor = TextWhite
                             ),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -1653,20 +1400,14 @@ private fun StepCredentialsAndModel(
             }
         }
 
-        // Блок выбора модели
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Селектор моделей (компактный список с автовыбором)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text = "ВЫБОР МОДЕЛИ ДЛЯ $selectedProvider",
+                text = "МОДЕЛИ ДЛЯ $selectedProvider",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 color = accentColor
-            )
-            Text(
-                text = "Каждая модель обладает своей специализацией, скоростью и глубиной рассуждений. Выберите оптимальную конфигурацию:",
-                fontSize = 12.sp,
-                color = TextMuted,
-                lineHeight = 16.sp
             )
 
             val modelDetails = when (selectedProvider) {
@@ -1676,9 +1417,9 @@ private fun StepCredentialsAndModel(
                         shortName = "Llama 3.3 70B",
                         badge = "ФЛАГМАН 70B",
                         badgeColor = accentColor,
-                        tierLabel = "Самая умная · Максимальный интеллект",
-                        description = "Флагманская 70-миллиардная открытая модель Meta на серверах Cloudflare. Комплексный технический анализ сетевых сокетов, сопоставление трафика и глубокие инженерные выкладки.",
-                        bestFor = "Основная универсальная модель для диагностики прокси и анализа логов."
+                        tierLabel = "Максимальный интеллект · Универсальная",
+                        description = "Флагманская 70B модель Meta на серверах Cloudflare. Комплексный технический анализ сетевых сокетов, сопоставление трафика и глубокие инженерные выкладки.",
+                        bestFor = "Анализ сетевых логов, мониторинг отказов и диагностика."
                     ),
                     OnboardingModelDetail(
                         id = "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
@@ -1686,17 +1427,17 @@ private fun StepCredentialsAndModel(
                         badge = "REASONING",
                         badgeColor = Socks5Accent,
                         tierLabel = "Экстремальная логика · Пошаговые рассуждения",
-                        description = "Модель глубоких рассуждений (Chain-of-Thought). Долго и тщательно обдумывает проблему перед ответом, выявляя скрытые сетевые аномалии, сбои TLS и блокировки ТСПУ/DPI.",
-                        bestFor = "Расследование сложных сетевых инцидентов, ошибок сокетов и отладка туннелей."
+                        description = "Модель глубоких рассуждений (Chain-of-Thought). Долго и тщательно обдумывает проблему, выявляя скрытые сетевые аномалии и блокировки ТСПУ.",
+                        bestFor = "Сложные сетевые инциденты и отладка туннелей."
                     ),
                     OnboardingModelDetail(
                         id = "@cf/qwen/qwen2.5-72b-instruct",
                         shortName = "Qwen 2.5 72B",
-                        badge = "ДЛЯ КОДА И JSON",
+                        badge = "КОД И SVG",
                         badgeColor = VpnAccent,
                         tierLabel = "Высокий интеллект · Программирование",
-                        description = "Крупная модель 72B от Alibaba, специально обученная на коде и строгих форматах данных. Безупречно генерирует векторные pathData для SVG-иконок кнопок и парсит дампы.",
-                        bestFor = "Генератор векторных SVG-иконок для интерфейса и разбор JSON-конфигураций."
+                        description = "Модель 72B от Alibaba, специально обученная на коде. Безупречно генерирует векторные pathData для SVG-иконок кнопок.",
+                        bestFor = "Генератор векторных SVG-иконок для интерфейса."
                     ),
                     OnboardingModelDetail(
                         id = "@cf/meta/llama-3.1-8b-instruct",
@@ -1704,17 +1445,8 @@ private fun StepCredentialsAndModel(
                         badge = "БЫСТРАЯ 8B",
                         badgeColor = TextMuted,
                         tierLabel = "Базовый интеллект · Скоростная",
-                        description = "Компактная легковесная модель. Быстро генерирует ответ при минимальной задержке первого токена, но менее глубока в сложных вычислениях.",
-                        bestFor = "Быстрые повседневные вопросы и лаконичные текстовые справки."
-                    ),
-                    OnboardingModelDetail(
-                        id = "@cf/mistral/mistral-7b-instruct-v0.2",
-                        shortName = "Mistral 7B",
-                        badge = "ЭКОНОМИЧНАЯ 7B",
-                        badgeColor = TextMuted,
-                        tierLabel = "Базовый интеллект · Легкая",
-                        description = "Компактная европейская модель 7B от Mistral AI с лаконичным стилем изложения.",
-                        bestFor = "Быстрые справки при медленном соединении."
+                        description = "Компактная легковесная модель. Быстро генерирует ответ при минимальной задержке первого токена.",
+                        bestFor = "Быстрые повседневные вопросы и справки."
                     )
                 )
 
@@ -1725,8 +1457,8 @@ private fun StepCredentialsAndModel(
                         badge = "REASONING",
                         badgeColor = accentColor,
                         tierLabel = "Самая умная · Экстремальная логика",
-                        description = "Передовая открытая reasoning-модель мирового класса. Проводит пошаговый математический и архитектурный анализ каждого аспекта сетевого стека.",
-                        bestFor = "Сложные сетевые расследования, анализ дампов трафика и глубокий аудит."
+                        description = "Передовая открытая reasoning-модель мирового класса. Пошаговый математический анализ каждого аспекта сетевого стека.",
+                        bestFor = "Глубокий аудит сетевого стека и анализ дампов."
                     ),
                     OnboardingModelDetail(
                         id = "deepseek/deepseek-chat",
@@ -1734,8 +1466,8 @@ private fun StepCredentialsAndModel(
                         badge = "УНИВЕРСАЛЬНАЯ V3",
                         badgeColor = accentColor,
                         tierLabel = "Высочайший интеллект · Быстрая",
-                        description = "Полноразмерная модель DeepSeek V3. Высочайший общий интеллект, безупречный русский язык и молниеносная скорость инференса.",
-                        bestFor = "Рекомендуется по умолчанию для диалогов, настройки прокси и сетевых консультаций."
+                        description = "Полноразмерная модель DeepSeek V3. Высочайший интеллект, отличный русский язык и молниеносная скорость генерации.",
+                        bestFor = "Рекомендуется по умолчанию для диалогов и настройки прокси."
                     ),
                     OnboardingModelDetail(
                         id = "anthropic/claude-3.5-sonnet",
@@ -1743,26 +1475,8 @@ private fun StepCredentialsAndModel(
                         badge = "ЭТАЛОН ТОЧНОСТИ",
                         badgeColor = VpnAccent,
                         tierLabel = "Премиальный интеллект",
-                        description = "Мировой эталон среди коммерческих моделей по точности следования директивам, качеству кода и чистой геометрии SVG.",
-                        bestFor = "Генерация сложной векторной графики кнопок и строгое следование ролям."
-                    ),
-                    OnboardingModelDetail(
-                        id = "meta-llama/llama-3.3-70b-instruct",
-                        shortName = "Llama 3.3 70B",
-                        badge = "МОЩНАЯ 70B",
-                        badgeColor = Socks5Accent,
-                        tierLabel = "Высокий интеллект",
-                        description = "Полноразмерная модель Meta 70B параметров через скоростные сервера OpenRouter.",
-                        bestFor = "Универсальный помощник по сетевому стеку."
-                    ),
-                    OnboardingModelDetail(
-                        id = "google/gemini-2.5-flash",
-                        shortName = "Gemini 2.5 Flash",
-                        badge = "УЛЬТРАБЫСТРАЯ",
-                        badgeColor = TextMuted,
-                        tierLabel = "Высокий интеллект · Быстрая",
-                        description = "Скоростная модель Google в облаке OpenRouter для мгновенных ответов.",
-                        bestFor = "Быстрые вопросы и мгновенный отклик."
+                        description = "Мировой эталон точности следования системным инструкциям и генерации чистой геометрии SVG.",
+                        bestFor = "Векторные SVG-иконки и сложное интервью."
                     )
                 )
 
@@ -1773,17 +1487,17 @@ private fun StepCredentialsAndModel(
                         badge = "ФЛАГМАН 2026",
                         badgeColor = accentColor,
                         tierLabel = "Самая умная · Максимальный интеллект",
-                        description = "Новейшая флагманская Flash-модель Google 2026 года. Обладает глубочайшим пониманием протоколов MTProto, SOCKS5 и Cloudflare WSS, безупречно следует сложным инструкциям.",
-                        bestFor = "Рекомендуется по умолчанию: автономная диагностика сокетов, вызов функций Function Calling и решение сложных инцидентов."
+                        description = "Флагманская модель Google 2026 года. Глубокое понимание MTProto, SOCKS5 и Cloudflare WSS, безупречно вызывает инструменты Function Calling.",
+                        bestFor = "Рекомендуется по умолчанию: автономная диагностика сокетов и генерация иконок."
                     ),
                     OnboardingModelDetail(
                         id = "gemini-3.5-flash",
                         shortName = "Gemini 3.5 Flash",
                         badge = "СБАЛАНСИРОВАННАЯ",
                         badgeColor = accentColor.copy(alpha = 0.8f),
-                        tierLabel = "Высокий интеллект",
-                        description = "Надежная рабочая модель с отличным балансом между глубиной анализа и задержкой ответа.",
-                        bestFor = "Анализ системных логов, мониторинг сбоев и типовые консультации."
+                        tierLabel = "Высокий интеллект · Надежная",
+                        description = "Рабочая модель с отличным балансом между глубиной анализа и задержкой ответа.",
+                        bestFor = "Анализ системных логов и мониторинг сбоев."
                     ),
                     OnboardingModelDetail(
                         id = "gemini-2.5-flash",
@@ -1791,8 +1505,8 @@ private fun StepCredentialsAndModel(
                         badge = "УЛЬТРАБЫСТРАЯ",
                         badgeColor = Socks5Accent,
                         tierLabel = "Высокая скорость · Мгновенный отклик",
-                        description = "Проверенная сверхбыстрая модель. Минимальная задержка вывода первого токена.",
-                        bestFor = "Мгновенные ответы, быстрые справки и генерация векторных SVG-иконок для кнопок."
+                        description = "Сверхбыстрая проверенная модель. Минимальная задержка вывода первого токена.",
+                        bestFor = "Мгновенные ответы и быстрые справки."
                     ),
                     OnboardingModelDetail(
                         id = "gemini-2.5-flash-lite",
@@ -1800,122 +1514,35 @@ private fun StepCredentialsAndModel(
                         badge = "ЭКОНОМИЧНАЯ",
                         badgeColor = TextMuted,
                         tierLabel = "Базовый интеллект · Легкая",
-                        description = "Облегченная версия с минимальным расходом квоты. Подходит для простых запросов, но уступает флагманам в глубоких инженерных расчетах.",
-                        bestFor = "Экономия лимитов и базовые вопросы."
+                        description = "Облегченная версия с минимальным расходом квоты. Подходит для простых запросов.",
+                        bestFor = "Экономия лимитов запросов."
                     )
                 )
             }
 
             modelDetails.forEach { model ->
                 val isSelected = (selectedModel == model.id)
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color.Transparent,
-                    border = if (isSelected) {
-                        BorderStroke(1.5.dp, accentColor)
-                    } else {
-                        BorderStroke(1.dp, AmoledBorder)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .lightSweep(isEnabled = isSelected, shape = RoundedCornerShape(14.dp))
-                        .springPress(onClick = { onModelSelected(model.id) })
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = model.shortName,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) accentColor else TextWhite
-                                )
-                                Text(
-                                    text = model.id,
-                                    fontSize = 10.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = TextMuted
-                                )
-                            }
-
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color.Transparent,
-                                    border = BorderStroke(1.dp, model.badgeColor.copy(alpha = 0.7f))
-                                ) {
-                                    Text(
-                                        text = model.badge,
-                                        color = model.badgeColor,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-
-                                if (isSelected) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_check),
-                                        contentDescription = null,
-                                        tint = accentColor,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Text(
-                            text = model.tierLabel,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isSelected) accentColor else accentColor.copy(alpha = 0.85f),
-                            fontFamily = FontFamily.Monospace
-                        )
-
-                        Text(
-                            text = model.description,
-                            fontSize = 12.sp,
-                            color = Color(0xFFD4D4DC),
-                            lineHeight = 16.5.sp
-                        )
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.6f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "Назначение: ${model.bestFor}",
-                                fontSize = 11.sp,
-                                color = TextMuted,
-                                lineHeight = 15.sp,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-                }
+                AiModelOptionCard(
+                    model = model,
+                    isSelected = isSelected,
+                    accentColor = accentColor,
+                    onSelect = { onModelSelected(model.id) }
+                )
             }
         }
+
+        // Нижнее примечание с рекомендацией
+        AiHighlightNoteCard(
+            title = "РЕКОМЕНДАЦИЯ ПО ВЫБОРУ МОДЕЛИ",
+            note = "Для стабильной работы выбирайте Gemini 3.6 Flash или DeepSeek V3.",
+            detail = "Они обладают минимальной задержкой отклика и оптимизированы для глубокого разбора сетевых логов и генерации векторных иконок кнопок.",
+            accentColor = accentColor
+        )
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ШАГ 4: СИСТЕМНЫЕ ИНСТРУКЦИИ (АККОРДЕОНЫ)
+// ШАГ 4: СИСТЕМНЫЕ ИНСТРУКЦИИ (ПРОМПТЫ И РОЛИ)
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -1925,229 +1552,90 @@ private fun StepSystemPrompts(
     onModeSelected: (String) -> Unit,
     onAccordionInteracted: () -> Unit
 ) {
-    var expandedPrompt by remember { mutableStateOf<String?>(currentMode) }
-
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "ШАГ 4: СИСТЕМНЫЕ ИНСТРУКЦИИ (ПРОМПТЫ)",
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 1.2.sp,
-                color = accentColor
-            )
-            Text(
-                text = "Нажмите на карточку, чтобы развернуть и прочитать системную инструкцию. Выберите желаемый профиль работы нейросети.",
-                fontSize = 13.sp,
-                color = Color(0xFFD4D4DC),
-                lineHeight = 18.sp
-            )
-        }
+        AiStepHeader(
+            badge = "ШАГ 4 · СИСТЕМНЫЕ РОЛИ",
+            title = "Выберите специализацию ассистента",
+            subtitle = "Каждый режим задает фокус внимания и тон ответов нейросети",
+            accentColor = accentColor
+        )
 
         // 1. Диагностический режим
-        PromptAccordionItem(
+        AiPromptOptionCard(
             mode = AiPrompts.MODE_DIAGNOSTIC,
             title = "Диагностический режим",
-            badge = "ПО УМОЛЧАНИЮ",
-            shortDesc = "Автономный сетевой инженер Mirrly TG Proxy. Анализирует телеметрию, выявляет блокировки ТСПУ РКН и сбои соединения.",
-            fullPromptText = "Системная директива:\n" +
-                "«Ты — встроенный технический диагност Mirrly TG Proxy. При любых вопросах о сбоях ОБЯЗАТЕЛЬНО вызови диагностические инструменты Function Calling: get_service_status(), get_network_health(), get_recent_failure_logs() или test_uplink_connection(). Формулируй ответы строго по делу, без эмодзи и маркетинговых штампов. Поддерживаешь генерацию SVG-иконок для кнопок MTProto, SOCKS5 и VPN.»",
+            badge = "ИНЖЕНЕР СЕТИ",
+            badgeColor = accentColor,
+            tagline = "Анализ логов, сокетов, ТСПУ и генерация векторных иконок",
+            fullPromptText = "«Ты — встроенный технический диагност Mirrly TG Proxy. При любых вопросах о сбоях ОБЯЗАТЕЛЬНО вызови диагностические инструменты Function Calling: get_service_status(), get_network_health(), get_recent_failure_logs() или test_uplink_connection(). Формулируй ответы строго по делу, без эмодзи и маркетинговых штампов. Поддерживаешь генерацию SVG-иконок для кнопок MTProto, SOCKS5 и VPN.»",
             isSelected = (currentMode == AiPrompts.MODE_DIAGNOSTIC),
-            isExpanded = (expandedPrompt == AiPrompts.MODE_DIAGNOSTIC),
             accentColor = accentColor,
-            onToggleExpand = {
-                expandedPrompt = if (expandedPrompt == AiPrompts.MODE_DIAGNOSTIC) null else AiPrompts.MODE_DIAGNOSTIC
-                onAccordionInteracted()
-            },
-            onSelectMode = {
+            onSelect = {
                 onModeSelected(AiPrompts.MODE_DIAGNOSTIC)
                 onAccordionInteracted()
             }
         )
 
         // 2. Дружелюбный помощник
-        PromptAccordionItem(
+        AiPromptOptionCard(
             mode = AiPrompts.MODE_FUN,
             title = "Дружелюбный помощник",
             badge = "ДЛЯ НАЧИНАЮЩИХ",
-            shortDesc = "Лаконичные и понятные ответы без избыточного сетевого сленга. Помогает настроить прокси простыми словами.",
-            fullPromptText = "Системная директива:\n" +
-                "«Ты — остроумный и дружелюбный помощник в приложении Mirrly TG Proxy. Отвечай на вопросы пользователя доступно, помогай настроить прокси Telegram и VPN без сложной математической терминологии, сохраняя доброжелательный тон.»",
+            badgeColor = Socks5Accent,
+            tagline = "Простые объяснения без сетевого сленга и терминологии",
+            fullPromptText = "«Ты — остроумный и дружелюбный помощник в приложении Mirrly TG Proxy. Отвечай на вопросы пользователя доступно, помогай настроить прокси Telegram и VPN без сложной математической терминологии, сохраняя доброжелательный тон.»",
             isSelected = (currentMode == AiPrompts.MODE_FUN),
-            isExpanded = (expandedPrompt == AiPrompts.MODE_FUN),
             accentColor = accentColor,
-            onToggleExpand = {
-                expandedPrompt = if (expandedPrompt == AiPrompts.MODE_FUN) null else AiPrompts.MODE_FUN
-                onAccordionInteracted()
-            },
-            onSelectMode = {
+            onSelect = {
                 onModeSelected(AiPrompts.MODE_FUN)
                 onAccordionInteracted()
             }
         )
 
         // 3. Без инструкции (Чистый ИИ)
-        PromptAccordionItem(
+        AiPromptOptionCard(
             mode = AiPrompts.MODE_NONE,
             title = "Без инструкции (Чистый ИИ)",
             badge = "БАЗОВЫЙ",
-            shortDesc = "Стандартное поведение выбранной языковой модели без системных ограничений и специализированных рамок.",
-            fullPromptText = "Системный промпт не передается. Модель функционирует в соответствии с оригинальным заводским обучением разработчиков (Google / Meta / Anthropic).",
+            badgeColor = TextMuted,
+            tagline = "Оригинальное заводское поведение выбранной модели",
+            fullPromptText = "Системный промпт не передается. Модель функционирует в соответствии с оригинальным заводским обучением разработчиков лаборатории.",
             isSelected = (currentMode == AiPrompts.MODE_NONE),
-            isExpanded = (expandedPrompt == AiPrompts.MODE_NONE),
             accentColor = accentColor,
-            onToggleExpand = {
-                expandedPrompt = if (expandedPrompt == AiPrompts.MODE_NONE) null else AiPrompts.MODE_NONE
-                onAccordionInteracted()
-            },
-            onSelectMode = {
+            onSelect = {
                 onModeSelected(AiPrompts.MODE_NONE)
                 onAccordionInteracted()
             }
         )
 
         // 4. Пользовательский промпт
-        PromptAccordionItem(
+        AiPromptOptionCard(
             mode = AiPrompts.MODE_CUSTOM,
             title = "Пользовательский промпт",
             badge = "КАСТОМНЫЙ",
-            shortDesc = "Ваши собственные инструкции, правила форматирования и язык общения, заданные в настройках ИИ.",
+            badgeColor = VpnAccent,
+            tagline = "Ваши собственные инструкции и правила общения из настроек",
             fullPromptText = "Вы можете ввести любой произвольный системный промпт в шторке настроек ИИ (AiSettingsSheet) в любое время.",
             isSelected = (currentMode == AiPrompts.MODE_CUSTOM),
-            isExpanded = (expandedPrompt == AiPrompts.MODE_CUSTOM),
             accentColor = accentColor,
-            onToggleExpand = {
-                expandedPrompt = if (expandedPrompt == AiPrompts.MODE_CUSTOM) null else AiPrompts.MODE_CUSTOM
-                onAccordionInteracted()
-            },
-            onSelectMode = {
+            onSelect = {
                 onModeSelected(AiPrompts.MODE_CUSTOM)
                 onAccordionInteracted()
             }
         )
-    }
-}
 
-@Composable
-private fun PromptAccordionItem(
-    mode: String,
-    title: String,
-    badge: String,
-    shortDesc: String,
-    fullPromptText: String,
-    isSelected: Boolean,
-    isExpanded: Boolean,
-    accentColor: Color,
-    onToggleExpand: () -> Unit,
-    onSelectMode: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = Color.Transparent,
-        border = if (isSelected) {
-            BorderStroke(1.5.dp, accentColor)
-        } else {
-            BorderStroke(1.dp, AmoledBorder)
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .lightSweep(isEnabled = isSelected, shape = RoundedCornerShape(14.dp))
-            .springPress(onClick = onToggleExpand)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isSelected) accentColor else TextWhite
-                )
-
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, (if (isSelected) accentColor else TextMuted).copy(alpha = 0.6f))
-                ) {
-                    Text(
-                        text = badge,
-                        color = if (isSelected) accentColor else TextMuted,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-
-            Text(
-                text = shortDesc,
-                fontSize = 12.sp,
-                color = Color(0xFFD4D4DC),
-                lineHeight = 16.sp
-            )
-
-            AnimatedVisibility(
-                visible = isExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    HorizontalDivider(color = AmoledBorder.copy(alpha = 0.5f))
-
-                    Text(
-                        text = fullPromptText,
-                        fontSize = 11.5.sp,
-                        color = TextWhite,
-                        lineHeight = 17.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, if (isSelected) accentColor else AmoledBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .springPress(onClick = onSelectMode)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (isSelected) "Выбран данный режим" else "Выбрать этот режим",
-                                color = if (isSelected) accentColor else TextWhite,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        // Нижнее примечание о приватности контекста
+        AiHighlightNoteCard(
+            title = "КОНТЕКСТНАЯ ПРИВАТНОСТЬ И БЕЗОПАСНОСТЬ",
+            note = "Нейросеть получает срез логов только при явном вопросе о проблемах соединения.",
+            detail = "История ваших сообщений сохраняется локально на смартфоне. Вы в любой момент можете очистить диалог одной кнопкой в окне чата.",
+            accentColor = accentColor
+        )
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ШАГ 5: ВОЗМОЖНОСТИ И ВЫЗОВ ИНСТРУМЕНТОВ FUNCTION CALLING
+// ШАГ 5: ВОЗМОЖНОСТИ, FUNCTION CALLING И SVG-ГЕНЕРАТОР
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -2158,327 +1646,284 @@ private fun StepFeaturesAndTools(
     val expandedTools = remember { mutableStateListOf<String>() }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "ШАГ 5: ВОЗМОЖНОСТИ И FUNCTION CALLING",
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 1.2.sp,
-                color = accentColor
-            )
-            Text(
-                text = "Изучите ключевые возможности Mirrly AI: автономную диагностику сокетов, генератор SVG и системные инструменты.",
-                fontSize = 13.sp,
-                color = Color(0xFFD4D4DC),
-                lineHeight = 18.sp
-            )
-        }
+        AiStepHeader(
+            badge = "ШАГ 5 · ВОЗМОЖНОСТИ И ИНСТРУМЕНТЫ",
+            title = "Инструменты автономного интеллекта",
+            subtitle = "Генерация векторных иконок кнопок и 6 системных функций диагностики",
+            accentColor = accentColor
+        )
 
-        // 1. Автономная диагностика прокси
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, AmoledBorder),
-            modifier = Modifier.fillMaxWidth()
+        // Карточка 1: Генератор векторных SVG-иконок кнопок
+        AiExpandableCard(
+            title = "1. Генератор векторных SVG-иконок кнопок",
+            summary = "Интерактивное проектирование иконки в чате и установка в 1 тап",
+            accentColor = accentColor,
+            initiallyExpanded = true
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "1. Автономная диагностика сети",
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = accentColor
-                )
-
-                Text(
-                    text = "В окне чата встроены готовые быстрые пресеты для мгновенной проверки состояния без ручного набора текста:",
-                    fontSize = 12.sp,
-                    color = Color(0xFFD4D4DC),
+                    text = "Попросите ИИ создать иконку (например, «Сделай иконку сокола для кнопки MTProto»). Нейросеть проведет структурированное интервью о геометрии линий, сгенерирует чистый векторный pathData (100x100, 1.5dp) и предложит применить его к центральной кнопке главного экрана.",
+                    fontSize = 11.5.sp,
+                    color = TextWhite.copy(alpha = 0.85f),
                     lineHeight = 16.sp
                 )
 
-                Row(
+                // Процедурный интерактивный Canvas-превью векторной кнопки (Zero-Allocation по стандартам mirrly-icons)
+                AiSvgVectorDemoCanvas(accentColor = accentColor)
+
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf("Статус сети", "Лог сбоев", "Полная диагностика").forEach { chip ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f))
-                        ) {
-                            Text(
-                                text = chip,
-                                fontSize = 10.5.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = accentColor,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
+                    AiTechChip("Вьюпорт 100x100", accentColor)
+                    AiTechChip("Stroke 1.5dp", accentColor)
+                    AiTechChip("Zero Background", accentColor)
+                    AiTechChip("Применение в 1 тап", accentColor)
                 }
             }
         }
 
-        // 2. Генератор векторных SVG-иконок
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, AmoledBorder),
-            modifier = Modifier.fillMaxWidth()
+        // Карточка 2: 6 системных инструментов Function Calling
+        AiExpandableCard(
+            title = "2. 6 системных инструментов Function Calling",
+            summary = "Автономная диагностика состояния сокетов, логов и каналов",
+            accentColor = accentColor,
+            initiallyExpanded = false
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "2. Генератор векторных SVG-иконок кнопок",
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = accentColor
+                    text = "Нейросеть напрямую опрашивает сетевое ядро приложения через структурированные вызовы Function Calling:",
+                    fontSize = 11.5.sp,
+                    color = TextWhite.copy(alpha = 0.85f),
+                    lineHeight = 16.sp
                 )
 
-                Text(
-                    text = "Нейросеть обучена проектировать чистую векторную геометрию (pathData) для центральных кнопок главного экрана. Вы можете попросить «Сделай иконку сокола для кнопки MTProto», и ИИ сформирует код и предложит применить его в один клик.",
-                    fontSize = 12.sp,
-                    color = Color(0xFFD4D4DC),
-                    lineHeight = 17.sp
+                AiToolItem(
+                    systemName = "get_service_status()",
+                    label = "Статус службы и локальных портов",
+                    desc = "Состояние сокетов :1443 (MTProto) и :10808 (SOCKS5), число активных сессий и аптайм службы.",
+                    isExpanded = expandedTools.contains("get_service_status"),
+                    accentColor = accentColor,
+                    onToggle = {
+                        if (expandedTools.contains("get_service_status")) expandedTools.remove("get_service_status")
+                        else expandedTools.add("get_service_status")
+                        onAccordionInteracted()
+                    }
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.5f))
-                    ) {
-                        Text(
-                            text = "MTProto",
-                            color = accentColor,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                AiToolItem(
+                    systemName = "get_network_health()",
+                    label = "Здоровье сети и задержка",
+                    desc = "Анализ типа соединения (Wi-Fi/LTE), задержки RTT до Anycast-шлюза и джиттера пакетов.",
+                    isExpanded = expandedTools.contains("get_network_health"),
+                    accentColor = accentColor,
+                    onToggle = {
+                        if (expandedTools.contains("get_network_health")) expandedTools.remove("get_network_health")
+                        else expandedTools.add("get_network_health")
+                        onAccordionInteracted()
                     }
+                )
 
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.5f))
-                    ) {
-                        Text(
-                            text = "SOCKS5",
-                            color = Socks5Accent,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                AiToolItem(
+                    systemName = "get_recent_failure_logs()",
+                    label = "Срез журнала сетевых сбоев",
+                    desc = "Извлечение инцидентов из кольцевого буфера приложения для выявления ТСПУ-блокировок и сбоев TLS.",
+                    isExpanded = expandedTools.contains("get_recent_failure_logs"),
+                    accentColor = accentColor,
+                    onToggle = {
+                        if (expandedTools.contains("get_recent_failure_logs")) expandedTools.remove("get_recent_failure_logs")
+                        else expandedTools.add("get_recent_failure_logs")
+                        onAccordionInteracted()
                     }
+                )
 
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, VpnAccent.copy(alpha = 0.5f))
-                    ) {
-                        Text(
-                            text = "VPN",
-                            color = VpnAccent,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                AiToolItem(
+                    systemName = "test_uplink_connection()",
+                    label = "Тест магистрального канала",
+                    desc = "Замер скорости отклика и доступности узлов Cloudflare Edge для выбора наилучшего дата-центра.",
+                    isExpanded = expandedTools.contains("test_uplink_connection"),
+                    accentColor = accentColor,
+                    onToggle = {
+                        if (expandedTools.contains("test_uplink_connection")) expandedTools.remove("test_uplink_connection")
+                        else expandedTools.add("test_uplink_connection")
+                        onAccordionInteracted()
                     }
-                }
+                )
+
+                AiToolItem(
+                    systemName = "get_reference_icon_code()",
+                    label = "Эталонная векторная геометрия",
+                    desc = "Загрузка проверенных каркасов геометрии (100x100, Stroke 1.5dp) перед генерацией новой кнопки.",
+                    isExpanded = expandedTools.contains("get_reference_icon_code"),
+                    accentColor = accentColor,
+                    onToggle = {
+                        if (expandedTools.contains("get_reference_icon_code")) expandedTools.remove("get_reference_icon_code")
+                        else expandedTools.add("get_reference_icon_code")
+                        onAccordionInteracted()
+                    }
+                )
+
+                AiToolItem(
+                    systemName = "apply_svg_button_icon()",
+                    label = "Установка векторной иконки",
+                    desc = "Компиляция и сохранение созданной векторной иконки на центральную кнопку в один клик.",
+                    isExpanded = expandedTools.contains("apply_svg_button_icon"),
+                    accentColor = accentColor,
+                    onToggle = {
+                        if (expandedTools.contains("apply_svg_button_icon")) expandedTools.remove("apply_svg_button_icon")
+                        else expandedTools.add("apply_svg_button_icon")
+                        onAccordionInteracted()
+                    }
+                )
             }
         }
 
-        // 3. Инструменты Function Calling (Аккордеоны)
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Карточка 3: Локальная деперсонализация (AiSanitizer)
+        AiExpandableCard(
+            title = "3. Локальная деперсонализация (AiSanitizer)",
+            summary = "Автоматическое маскирование персональных IP, токенов и ключей",
+            accentColor = accentColor,
+            initiallyExpanded = false
+        ) {
             Text(
-                text = "3. ИНСТРУМЕНТЫ FUNCTION CALLING (6 ИНСТРУМЕНТОВ)",
-                fontSize = 11.sp,
+                text = "Все сетевые логи перед отправкой в нейросеть проходят локальную фильтрацию AiSanitizer. Ваши публичные IP-адреса, токены авторизации и приватные ключи автоматически заменяются на <REDACTED_DATA>.",
+                fontSize = 11.5.sp,
+                color = TextWhite.copy(alpha = 0.85f),
+                lineHeight = 16.sp
+            )
+        }
+
+        // Нижнее примечание о готовности к запуску
+        AiHighlightNoteCard(
+            title = "ГОТОВНОСТЬ К ЗАПУСКУ ИИ-ДИАГНОСТИКИ",
+            note = "Кнопка вызова ИИ расположена в правом нижнем углу главного экрана.",
+            detail = "Нажмите на круглую кнопку интеллекта для начала работы. В любой момент вы можете повторно просмотреть данное руководство в настройках без ожидания таймера.",
+            accentColor = accentColor
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ И КАРТОЧКИ MIRRLYUI
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun AiStepHeader(
+    badge: String,
+    title: String,
+    subtitle: String,
+    accentColor: Color
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.60f)),
+            modifier = Modifier.padding(bottom = 2.dp)
+        ) {
+            Text(
+                text = badge,
+                color = accentColor,
+                fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
-                color = accentColor
-            )
-
-            // Tool 1
-            ToolAccordionItem(
-                toolId = "get_service_status",
-                russianName = "Статус службы и портов",
-                systemName = "get_service_status()",
-                desc = "Предоставляет статус фоновой службы прокси, состояние локальных сокетов на портах 1443 (MTProto) и 10888 (SOCKS5), количество активных клиентских соединений и общее время непрерывной работы.",
-                isExpanded = expandedTools.contains("get_service_status"),
-                accentColor = accentColor,
-                onToggle = {
-                    if (expandedTools.contains("get_service_status")) expandedTools.remove("get_service_status")
-                    else expandedTools.add("get_service_status")
-                    onAccordionInteracted()
-                }
-            )
-
-            // Tool 2
-            ToolAccordionItem(
-                toolId = "get_network_health",
-                russianName = "Здоровье сети и задержка",
-                systemName = "get_network_health()",
-                desc = "Анализирует активный сетевой интерфейс (Wi-Fi или сотовая связь LTE/5G), задержку RTT до Anycast-шлюза, уровень джиттера пакетов и активность системы аварийного переключения сокетов (Failover).",
-                isExpanded = expandedTools.contains("get_network_health"),
-                accentColor = accentColor,
-                onToggle = {
-                    if (expandedTools.contains("get_network_health")) expandedTools.remove("get_network_health")
-                    else expandedTools.add("get_network_health")
-                    onAccordionInteracted()
-                }
-            )
-
-            // Tool 3
-            ToolAccordionItem(
-                toolId = "get_recent_failure_logs",
-                russianName = "Срез журнала сетевых сбоев",
-                systemName = "get_recent_failure_logs()",
-                desc = "Извлекает недавние системные инциденты и ошибки соединения из кольцевого буфера логов приложения для точного выявления блокировок провайдера (DPI ТСПУ) или сбоев TLS/WSS.",
-                isExpanded = expandedTools.contains("get_recent_failure_logs"),
-                accentColor = accentColor,
-                onToggle = {
-                    if (expandedTools.contains("get_recent_failure_logs")) expandedTools.remove("get_recent_failure_logs")
-                    else expandedTools.add("get_recent_failure_logs")
-                    onAccordionInteracted()
-                }
-            )
-
-            // Tool 4
-            ToolAccordionItem(
-                toolId = "test_uplink_connection",
-                russianName = "Тест магистрального канала",
-                systemName = "test_uplink_connection()",
-                desc = "Выполняет замер скорости отклика и доступности магистральных узлов Cloudflare Edge. Помогает определить наилучший дата-центр маршрутизации.",
-                isExpanded = expandedTools.contains("test_uplink_connection"),
-                accentColor = accentColor,
-                onToggle = {
-                    if (expandedTools.contains("test_uplink_connection")) expandedTools.remove("test_uplink_connection")
-                    else expandedTools.add("test_uplink_connection")
-                    onAccordionInteracted()
-                }
-            )
-
-            // Tool 5
-            ToolAccordionItem(
-                toolId = "get_reference_icon_code",
-                russianName = "Эталонная векторная геометрия",
-                systemName = "get_reference_icon_code(protocol)",
-                desc = "Загружает проверенный разработчиками каркас сплайнов (Вьюпорт 100x100, Stroke 1.5-2.0dp, замкнутые контуры Z) для MTProto, SOCKS5 или VPN перед генерацией новой кнопки.",
-                isExpanded = expandedTools.contains("get_reference_icon_code"),
-                accentColor = accentColor,
-                onToggle = {
-                    if (expandedTools.contains("get_reference_icon_code")) expandedTools.remove("get_reference_icon_code")
-                    else expandedTools.add("get_reference_icon_code")
-                    onAccordionInteracted()
-                }
-            )
-
-            // Tool 6
-            ToolAccordionItem(
-                toolId = "apply_svg_button_icon",
-                russianName = "Применение SVG иконки в интерфейс",
-                systemName = "apply_svg_button_icon(protocol, pathData)",
-                desc = "Интерактивно компилирует созданную векторную иконку, проверяет корректность pathData и сохраняет её в настройки центральной кнопки выбранного протокола в один клик.",
-                isExpanded = expandedTools.contains("apply_svg_button_icon"),
-                accentColor = accentColor,
-                onToggle = {
-                    if (expandedTools.contains("apply_svg_button_icon")) expandedTools.remove("apply_svg_button_icon")
-                    else expandedTools.add("apply_svg_button_icon")
-                    onAccordionInteracted()
-                }
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
             )
         }
 
-        // Заметка о маскировании приватности
-        Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.7f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                text = "Безопасность: все данные перед отправкой в нейросеть проходят локальную деперсонализацию фильтром AiSanitizer. Персональные IP-адреса, токены и приватные ключи маскируются.",
-                fontSize = 11.sp,
-                color = TextMuted,
-                lineHeight = 15.sp,
-                modifier = Modifier.padding(12.dp)
-            )
-        }
+        Text(
+            text = title,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextWhite,
+            letterSpacing = 0.2.sp
+        )
 
-        // Повторное прохождение руководства
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(accentColor)
-                    )
-                    Text(
-                        text = "ПОВТОРНОЕ ПРОХОЖДЕНИЕ ОБУЧЕНИЯ",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = accentColor
-                    )
-                }
-
-                Text(
-                    text = "Вы в любое время можете вернуться к данному руководству и перечитать инструкции:\n• В шторке настроек ИИ-чата (кнопка параметров в правом верхнем углу).\n• В общих настройках: Настройки → Справка и руководства → Вводное руководство по ИИ.\n\nПри повторном открытии из настроек 5-секундный таймер автоматически отключается, позволяя свободно перемещаться по всем шагам без задержек.",
-                    fontSize = 12.sp,
-                    color = TextWhite,
-                    lineHeight = 17.sp
-                )
-            }
-        }
+        Text(
+            text = subtitle,
+            fontSize = 11.5.sp,
+            color = TextMuted,
+            lineHeight = 16.sp
+        )
     }
 }
 
 @Composable
-private fun ToolAccordionItem(
-    toolId: String,
-    russianName: String,
-    systemName: String,
-    desc: String,
+private fun MirrlyExpandChevronBadge(
     isExpanded: Boolean,
     accentColor: Color,
-    onToggle: () -> Unit
+    modifier: Modifier = Modifier
 ) {
+    val rotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "expandChevronRotation"
+    )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "expandBeckonTransition")
+    val beckonAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "expandBeckonAlpha"
+    )
+
+    val currentBorderAlpha = if (isExpanded) 0.80f else (0.35f * beckonAlpha)
+    val currentTint = if (isExpanded) accentColor else accentColor.copy(alpha = (0.70f + 0.30f * beckonAlpha).coerceIn(0f, 1f))
+
+    Box(
+        modifier = modifier
+            .size(26.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .border(
+                1.dp,
+                accentColor.copy(alpha = currentBorderAlpha),
+                RoundedCornerShape(8.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        MirrlyIcon(
+            id = R.drawable.ic_chevron_down,
+            contentDescription = if (isExpanded) "Свернуть" else "Развернуть",
+            tint = currentTint,
+            modifier = Modifier
+                .size(15.dp)
+                .graphicsLayer { rotationZ = rotation }
+        )
+    }
+}
+
+@Composable
+private fun AiExpandableCard(
+    title: String,
+    summary: String,
+    accentColor: Color,
+    initiallyExpanded: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var isExpanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, AmoledBorder),
+        color = AmoledBackground,
+        border = BorderStroke(
+            1.dp,
+            if (isExpanded) accentColor.copy(alpha = 0.65f) else AmoledBorder
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .springPress(onClick = onToggle)
+            .springPress(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                isExpanded = !isExpanded
+            })
     ) {
         Column(
             modifier = Modifier
@@ -2491,46 +1936,709 @@ private fun ToolAccordionItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = russianName,
+                        text = title,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextWhite
+                        color = if (isExpanded) accentColor else TextWhite
                     )
                     Text(
-                        text = systemName,
+                        text = summary,
                         fontSize = 10.5.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = accentColor
+                        color = TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_chevron_right),
-                    contentDescription = null,
-                    tint = if (isExpanded) accentColor else TextMuted,
-                    modifier = Modifier
-                        .size(14.dp)
-                        .graphicsLayer {
-                            rotationZ = if (isExpanded) 90f else 0f
-                        }
+                MirrlyExpandChevronBadge(
+                    isExpanded = isExpanded,
+                    accentColor = accentColor
                 )
             }
 
             AnimatedVisibility(
                 visible = isExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(modifier = Modifier.padding(top = 6.dp)) {
+                    content()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiProviderOptionCard(
+    name: String,
+    tagline: String,
+    badgeText: String,
+    badgeColor: Color,
+    isSelected: Boolean,
+    accentColor: Color,
+    onSelect: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var isExpanded by rememberSaveable(isSelected) { mutableStateOf(isSelected) }
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = AmoledBackground,
+        border = BorderStroke(
+            if (isSelected) 1.5.dp else 1.dp,
+            if (isSelected) accentColor else AmoledBorder
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .lightSweep(isEnabled = isSelected, shape = RoundedCornerShape(14.dp))
+            .springPress(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onSelect()
+                isExpanded = !isExpanded
+            })
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .border(1.dp, if (isSelected) accentColor else AmoledBorder, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(accentColor)
+                            )
+                        }
+                    }
+
+                    Column {
+                        Text(
+                            text = name,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) accentColor else TextWhite
+                        )
+                        Text(
+                            text = tagline,
+                            fontSize = 10.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.60f))
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    MirrlyExpandChevronBadge(
+                        isExpanded = isExpanded,
+                        accentColor = accentColor
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    content()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiModelOptionCard(
+    model: OnboardingModelDetail,
+    isSelected: Boolean,
+    accentColor: Color,
+    onSelect: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var isExpanded by rememberSaveable(isSelected) { mutableStateOf(isSelected) }
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = AmoledBackground,
+        border = BorderStroke(
+            if (isSelected) 1.5.dp else 1.dp,
+            if (isSelected) accentColor else AmoledBorder
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .springPress(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onSelect()
+                isExpanded = !isExpanded
+            })
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .border(1.dp, if (isSelected) accentColor else AmoledBorder, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(accentColor)
+                            )
+                        }
+                    }
+
+                    Column {
+                        Text(
+                            text = model.shortName,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) accentColor else TextWhite
+                        )
+                        Text(
+                            text = model.tierLabel,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, model.badgeColor.copy(alpha = 0.60f))
+                    ) {
+                        Text(
+                            text = model.badge,
+                            color = model.badgeColor,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    MirrlyExpandChevronBadge(
+                        isExpanded = isExpanded,
+                        accentColor = accentColor
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = model.description,
+                        fontSize = 11.5.sp,
+                        color = TextWhite.copy(alpha = 0.85f),
+                        lineHeight = 16.sp
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Назначение: ${model.bestFor}",
+                            fontSize = 10.5.sp,
+                            color = TextMuted,
+                            lineHeight = 15.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiPromptOptionCard(
+    mode: String,
+    title: String,
+    badge: String,
+    badgeColor: Color,
+    tagline: String,
+    fullPromptText: String,
+    isSelected: Boolean,
+    accentColor: Color,
+    onSelect: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var isExpanded by rememberSaveable(isSelected) { mutableStateOf(isSelected) }
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = AmoledBackground,
+        border = BorderStroke(
+            if (isSelected) 1.5.dp else 1.dp,
+            if (isSelected) accentColor else AmoledBorder
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .springPress(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onSelect()
+                isExpanded = !isExpanded
+            })
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .border(1.dp, if (isSelected) accentColor else AmoledBorder, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(accentColor)
+                            )
+                        }
+                    }
+
+                    Column {
+                        Text(
+                            text = title,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) accentColor else TextWhite
+                        )
+                        Text(
+                            text = tagline,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.60f))
+                    ) {
+                        Text(
+                            text = badge,
+                            color = badgeColor,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    MirrlyExpandChevronBadge(
+                        isExpanded = isExpanded,
+                        accentColor = accentColor
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    HorizontalDivider(color = AmoledBorder.copy(alpha = 0.5f))
+
+                    Text(
+                        text = fullPromptText,
+                        fontSize = 11.sp,
+                        color = TextWhite.copy(alpha = 0.90f),
+                        lineHeight = 16.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiToolItem(
+    systemName: String,
+    label: String,
+    desc: String,
+    isExpanded: Boolean,
+    accentColor: Color,
+    onToggle: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, if (isExpanded) accentColor.copy(alpha = 0.60f) else AmoledBorder),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .springPress(onClick = onToggle)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = systemName,
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor
+                    )
+                    Text(
+                        text = label,
+                        fontSize = 11.sp,
+                        color = TextWhite,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                MirrlyIcon(
+                    id = R.drawable.ic_chevron_right,
+                    contentDescription = null,
+                    tint = if (isExpanded) accentColor else TextMuted,
+                    modifier = Modifier
+                        .size(13.dp)
+                        .graphicsLayer { rotationZ = if (isExpanded) 90f else 0f }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
             ) {
                 Text(
                     text = desc,
-                    fontSize = 11.5.sp,
-                    color = Color(0xFFD4D4DC),
-                    lineHeight = 16.sp,
+                    fontSize = 11.sp,
+                    color = TextWhite.copy(alpha = 0.85f),
+                    lineHeight = 15.sp,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
         }
     }
 }
+
+/**
+ * Процедурный интерактивный холст (Canvas) с демонстрацией векторного сплайна иконки кнопки.
+ * Разработан по стандартам mirrly-icons и mirrly-ui:
+ * - Вьюпорт 100x100, Stroke 1.5dp, замкнутые сплайны.
+ * - Zero-Allocation: пути Path кэшируются через remember и очищаются через reset().
+ * - Анимированный квантовый импульс орбиты.
+ */
+@Composable
+private fun AiSvgVectorDemoCanvas(
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "svgDemoTransition")
+    val pulseProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "svgPulseProgress"
+    )
+
+    val gliderPath = remember { Path() }
+    val orbitPath = remember { Path() }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(130.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.40f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(110.dp)) {
+            val w = size.width
+            val h = size.height
+            val strokeWidthPx = 1.5.dp.toPx()
+
+            // 1. Аэродинамический силуэт сверхзвукового глайдера (100x100 вьюпорт)
+            gliderPath.reset()
+            // Носовая часть
+            gliderPath.moveTo(w * 0.50f, h * 0.14f)
+            // Правое стреловидное крыло
+            gliderPath.lineTo(w * 0.86f, h * 0.68f)
+            // Правое сопло
+            gliderPath.lineTo(w * 0.62f, h * 0.62f)
+            // Центральный хвостовой стабилизатор
+            gliderPath.lineTo(w * 0.50f, h * 0.84f)
+            // Левое сопло
+            gliderPath.lineTo(w * 0.38f, h * 0.62f)
+            // Левое стреловидное крыло
+            gliderPath.lineTo(w * 0.14f, h * 0.68f)
+            gliderPath.close()
+
+            // Отрисовка основного силуэта глайдера
+            drawPath(
+                path = gliderPath,
+                color = accentColor,
+                style = Stroke(
+                    width = strokeWidthPx,
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
+
+            // Внутренний кристаллический кокпит
+            gliderPath.reset()
+            gliderPath.moveTo(w * 0.50f, h * 0.30f)
+            gliderPath.lineTo(w * 0.58f, h * 0.54f)
+            gliderPath.lineTo(w * 0.50f, h * 0.60f)
+            gliderPath.lineTo(w * 0.42f, h * 0.54f)
+            gliderPath.close()
+
+            drawPath(
+                path = gliderPath,
+                color = accentColor.copy(alpha = 0.50f),
+                style = Stroke(
+                    width = 1.dp.toPx(),
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
+
+            // 2. Анимированное защитное квантовое кольцо импульса
+            val maxRadius = w * 0.46f
+            val currentRadius = maxRadius * (0.35f + 0.65f * pulseProgress)
+            val ringAlpha = (1f - pulseProgress).coerceIn(0f, 1f) * 0.45f
+
+            drawCircle(
+                color = accentColor.copy(alpha = ringAlpha),
+                radius = currentRadius,
+                center = Offset(w * 0.50f, h * 0.50f),
+                style = Stroke(width = 1.dp.toPx())
+            )
+        }
+
+        // Подпись в нижнем углу карточки
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(8.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .border(0.8.dp, accentColor.copy(alpha = 0.30f), RoundedCornerShape(6.dp))
+                .background(Color.Black.copy(alpha = 0.60f))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = "0 0 100 100 · 1.5dp",
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                color = accentColor.copy(alpha = 0.90f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AiTechChip(text: String, accentColor: Color) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f))
+    ) {
+        Text(
+            text = text,
+            color = accentColor,
+            fontSize = 9.5.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+        )
+    }
+}
+
+@Composable
+private fun AiHighlightNoteCard(
+    title: String,
+    note: String,
+    detail: String,
+    accentColor: Color
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = AmoledBackground,
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.55f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(accentColor)
+                )
+                Text(
+                    text = title,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = accentColor,
+                    letterSpacing = 0.8.sp
+                )
+            }
+
+            Text(
+                text = note,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextWhite,
+                lineHeight = 16.sp
+            )
+
+            Text(
+                text = detail,
+                fontSize = 11.sp,
+                color = TextMuted,
+                lineHeight = 15.sp
+            )
+        }
+    }
+}
+
+private data class OnboardingModelDetail(
+    val id: String,
+    val shortName: String,
+    val badge: String,
+    val badgeColor: Color,
+    val tierLabel: String,
+    val description: String,
+    val bestFor: String
+)

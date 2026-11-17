@@ -212,7 +212,31 @@ pub const CFPROXY_429_COOLDOWN: Duration = Duration::from_secs(45);
 pub const CFPROXY_429_MAX_COOLDOWN: Duration = Duration::from_secs(300);
 
 pub const MIN_SOCKET_BUFFER: i32 = 32 * 1024;
-pub const MAX_SOCKET_BUFFER: i32 = 1024 * 1024;
+pub const DEFAULT_MAX_SOCKET_BUFFER: i32 = 2 * 1024 * 1024;
+pub const HIGH_THROUGHPUT_MAX_SOCKET_BUFFER: i32 = 8 * 1024 * 1024;
+
+/// Backward-compatible alias for existing code
+pub const MAX_SOCKET_BUFFER: i32 = DEFAULT_MAX_SOCKET_BUFFER;
+
+/// Dedicated WireGuard / AmneziaWG UDP tunnel socket buffers
+pub const DEFAULT_UDP_TUNNEL_RECV_BUF: usize = 4 * 1024 * 1024; // 4 MiB (cellular default)
+pub const HIGH_THROUGHPUT_UDP_TUNNEL_RECV_BUF: usize = 8 * 1024 * 1024; // 8 MiB (Wi-Fi / 5G)
+pub const DEFAULT_UDP_TUNNEL_SEND_BUF: usize = 2 * 1024 * 1024; // 2 MiB
+pub const HIGH_THROUGHPUT_UDP_TUNNEL_SEND_BUF: usize = 4 * 1024 * 1024; // 4 MiB
+
+/// Dynamic atomic ceiling for TCP / SOCKS5 sockets (defaults to 2 MiB)
+pub static MAX_SOCKET_BUFFER_CEILING: AtomicI32 = AtomicI32::new(DEFAULT_MAX_SOCKET_BUFFER);
+
+#[inline]
+pub fn max_socket_buffer() -> i32 {
+    MAX_SOCKET_BUFFER_CEILING.load(Ordering::Relaxed)
+}
+
+#[inline]
+pub fn set_max_socket_buffer_ceiling(ceiling: i32) {
+    let clamped = ceiling.clamp(MIN_SOCKET_BUFFER, HIGH_THROUGHPUT_MAX_SOCKET_BUFFER);
+    MAX_SOCKET_BUFFER_CEILING.store(clamped, Ordering::Relaxed);
+}
 
 pub static REQUESTED_RECV_BUF: AtomicI32 = AtomicI32::new(DEFAULT_RECV_BUF as i32);
 pub static REQUESTED_SEND_BUF: AtomicI32 = AtomicI32::new(DEFAULT_SEND_BUF as i32);
@@ -655,7 +679,6 @@ pub struct Stats {
     pub connections_ws: AtomicI64,
     pub connections_tcp_fallback: AtomicI64,
     pub connections_cfproxy: AtomicI64,
-    pub connections_masque: AtomicI64,
     pub connections_awg: AtomicI64,
     pub socks5_v2_sessions: AtomicI64,
     pub socks5_v1_downgrades: AtomicI64,
@@ -695,12 +718,11 @@ impl Stats {
         let ph = self.pool_hits.load(Ordering::Relaxed);
         let pm = self.pool_misses.load(Ordering::Relaxed);
         format!(
-            "total={} active={} ws={} cf={} masque={} awg={} v2={} v1_down={} fp={} fb={} bad={} err={} pool={}/{} up={} down={}",
+            "total={} active={} ws={} cf={} awg={} v2={} v1_down={} fp={} fb={} bad={} err={} pool={}/{} up={} down={}",
             self.connections_total.load(Ordering::Relaxed),
             self.connections_active.load(Ordering::Relaxed),
             self.connections_ws.load(Ordering::Relaxed),
             self.connections_cfproxy.load(Ordering::Relaxed),
-            self.connections_masque.load(Ordering::Relaxed),
             self.connections_awg.load(Ordering::Relaxed),
             self.socks5_v2_sessions.load(Ordering::Relaxed),
             self.socks5_v1_downgrades.load(Ordering::Relaxed),
@@ -728,10 +750,7 @@ impl Stats {
         if cf > 0 {
             parts.push(format!("cf:{}", cf));
         }
-        let masque = self.connections_masque.load(Ordering::Relaxed);
-        if masque > 0 {
-            parts.push(format!("masque:{}", masque));
-        }
+
         let awg = self.connections_awg.load(Ordering::Relaxed);
         if awg > 0 {
             parts.push(format!("awg:{}", awg));
@@ -778,7 +797,6 @@ impl Stats {
         self.connections_ws.store(0, Ordering::Relaxed);
         self.connections_tcp_fallback.store(0, Ordering::Relaxed);
         self.connections_cfproxy.store(0, Ordering::Relaxed);
-        self.connections_masque.store(0, Ordering::Relaxed);
         self.connections_awg.store(0, Ordering::Relaxed);
         self.socks5_v2_sessions.store(0, Ordering::Relaxed);
         self.socks5_v1_downgrades.store(0, Ordering::Relaxed);

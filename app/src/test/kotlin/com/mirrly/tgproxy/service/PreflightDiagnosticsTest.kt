@@ -72,8 +72,7 @@ class PreflightDiagnosticsTest {
             fallbackWorkerIds = listOf("dev_backup", "custom_1"),
             bestMtprotoDc = "149.154.167.51:443",
             fallbackMtprotoDcs = listOf("149.154.167.91:443"),
-            bestWarpEndpoint = "188.114.96.1:8443",
-            isDnsHealthy = true
+            bestWarpEndpoint = "188.114.96.1:8443"
         )
         PredictivePreWarmManager.updateHotReserve(routes)
 

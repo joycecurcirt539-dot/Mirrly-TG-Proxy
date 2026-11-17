@@ -112,8 +112,6 @@ __pycache__/
 *.log
 *build*.log
 build_release.log
-*Gemini.md
-*gemini*.md
 temp_*.md
 test_*.md
 .system_generated/

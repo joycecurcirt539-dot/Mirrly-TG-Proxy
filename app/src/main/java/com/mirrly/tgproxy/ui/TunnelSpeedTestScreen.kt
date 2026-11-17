@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -41,12 +42,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -269,14 +273,12 @@ fun TunnelSpeedTestScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(
-                                id = when {
+                        MirrlyIcon(
+                            id = when {
                                     isTesting -> R.drawable.ic_speed_eco
                                     testState.stage == SpeedTestStage.COMPLETED -> R.drawable.ic_refresh
                                     else -> R.drawable.ic_speed_turbo
-                                }
-                            ),
+                                },
                             contentDescription = null,
                             tint = if (isTesting) Color(0xFFFF1744) else accentColor,
                             modifier = Modifier.size(16.dp)
@@ -339,8 +341,8 @@ private fun SpeedTestTopBar(
                     .size(40.dp)
                     .springPress(onClick = onBack)
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_arrow_left),
+                MirrlyIcon(
+                    id = R.drawable.ic_arrow_left,
                     contentDescription = stringResource(R.string.action_back),
                     tint = TextWhite,
                     modifier = Modifier.size(20.dp)
@@ -404,8 +406,8 @@ private fun SpeedTestHeaderCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_diag_worker),
+            MirrlyIcon(
+                id = R.drawable.ic_diag_worker,
                 contentDescription = null,
                 tint = accentColor,
                 modifier = Modifier.size(if (compact) 13.dp else 15.dp)
@@ -537,8 +539,8 @@ private fun SpeedTestPhaseStepper(
                             )
                     ) {
                         if (isCompleted) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_check),
+                            MirrlyIcon(
+                                id = R.drawable.ic_check,
                                 contentDescription = null,
                                 tint = Color.Black,
                                 modifier = Modifier.size(if (compact) 11.dp else 13.dp)
@@ -601,8 +603,21 @@ private fun SpeedometerGauge(
         label = "gaugeFraction"
     )
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isAppResumed by remember {
+        mutableStateOf<Boolean>(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            isAppResumed = event == Lifecycle.Event.ON_RESUME ||
+                lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val motion = rememberInfiniteTransition(label = "gaugeMotion")
-    val orbitRotation by motion.animateFloat(
+    val orbitRotationState = motion.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
@@ -611,7 +626,7 @@ private fun SpeedometerGauge(
         ),
         label = "gaugeOrbit"
     )
-    val breathe by motion.animateFloat(
+    val breatheState = motion.animateFloat(
         initialValue = 0.75f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -620,6 +635,12 @@ private fun SpeedometerGauge(
         ),
         label = "gaugeBreathe"
     )
+
+    val sweepColors = remember(secondaryAccent, primaryAccent, hotAccent) {
+        listOf(secondaryAccent, primaryAccent, hotAccent, Color(0xFFFFC857))
+    }
+    var cachedCenter by remember { mutableStateOf(Offset.Zero) }
+    var cachedSweepBrush by remember { mutableStateOf<Brush?>(null) }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -634,6 +655,9 @@ private fun SpeedometerGauge(
                 .springPress(onClick = onClick)
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
+                if (!isAppResumed) return@Canvas
+                val orbitRotation = orbitRotationState.value
+                val breathe = breatheState.value
                 val center = Offset(size.width / 2f, size.height / 2f)
                 val outerRadius = size.minDimension * 0.44f
                 val progressRadius = size.minDimension * 0.37f
@@ -695,18 +719,22 @@ private fun SpeedometerGauge(
 
                 // 4. Тонкая светящаяся полоса под активными сегментами
                 if (activeSweep > 0.5f) {
-                    drawArc(
-                        brush = Brush.sweepGradient(
-                            colors = listOf(secondaryAccent, primaryAccent, hotAccent, Color(0xFFFFC857)),
-                            center = center
-                        ),
-                        startAngle = 135f,
-                        sweepAngle = activeSweep,
-                        useCenter = false,
-                        topLeft = Offset(center.x - (progressRadius - 6.dp.toPx()), center.y - (progressRadius - 6.dp.toPx())),
-                        size = Size((progressRadius - 6.dp.toPx()) * 2f, (progressRadius - 6.dp.toPx()) * 2f),
-                        style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
-                    )
+                    if (cachedCenter != center || cachedSweepBrush == null) {
+                        cachedCenter = center
+                        cachedSweepBrush = Brush.sweepGradient(colors = sweepColors, center = center)
+                    }
+                    val sweepBrush = cachedSweepBrush
+                    if (sweepBrush != null) {
+                        drawArc(
+                            brush = sweepBrush,
+                            startAngle = 135f,
+                            sweepAngle = activeSweep,
+                            useCenter = false,
+                            topLeft = Offset(center.x - (progressRadius - 6.dp.toPx()), center.y - (progressRadius - 6.dp.toPx())),
+                            size = Size((progressRadius - 6.dp.toPx()) * 2f, (progressRadius - 6.dp.toPx()) * 2f),
+                            style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+                        )
+                    }
                 }
 
                 // 5. Внутренний контурный обод ядра
@@ -759,7 +787,7 @@ private fun SpeedometerGauge(
                 modifier = Modifier
                     .size(if (isTesting) 6.dp else 4.dp)
                     .clip(CircleShape)
-                    .background(primaryAccent.copy(alpha = if (isTesting) breathe else 0.55f))
+                    .background(primaryAccent.copy(alpha = if (isTesting) breatheState.value else 0.55f))
             )
             Text(
                 text = stage.title.uppercase(),
@@ -848,17 +876,6 @@ private fun TelegramDcRowItem(
     accentColor: Color,
     compact: Boolean
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "dcPulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dcPulseAlpha"
-    )
-
     val itemBorderColor = when {
         isActive -> accentColor
         dc.isKeyDc && dc.isSuccess -> accentColor.copy(alpha = 0.45f)
@@ -943,12 +960,7 @@ private fun TelegramDcRowItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(accentColor.copy(alpha = pulseAlpha))
-                    )
+                    ActiveDcMeasuringDot(accentColor = accentColor)
                     Text(
                         text = stringResource(R.string.speed_test_dc_status_measuring),
                         fontSize = if (compact) 8.5.sp else 9.5.sp,
@@ -994,6 +1006,40 @@ private fun TelegramDcRowItem(
             }
         }
     }
+}
+
+@Composable
+private fun ActiveDcMeasuringDot(accentColor: Color) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isAppResumed by remember {
+        mutableStateOf<Boolean>(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            isAppResumed = event == Lifecycle.Event.ON_RESUME ||
+                lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "dcPulse")
+    val pulseAlpha = infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dcPulseAlpha"
+    )
+    Box(
+        modifier = Modifier
+            .size(6.dp)
+            .graphicsLayer { alpha = if (isAppResumed) pulseAlpha.value else 0.5f }
+            .clip(CircleShape)
+            .background(accentColor)
+    )
 }
 
 /**
@@ -1086,8 +1132,8 @@ private fun CompactMetricColumn(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Icon(
-                painter = painterResource(id = iconRes),
+            MirrlyIcon(
+                id = iconRes,
                 contentDescription = null,
                 tint = accentColor,
                 modifier = Modifier.size(if (compact) 10.dp else 11.dp)
@@ -1427,8 +1473,8 @@ private fun SuitabilityRow(
             .padding(horizontal = 10.dp, vertical = if (compact) 6.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            painter = painterResource(id = iconRes),
+        MirrlyIcon(
+            id = iconRes,
             contentDescription = null,
             tint = accentColor,
             modifier = Modifier.size(if (compact) 13.dp else 15.dp)
@@ -1469,8 +1515,8 @@ private fun SpeedTestErrorCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_stat_proxy_error),
+            MirrlyIcon(
+                id = R.drawable.ic_stat_proxy_error,
                 contentDescription = null,
                 tint = Color(0xFFFF1744),
                 modifier = Modifier.size(20.dp)
@@ -1494,8 +1540,8 @@ private fun SpeedTestErrorCard(
                     .size(36.dp)
                     .springPress(onClick = onRetry)
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_refresh),
+                MirrlyIcon(
+                    id = R.drawable.ic_refresh,
                     contentDescription = null,
                     tint = TextWhite,
                     modifier = Modifier.size(16.dp)

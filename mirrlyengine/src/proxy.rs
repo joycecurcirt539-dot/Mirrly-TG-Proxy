@@ -130,6 +130,17 @@ pub struct SlotDemand {
     pub useful_rx_count: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+pub struct MtprotoWarmPoolStatus {
+    pub ready_total: usize,
+    pub target_total: usize,
+    pub in_flight_total: usize,
+    pub dc2_chat_ready: usize,
+    pub dc2_chat_target: usize,
+    pub dc2_media_ready: usize,
+    pub dc2_media_target: usize,
+}
+
 pub struct WsPool {
     slots: parking_lot::RwLock<HashMap<DcSlot, Arc<SlotState>>>,
     demand: Arc<parking_lot::RwLock<HashMap<DcSlot, SlotDemand>>>,
@@ -277,6 +288,59 @@ impl WsPool {
         self.trigger_refill(slot, &state);
 
         res
+    }
+
+    pub fn warm_pool_status(&self) -> MtprotoWarmPoolStatus {
+        let slots_vec: Vec<(DcSlot, Arc<SlotState>)> = {
+            let r = self.slots.read();
+            r.iter().map(|(k, v)| (*k, v.clone())).collect()
+        };
+
+        let mut seen_dc2_chat = false;
+        let mut seen_dc2_media = false;
+        let mut ready_total = 0usize;
+        let mut target_total = 0usize;
+        let mut in_flight_total = 0usize;
+        let mut dc2_chat_ready = 0usize;
+        let mut dc2_chat_target = 0usize;
+        let mut dc2_media_ready = 0usize;
+        let mut dc2_media_target = 0usize;
+
+        for (slot, state) in slots_vec {
+            let r = state.ready_count();
+            let inf = state.in_flight.load(Ordering::Relaxed);
+            let tgt = self.target_size(slot);
+            ready_total += r;
+            in_flight_total += inf;
+            target_total += tgt;
+            if slot.dc == 2 && slot.is_media == 0 {
+                seen_dc2_chat = true;
+                dc2_chat_ready = r;
+                dc2_chat_target = tgt;
+            } else if slot.dc == 2 && slot.is_media != 0 {
+                seen_dc2_media = true;
+                dc2_media_ready = r;
+                dc2_media_target = tgt;
+            }
+        }
+        if !seen_dc2_chat {
+            dc2_chat_target = self.target_size(DcSlot { dc: 2, is_media: 0 });
+            target_total += dc2_chat_target;
+        }
+        if !seen_dc2_media {
+            dc2_media_target = self.target_size(DcSlot { dc: 2, is_media: 1 });
+            target_total += dc2_media_target;
+        }
+
+        MtprotoWarmPoolStatus {
+            ready_total,
+            target_total,
+            in_flight_total,
+            dc2_chat_ready,
+            dc2_chat_target,
+            dc2_media_ready,
+            dc2_media_target,
+        }
     }
 
     pub fn trigger_refill(self: &Arc<Self>, slot: DcSlot, state: &Arc<SlotState>) {
@@ -1367,7 +1431,7 @@ pub async fn dispatch_mtproto_uplink(
                 label,
                 dc,
                 chosen_domain,
-                443,
+                crate::ws::default_ws_port(),
                 is_media,
                 splitter,
                 clt_dec,
@@ -1443,7 +1507,7 @@ pub async fn handle_client(
     let mut initial_clt_data: Vec<u8> = Vec::new();
     let mut is_faketls = false;
 
-    if crate::faketls::is_tls_handshake(&initial_5) {
+    if crate::ws::is_tls_enabled() && crate::faketls::is_tls_handshake(&initial_5) {
         is_faketls = true;
         ldebug!(
             "{}: FakeTLS handshake detected (0x16 0x03 0x01/0x03)",

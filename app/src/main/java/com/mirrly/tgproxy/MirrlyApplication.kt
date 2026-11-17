@@ -25,9 +25,12 @@ import com.mirrly.tgproxy.service.PreferencesManager
 import com.mirrly.tgproxy.service.UpdateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 class MirrlyApplication : Application() {
+
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     lateinit var prefsManager: PreferencesManager
         private set
@@ -76,7 +79,7 @@ class MirrlyApplication : Application() {
             val isWorkerActive = proxyServer.config.isSocks5Mode ||
                 (proxyServer.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO && proxyServer.config.useWorkerMtproto)
             if (isWorkerActive) {
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                applicationScope.launch {
                     com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerProbe(
                         probe, target, snapshot, generation, observedAtMs
                     )

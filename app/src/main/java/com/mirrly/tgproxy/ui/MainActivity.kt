@@ -90,6 +90,7 @@ import android.graphics.Shader
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.service.crash.CrashReportManager
 import com.mirrly.tgproxy.ui.AiChatScreen
+import com.mirrly.tgproxy.ui.snake.SnakeGameScreen
 import com.mirrly.tgproxy.ui.theme.LocalProtocolColors
 import com.mirrly.tgproxy.ui.theme.MirrlyTheme
 import com.mirrly.tgproxy.ui.theme.TextMuted
@@ -296,12 +297,16 @@ class MainActivity : ComponentActivity() {
                      isClonedPackage ||
                      isEngineBlocked) && !isDebug
                 }
+                val isSecurityNoticeDismissedForever = remember {
+                    com.mirrly.tgproxy.service.LaunchCountManager.isSecurityNoticeDismissedForever(applicationContext)
+                }
                 val isDailySecurityDue = remember {
                     com.mirrly.tgproxy.service.LaunchCountManager.shouldShowDailySecurityNotice(applicationContext)
                 }
                 var showUnofficialDialog by remember {
-                    mutableStateOf(isUnofficial || isDailySecurityDue)
+                    mutableStateOf((isUnofficial || isDailySecurityDue) && !isSecurityNoticeDismissedForever)
                 }
+                var isUnofficialManualOpen by remember { mutableStateOf(false) }
 
                 val shouldShowStarDialog = remember {
                     com.mirrly.tgproxy.service.LaunchCountManager.onAppLaunched(applicationContext)
@@ -463,7 +468,7 @@ class MainActivity : ComponentActivity() {
                 val wallpaperParticlesSpeed by app.prefsManager.wallpaperParticlesSpeedFlow.collectAsState()
                 val hasCustomWallpaper = customWallpaperPath != null
                 val isVideoWallpaperPowerSaving = hasCustomWallpaper && customWallpaperType == com.mirrly.tgproxy.service.PreferencesManager.WALLPAPER_TYPE_VIDEO && customWallpaperVideoPowerSave
-                val tiltOffset by rememberSensorTilt(
+                val tiltOffsetState = rememberSensorTilt(
                     enabled = wallpaperParallaxEnabled,
                     powerSaveActive = isVideoWallpaperPowerSaving,
                     depthMultiplier = wallpaperParallaxDepth
@@ -514,9 +519,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val onOpenAiChat = remember { { onOpenAiChatWithPrompt(null) } }
+                val onOpenSnake = remember { { navigateTo("snake") } }
                 val onOpenTelegramChannel = remember { { navigateTo("telegram_channel") } }
                 val onOpenDiagnosticReport = remember { { navigateTo("diagnostic_report") } }
-                val onOpenWarpGenerator = remember { { navigateTo("warp_generator") } }
                 val onOpenVpnMode = remember { {
                     isVpnTabActive = true
                     while (screenStack.size > 1) {
@@ -645,23 +650,23 @@ class MainActivity : ComponentActivity() {
                     val isTelegramChannel = currentScreen == "telegram_channel"
                     val isDiagnosticReport = currentScreen == "diagnostic_report"
                     val isWorkerGuide = currentScreen == "worker_guide"
-                    val isWarpGenerator = currentScreen == "warp_generator"
+                    val isSnake = currentScreen == "snake"
 
                     // Animated States for All Screens
-                    val warpGeneratorOffsetFraction = animateFloatAsState(
-                        targetValue = if (isWarpGenerator) 0f else 1.0f,
+                    val snakeOffsetFraction = animateFloatAsState(
+                        targetValue = if (isSnake) 0f else 1.0f,
                         animationSpec = tween(pushMs, easing = navEasing),
-                        label = "warpGeneratorOffset"
+                        label = "snakeOffset"
                     )
-                    val warpGeneratorScale = animateFloatAsState(
-                        targetValue = if (isWarpGenerator) 1.0f else 0.94f,
+                    val snakeScale = animateFloatAsState(
+                        targetValue = if (isSnake) 1.0f else 0.94f,
                         animationSpec = tween(pushMs, easing = navEasing),
-                        label = "warpGeneratorScale"
+                        label = "snakeScale"
                     )
-                    val warpGeneratorAlpha = animateFloatAsState(
-                        targetValue = if (isWarpGenerator) 1.0f else 0.0f,
+                    val snakeAlpha = animateFloatAsState(
+                        targetValue = if (isSnake) 1.0f else 0.0f,
                         animationSpec = tween(220),
-                        label = "warpGeneratorAlpha"
+                        label = "snakeAlpha"
                     )
                     val workerGuideOffsetFraction = animateFloatAsState(
                         targetValue = if (isWorkerGuide) 0f else 1.0f,
@@ -796,7 +801,7 @@ class MainActivity : ComponentActivity() {
                     val homeOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms || isUpdate || isDiagnostic || isSpeedTest || isAnalytics || isHallOfFame || isTelegramChannel || isDiagnosticReport || isWarpGenerator -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate || isDiagnostic || isSpeedTest || isAnalytics || isHallOfFame || isTelegramChannel || isDiagnosticReport -> -0.15f
                             isLogs || isHistory -> 0.15f
                             else -> 0f
                         },
@@ -817,7 +822,7 @@ class MainActivity : ComponentActivity() {
                     val settingsOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isSettings -> 0f
-                            isAbout || isLicense || isTerms || isWorkerManager || isAnalytics || isHallOfFame || isDiagnosticReport || isWarpGenerator -> -0.15f
+                            isAbout || isLicense || isTerms || isWorkerManager || isAnalytics || isHallOfFame || isDiagnosticReport -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -939,8 +944,9 @@ class MainActivity : ComponentActivity() {
                                         val scaleFactor = 1.0f + 0.08f * wallpaperParallaxDepth
                                         scaleX = scaleFactor
                                         scaleY = scaleFactor
-                                        translationX = -tiltOffset.x * 14.dp.toPx()
-                                        translationY = -tiltOffset.y * 14.dp.toPx()
+                                        val tilt = tiltOffsetState.value
+                                        translationX = -tilt.x * 14.dp.toPx()
+                                        translationY = -tilt.y * 14.dp.toPx()
                                     }
                                 }
                         )
@@ -974,12 +980,6 @@ class MainActivity : ComponentActivity() {
                             val systemVpnColors = remember { com.mirrly.tgproxy.ui.theme.VpnThemeManager.getSystemVpnPalette(applicationContext) }
                             val effectiveVpnColors = if (isCustomTheme) LocalProtocolColors.current else systemVpnColors
                             val density = LocalDensity.current
-                            val parallaxOffsetXPx = if (wallpaperParallaxEnabled && !isVideoWallpaperPowerSaving) {
-                                with(density) { tiltOffset.x * 24.dp.toPx() }
-                            } else 0f
-                            val parallaxOffsetYPx = if (wallpaperParallaxEnabled && !isVideoWallpaperPowerSaving) {
-                                with(density) { tiltOffset.y * 24.dp.toPx() }
-                            } else 0f
 
                             val aiPauseParticles by app.prefsManager.aiPauseBackgroundParticlesFlow.collectAsState()
                             val isConstellationPausedEff = (currentScreen != "home" && !showOnboarding && !showAiChat && !isSheetOpen) || (showAiChat && aiPauseParticles)
@@ -993,8 +993,14 @@ class MainActivity : ComponentActivity() {
                                 externalTouchPoint = globalTouchPoint,
                                 isConstellationPaused = isConstellationPausedEff,
                                 hasCustomBackground = hasCustomWallpaper,
-                                parallaxOffsetX = parallaxOffsetXPx,
-                                parallaxOffsetY = parallaxOffsetYPx,
+                                parallaxOffsetProvider = {
+                                    if (wallpaperParallaxEnabled && !isVideoWallpaperPowerSaving) {
+                                        val tilt = tiltOffsetState.value
+                                        with(density) { Offset(tilt.x * 24.dp.toPx(), tilt.y * 24.dp.toPx()) }
+                                    } else {
+                                        Offset.Zero
+                                    }
+                                },
                                 particleStyle = remember(wallpaperParticlesStyle) { com.mirrly.tgproxy.service.ParticleStyle.fromString(wallpaperParticlesStyle) },
                                 particleCount = wallpaperParticlesCount,
                                 particleSpeed = wallpaperParticlesSpeed,
@@ -1080,8 +1086,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenDiagnostics = onOpenDiagnostics,
                                 onOpenSpeedTest = onOpenSpeedTest,
                                 onOpenVpnMode = onOpenVpnMode,
-                                onOpenWarpGenerator = onOpenWarpGenerator,
                                 onOpenAiChat = onOpenAiChat,
+                                onOpenSnake = onOpenSnake,
                                 onDragWorkerManager = onDragWorkerManager,
                                 onSettleWorkerManager = onSettleWorkerManager,
                                 isVpnTabActive = isVpnTabActive,
@@ -1155,7 +1161,10 @@ class MainActivity : ComponentActivity() {
                                 onOpenHallOfFame = onOpenHallOfFame,
                                 onOpenOnboarding = onOpenOnboarding,
                                 onOpenDiagnosticReport = onOpenDiagnosticReport,
-                                onOpenWarpGenerator = onOpenWarpGenerator,
+                                onOpenSecurityAdvisory = {
+                                    isUnofficialManualOpen = true
+                                    showUnofficialDialog = true
+                                },
                                 onOpenAiChat = onOpenAiChatWithPrompt,
                                 initialIsVpn = isVpnTabActive
                             )
@@ -1416,20 +1425,20 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // ── 16. WARP GENERATOR SCREEN ──
-                    if (activeScreens.contains("warp_generator")) {
+                    // ── 17. CYBER SNAKE GAME SCREEN ──
+                    if (activeScreens.contains("snake")) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    translationX = widthPx * warpGeneratorOffsetFraction.value
-                                    scaleX = warpGeneratorScale.value
-                                    scaleY = warpGeneratorScale.value
-                                    alpha = warpGeneratorAlpha.value
+                                    translationX = widthPx * snakeOffsetFraction.value
+                                    scaleX = snakeScale.value
+                                    scaleY = snakeScale.value
+                                    alpha = snakeAlpha.value
                                     renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
-                            WarpGeneratorScreen(
+                            SnakeGameScreen(
                                 onBack = onNavigateBack
                             )
                         }
@@ -1438,9 +1447,13 @@ class MainActivity : ComponentActivity() {
                     if (showUnofficialDialog) {
                         UnofficialBuildDialog(
                             isUnofficialDetected = isUnofficial,
+                            isManualOpen = isUnofficialManualOpen,
                             onDismiss = {
-                                com.mirrly.tgproxy.service.LaunchCountManager.onDailySecurityNoticeDismissed(applicationContext)
+                                if (!isUnofficialManualOpen) {
+                                    com.mirrly.tgproxy.service.LaunchCountManager.onDailySecurityNoticeDismissed(applicationContext)
+                                }
                                 showUnofficialDialog = false
+                                isUnofficialManualOpen = false
                             }
                         )
                     } else if (showGithubStarDialog && !showOnboarding && !showAiChat) {

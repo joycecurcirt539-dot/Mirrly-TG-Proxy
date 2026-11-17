@@ -237,5 +237,36 @@ class PingEngineTest {
         assertFalse(results[0].second.success)
         assertFalse(results[1].second.success)
     }
+
+    @Test
+    fun testParsePingOutputStandardAndSummary() {
+        val outputSingle = "64 bytes from 132.243.222.236: icmp_seq=1 ttl=53 time=166.5 ms"
+        val rttSingle = PingEngine.parsePingOutput(outputSingle)
+        assertEquals(167L, rttSingle)
+
+        val outputSummary = """
+            1 packets transmitted, 1 received, 0% packet loss, time 0ms
+            rtt min/avg/max/mdev = 90.780/90.780/90.780/0.000 ms
+        """.trimIndent()
+        val rttSummary = PingEngine.parsePingOutput(outputSummary)
+        assertEquals(91L, rttSummary)
+
+        val outputFailure = "1 packets transmitted, 0 received, 100% packet loss"
+        val rttFailure = PingEngine.parsePingOutput(outputFailure)
+        assertEquals(-1L, rttFailure)
+    }
+
+    @Test
+    fun testExecuteDirectProbeAnycastNodeViaTcpFallback() = kotlinx.coroutines.runBlocking {
+        // Anycast WireGuard endpoint 162.159.192.1:2408 must probe TCP 443 and return positive RTT
+        val r1 = PingEngine.executeDirectProbe("162.159.192.1:2408", timeoutMs = 2000L)
+        println("PROBE 162.159.192.1:2408: success=${r1.success}, rtt=${r1.rawRttMs}ms")
+        assertTrue(r1.success && r1.rawRttMs > 0L)
+
+        // Anycast endpoint 188.114.96.1:500 must probe TCP 443 and return positive RTT
+        val r2 = PingEngine.executeDirectProbe("188.114.96.1:500", timeoutMs = 2000L)
+        println("PROBE 188.114.96.1:500: success=${r2.success}, rtt=${r2.rawRttMs}ms")
+        assertTrue(r2.success && r2.rawRttMs > 0L)
+    }
 }
 

@@ -8,7 +8,6 @@ class ProxyStats {
     val totalBytesSent = AtomicLong(0)
     val activeConnections = AtomicInteger(0)
     val totalWsConnections = AtomicLong(0)
-    val totalMasqueConnections = AtomicLong(0)
     val totalAwgConnections = AtomicLong(0)
     val totalSocks5V2Sessions = AtomicLong(0)
     val totalSocks5V1Downgrades = AtomicLong(0)
@@ -67,34 +66,70 @@ class ProxyStats {
     var lastFailureType: FailureType = FailureType.NONE
 
     @Volatile
-    var healthScore: Int = 100
+    var healthScore: Int = 0
 
     @Volatile
-    var healthVerdict: String = "Optimal Connection"
+    var healthVerdict: String = "Calibrating"
 
     @Volatile
-    var healthDetail: String = "Minimal latency and stable direct WSS tunnel"
+    var healthDetail: String = "Checking transport route..."
 
     @Volatile
-    var healthSuccessRate: Int = 100
+    var healthSuccessRate: Int = 0
 
     @Volatile
-    var mosScore: Double = 4.50
+    var isCalibrating: Boolean = true
 
     @Volatile
-    var mosGrade: String = "HD Voice (Excellent)"
+    var isLiveTrafficActive: Boolean = false
 
     @Volatile
-    var isCallRecommended: Boolean = true
+    var warmReady: Int = 0
 
     @Volatile
-    var chatScore: Int = 100
+    var warmTarget: Int = 0
 
     @Volatile
-    var chatVerdict: String = "Ideal for media"
+    var poolHits: Long = 0L
 
     @Volatile
-    var callScore: Int = 100
+    var poolMisses: Long = 0L
+
+    @Volatile
+    var wsErrors: Long = 0L
+
+    @Volatile
+    var quota429Hits: Long = 0L
+
+    @Volatile
+    var activeEdgeDomain: String = ""
+
+    @Volatile
+    var healthyDomainsCount: Int = 0
+
+    @Volatile
+    var totalDomainsCount: Int = 0
+
+    @Volatile
+    var usefulSuccessCount: Long = 0L
+
+    @Volatile
+    var mosScore: Double = 1.00
+
+    @Volatile
+    var mosGrade: String = "Calibrating"
+
+    @Volatile
+    var isCallRecommended: Boolean = false
+
+    @Volatile
+    var chatScore: Int = 0
+
+    @Volatile
+    var chatVerdict: String = "Checking"
+
+    @Volatile
+    var callScore: Int = 0
 
     @Volatile
     var minRttMs: Long = -1L
@@ -117,10 +152,18 @@ class ProxyStats {
     var dcAffinitySummary: String = "Dominant DC: DC 2 | Active DC: 2 | MTProto standby: 2"
 
     @Volatile
-    var activeCascadeStage: String = "Scanned WARP (Frag)"
+    var activeTransportStage: String = "Anycast CDN Flowseal"
 
     @Volatile
-    var activeCascadeStageCode: Int = 0
+    var activeTransportStageCode: Int = 0
+
+    var activeCascadeStage: String
+        get() = activeTransportStage
+        set(value) { activeTransportStage = value }
+
+    var activeCascadeStageCode: Int
+        get() = activeTransportStageCode
+        set(value) { activeTransportStageCode = value }
 
     @Volatile
     var activeRouteGeneration: Long = 0L
@@ -179,19 +222,31 @@ class ProxyStats {
         jitterMs = 0L
         connectionQuality = ConnectionQuality.OFFLINE
         lastFailureType = FailureType.NONE
-        healthScore = 100
-        healthVerdict = "Optimal Connection"
-        healthDetail = "Waiting for network check..."
-        healthSuccessRate = 100
-        mosScore = 4.50
-        mosGrade = "HD Voice (Excellent)"
-        isCallRecommended = true
-        chatScore = 100
-        chatVerdict = "Ideal for media"
-        callScore = 100
+        healthScore = 0
+        healthVerdict = "Calibrating"
+        healthDetail = "Checking transport route..."
+        healthSuccessRate = 0
+        isCalibrating = true
+        isLiveTrafficActive = false
+        warmReady = 0
+        warmTarget = 0
+        poolHits = 0L
+        poolMisses = 0L
+        wsErrors = 0L
+        quota429Hits = 0L
+        activeEdgeDomain = ""
+        healthyDomainsCount = 0
+        totalDomainsCount = 0
+        usefulSuccessCount = 0L
+        mosScore = 1.00
+        mosGrade = "Calibrating"
+        isCallRecommended = false
+        chatScore = 0
+        chatVerdict = "Checking"
+        callScore = 0
         minRttMs = -1L
         bufferbloatMs = 0L
-        bufferbloatGrade = "A+ (Excellent)"
+        bufferbloatGrade = "—"
         currentAlpha = 0.25
         rttHistory = emptyList()
         lastActiveProbeRttMs = -1L
@@ -213,7 +268,6 @@ class ProxyStats {
         totalBytesReceived.set(0)
         totalBytesSent.set(0)
         totalWsConnections.set(0L)
-        totalMasqueConnections.set(0L)
         totalAwgConnections.set(0L)
         lastBytesRecv = -1L
         lastBytesSent = -1L
@@ -287,14 +341,6 @@ class ProxyStats {
                 if (ws != null && ws > totalWsConnections.get()) {
                     totalWsConnections.set(ws)
                     onTotalWsConnectionsChanged?.invoke(ws)
-                }
-            }
-
-            val masqueMatch = REGEX_MASQUE.find(rawStr)
-            if (masqueMatch != null) {
-                val m = masqueMatch.groupValues[1].toLongOrNull()
-                if (m != null && m > totalMasqueConnections.get()) {
-                    totalMasqueConnections.set(m)
                 }
             }
 
@@ -403,10 +449,6 @@ class ProxyStats {
         )
         private val REGEX_TOTAL = Regex(
             """(?:connections_total|total)[\s=:]+['"]?(\d+)""",
-            RegexOption.IGNORE_CASE
-        )
-        private val REGEX_MASQUE = Regex(
-            """(?:connections_masque|masque)[\s=:]+['"]?(\d+)""",
             RegexOption.IGNORE_CASE
         )
         private val REGEX_AWG = Regex(

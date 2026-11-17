@@ -17,10 +17,12 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -61,7 +63,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,11 +112,13 @@ fun MirrlyModalBottomSheet(
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     borderColor: Color = Color.Transparent,
     borderWidth: Dp = 0.dp,
-    containerColor: Color = AmoledBackground.copy(alpha = 0.50f),
-    scrimColor: Color = Color.Transparent,
+    containerColor: Color = Color.Black.copy(alpha = 0.50f),
+    scrimColor: Color = Color.Black.copy(alpha = 0.32f),
     maxTabletWidth: Dp = 520.dp,
     windowInsets: WindowInsets = WindowInsets.navigationBars,
     showDragHandle: Boolean = true,
+    enableBackdropBlur: Boolean = true,
+    blurRadiusPx: Int = 60,
     content: @Composable ColumnScope.() -> Unit
 ) {
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -123,6 +126,10 @@ fun MirrlyModalBottomSheet(
         onDispose {
             BottomSheetStateTracker.activeSheetCount = (BottomSheetStateTracker.activeSheetCount - 1).coerceAtLeast(0)
         }
+    }
+
+    if (enableBackdropBlur) {
+        rememberDialogBlurState(blurRadiusPx = blurRadiusPx)
     }
 
     ModalBottomSheet(
@@ -146,6 +153,12 @@ fun MirrlyModalBottomSheet(
             Column(
                 modifier = Modifier
                     .adaptiveContainerWidth(maxTabletWidth)
+                    .animateContentSize(
+                        animationSpec = spring(
+                            dampingRatio = 0.82f,
+                            stiffness = 380f
+                        )
+                    )
                     .padding(bottom = 16.dp),
                 content = content
             )
@@ -229,8 +242,8 @@ fun MirrlyBottomSheetHeader(
                 }),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_close),
+            MirrlyIcon(
+                id = R.drawable.ic_close,
                 contentDescription = null,
                 tint = TextMuted,
                 modifier = Modifier.size(14.dp)

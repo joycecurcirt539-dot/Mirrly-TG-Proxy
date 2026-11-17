@@ -57,7 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -215,8 +215,8 @@ fun AiQuickModelSheet(
                     onClick = onDismiss,
                     modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_close),
+                    MirrlyIcon(
+                        id = R.drawable.ic_close,
                         contentDescription = "Закрыть",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -432,7 +432,11 @@ fun AiQuickModelSheet(
                         )
                     }
                 } else {
-                    items(filteredItems) { (id, name, desc) ->
+                    items(
+                        filteredItems,
+                        key = { it.first },
+                        contentType = { "model_item" }
+                    ) { (id, name, desc) ->
                         val isCur = id == selectedModel
                         Row(
                             modifier = Modifier

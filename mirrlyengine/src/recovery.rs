@@ -207,7 +207,7 @@ pub fn record_if_current(
 fn apply_local_action(decision: &RecoveryDecision, action: RecoveryAction, network_gen: u64) {
     match action {
         RecoveryAction::RotateResolverAddress => {
-            crate::cfproxy::invalidate_doh_host(&decision.scope);
+            crate::cfproxy::invalidate_host_cache(&decision.scope);
             DNS_RECOVERY_EPOCH.fetch_add(1, Ordering::Relaxed);
             TCP_RECOVERY_EPOCH.fetch_add(1, Ordering::Relaxed);
         }

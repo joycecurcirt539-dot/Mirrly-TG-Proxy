@@ -31,12 +31,11 @@ class RouteSupervisorSyncTest {
     fun testParseNativeStatsExtractsRouteSpecificMetrics() {
         val stats = ProxyStats()
 
-        val rawStats = "total=50 active=4 ws=2 cf=2 masque=15 awg=10 bad=0 err=0 pool=4/8 up=1MB down=10MB"
+        val rawStats = "total=50 active=4 ws=2 cf=2 awg=10 bad=0 err=0 pool=4/8 up=1MB down=10MB"
         stats.parseNativeStats(rawStats)
 
         assertEquals(4, stats.activeConnections.get())
         assertEquals(2L, stats.totalWsConnections.get())
-        assertEquals(15L, stats.totalMasqueConnections.get())
         assertEquals(10L, stats.totalAwgConnections.get())
     }
 
@@ -44,12 +43,11 @@ class RouteSupervisorSyncTest {
     fun testParseNativeStatsRussianFormatExtractsRouteMetrics() {
         val stats = ProxyStats()
 
-        val rawRu = "акт:2 ws:5 cf:5 masque:7 awg:3 ош:0 ↑10KB ↓250KB"
+        val rawRu = "акт:2 ws:5 cf:5 awg:3 ош:0 ↑10KB ↓250KB"
         stats.parseNativeStats(rawRu)
 
         assertEquals(2, stats.activeConnections.get())
         assertEquals(5L, stats.totalWsConnections.get())
-        assertEquals(7L, stats.totalMasqueConnections.get())
         assertEquals(3L, stats.totalAwgConnections.get())
     }
 
@@ -57,18 +55,18 @@ class RouteSupervisorSyncTest {
     fun testRouteMetricsMonotonicIncrease() {
         val stats = ProxyStats()
 
-        stats.parseNativeStats("masque=5 awg=3")
-        assertEquals(5L, stats.totalMasqueConnections.get())
+        stats.parseNativeStats("ws=5 awg=3")
+        assertEquals(5L, stats.totalWsConnections.get())
         assertEquals(3L, stats.totalAwgConnections.get())
 
         // Lower numbers must not decrease counters
-        stats.parseNativeStats("masque=3 awg=2")
-        assertEquals(5L, stats.totalMasqueConnections.get())
+        stats.parseNativeStats("ws=3 awg=2")
+        assertEquals(5L, stats.totalWsConnections.get())
         assertEquals(3L, stats.totalAwgConnections.get())
 
         // Higher numbers increment counters
-        stats.parseNativeStats("masque=8 awg=7")
-        assertEquals(8L, stats.totalMasqueConnections.get())
+        stats.parseNativeStats("ws=8 awg=7")
+        assertEquals(8L, stats.totalWsConnections.get())
         assertEquals(7L, stats.totalAwgConnections.get())
     }
 
@@ -78,16 +76,15 @@ class RouteSupervisorSyncTest {
 
         val sampleJson = """
         {
-            "route_id": "masque",
+            "route_id": "awg",
             "generation": 4,
             "stage_code": 1,
-            "stage_name": "WARP MASQUE",
+            "stage_name": "WARP AmneziaWG",
             "active_idx": 0,
-            "candidates": ["masque", "awg", "worker"],
+            "candidates": ["awg", "worker"],
             "trace": [
-                {"timestamp_ms": 1720000000000, "generation": 1, "from_stage": "None", "to_stage": "WARP MASQUE", "reason": "Init intent"},
-                {"timestamp_ms": 1720000001000, "generation": 2, "from_stage": "WARP MASQUE", "to_stage": "WARP AmneziaWG", "reason": "Probe failover: QUIC blocked"},
-                {"timestamp_ms": 1720000002000, "generation": 4, "from_stage": "WARP AmneziaWG", "to_stage": "WARP MASQUE", "reason": "Intent switch"}
+                {"timestamp_ms": 1720000000000, "generation": 1, "from_stage": "None", "to_stage": "WARP AmneziaWG", "reason": "Init intent"},
+                {"timestamp_ms": 1720000001000, "generation": 2, "from_stage": "WARP AmneziaWG", "to_stage": "Cloudflare Worker", "reason": "Probe failover: AWG blocked"}
             ]
         }
         """.trimIndent()
@@ -107,9 +104,9 @@ class RouteSupervisorSyncTest {
 
         assertEquals(4L, stats.activeRouteGeneration)
         assertEquals(1, stats.activeCascadeStageCode)
-        assertEquals("WARP MASQUE", stats.activeCascadeStage)
-        assertEquals("masque", stats.activeRouteId)
-        assertTrue(stats.activeRouteTrace.contains("Probe failover: QUIC blocked"))
+        assertEquals("WARP AmneziaWG", stats.activeCascadeStage)
+        assertEquals("awg", stats.activeRouteId)
+        assertTrue(stats.activeRouteTrace.contains("Probe failover: AWG blocked"))
         assertTrue(stats.activeRouteTrace.contains("WARP AmneziaWG"))
     }
 
@@ -118,15 +115,13 @@ class RouteSupervisorSyncTest {
         // Unified stage codes across Rust, Kotlin LocalProxyServer, and ProxyForegroundService
         val stageCodes = mapOf(
             0 to "Direct",
-            1 to "WARP MASQUE",
-            2 to "WARP AmneziaWG",
-            3 to "Cloudflare Worker",
+            1 to "WARP AmneziaWG",
+            2 to "Cloudflare Worker",
             6 to "Direct TCP"
         )
 
-        assertEquals("WARP MASQUE", stageCodes[1])
-        assertEquals("WARP AmneziaWG", stageCodes[2])
-        assertEquals("Cloudflare Worker", stageCodes[3])
+        assertEquals("WARP AmneziaWG", stageCodes[1])
+        assertEquals("Cloudflare Worker", stageCodes[2])
         assertEquals("Direct TCP", stageCodes[6])
     }
 
@@ -136,11 +131,11 @@ class RouteSupervisorSyncTest {
 
         val sampleJson = """
         {
-            "route_id": "warp_masque",
+            "route_id": "warp_awg",
             "generation": 5,
             "stage_code": 1,
-            "stage_name": "WARP MASQUE",
-            "effective_route": "WARP MASQUE",
+            "stage_name": "WARP AmneziaWG",
+            "effective_route": "WARP AmneziaWG",
             "operator": "Cloudflare WARP",
             "is_private": false,
             "trust_boundary_maintained": true,
@@ -150,7 +145,7 @@ class RouteSupervisorSyncTest {
             "last_app_error": "",
             "app_success_count": 42,
             "app_failure_count": 2,
-            "candidates": ["warp_masque"],
+            "candidates": ["warp_awg"],
             "trace": []
         }
         """.trimIndent()
@@ -195,14 +190,14 @@ class RouteSupervisorSyncTest {
         stats.isUdpSupported = jobjWorker.optBoolean("supports_udp", true)
         assertFalse(stats.isUdpSupported)
 
-        // Test supported UDP (e.g. WARP MASQUE / AWG)
+        // Test supported UDP (e.g. WARP AmneziaWG / AWG)
         val warpJson = """
         {
-            "route_id": "warp_masque",
+            "route_id": "warp_awg",
             "generation": 8,
             "stage_code": 1,
-            "stage_name": "WARP MASQUE",
-            "effective_route": "WARP MASQUE",
+            "stage_name": "WARP AmneziaWG",
+            "effective_route": "WARP AmneziaWG",
             "operator": "Cloudflare WARP",
             "is_private": false,
             "supports_udp": true,
@@ -239,11 +234,11 @@ class RouteSupervisorSyncTest {
         // Simulating failed L3 bridge smoltcp handshake: transport is up, but app is not ready due to TCP RST
         val failureJson = """
         {
-            "route_id": "warp_masque",
+            "route_id": "warp_awg",
             "generation": 6,
             "stage_code": 1,
-            "stage_name": "WARP MASQUE",
-            "effective_route": "WARP MASQUE",
+            "stage_name": "WARP AmneziaWG",
+            "effective_route": "WARP AmneziaWG",
             "operator": "Cloudflare WARP",
             "is_private": false,
             "trust_boundary_maintained": true,

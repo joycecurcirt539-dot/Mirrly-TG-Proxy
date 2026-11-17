@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -114,6 +115,15 @@ fun CentralButtonView(
                     glowIntensity = effGlow,
                     modifier = scaledModifier
                 )
+            } else if (presetId == "cyber_aegis") {
+                val vpnPalette = customColors ?: rememberAnimatedProtocolColors(isVpn = true)
+                AnimatedCyberAegis(
+                    state = state,
+                    protocolColors = vpnPalette,
+                    strokeWidthDp = effStroke,
+                    glowIntensity = effGlow,
+                    modifier = scaledModifier
+                )
             } else {
                 val vpnPalette = customColors ?: rememberAnimatedProtocolColors(isVpn = true)
                 AnimatedWarpCloud(
@@ -130,6 +140,24 @@ fun CentralButtonView(
                 isSocks5 = isSocks5,
                 customColors = customColors,
                 strokeWidthDp = effStroke,
+                modifier = scaledModifier
+            )
+        }
+        presetId == "warp_cloud" -> {
+            val vpnPalette = customColors ?: rememberAnimatedProtocolColors(isVpn = isVpn)
+            AnimatedWarpCloud(
+                vpnColors = vpnPalette,
+                state = state.toVpnUiState(),
+                strokeWidthDp = effStroke,
+                modifier = scaledModifier
+            )
+        }
+        presetId == "cyber_aegis" -> {
+            AnimatedCyberAegis(
+                state = state,
+                protocolColors = customColors,
+                strokeWidthDp = effStroke,
+                glowIntensity = effGlow,
                 modifier = scaledModifier
             )
         }
@@ -161,7 +189,8 @@ private data class MascotParticle(
     val speed: Float,
     val radiusDp: Float,
     val phase: Float,
-    val alpha: Float
+    val alpha: Float,
+    val radiusPx: Float = 0f
 )
 
 private data class MascotScaledPaths(
@@ -289,22 +318,25 @@ fun AnimatedMirrlyLogo(
     }
     val eyesColor by animateColorAsState(targetEyes, tween(400), label = "eyesColor")
 
-    val mascotParticles = remember {
+    val density = LocalDensity.current
+    val strokeWidthPx = remember(density, strokeWidthDp) { with(density) { strokeWidthDp.dp.toPx() } }
+
+    val mascotParticles = remember(density) {
         listOf(
-            MascotParticle(relX = -0.32f, speed = 0.55f, radiusDp = 2.0f, phase = 0.12f, alpha = 0.70f),
-            MascotParticle(relX = -0.22f, speed = 0.75f, radiusDp = 2.5f, phase = 0.48f, alpha = 0.85f),
-            MascotParticle(relX = -0.12f, speed = 0.45f, radiusDp = 1.8f, phase = 0.82f, alpha = 0.60f),
-            MascotParticle(relX = -0.02f, speed = 0.85f, radiusDp = 2.8f, phase = 0.25f, alpha = 0.90f),
-            MascotParticle(relX = 0.08f,  speed = 0.60f, radiusDp = 2.2f, phase = 0.63f, alpha = 0.75f),
-            MascotParticle(relX = 0.18f,  speed = 0.80f, radiusDp = 2.4f, phase = 0.34f, alpha = 0.85f),
-            MascotParticle(relX = 0.28f,  speed = 0.50f, radiusDp = 1.8f, phase = 0.91f, alpha = 0.65f),
-            MascotParticle(relX = 0.36f,  speed = 0.70f, radiusDp = 2.0f, phase = 0.15f, alpha = 0.70f),
-            MascotParticle(relX = -0.26f, speed = 0.90f, radiusDp = 1.6f, phase = 0.71f, alpha = 0.60f),
-            MascotParticle(relX = -0.08f, speed = 0.65f, radiusDp = 2.2f, phase = 0.05f, alpha = 0.80f),
-            MascotParticle(relX = 0.02f,  speed = 0.95f, radiusDp = 2.6f, phase = 0.52f, alpha = 0.90f),
-            MascotParticle(relX = 0.14f,  speed = 0.58f, radiusDp = 1.9f, phase = 0.78f, alpha = 0.65f),
-            MascotParticle(relX = 0.24f,  speed = 0.82f, radiusDp = 2.3f, phase = 0.22f, alpha = 0.80f),
-            MascotParticle(relX = -0.16f, speed = 0.72f, radiusDp = 2.1f, phase = 0.39f, alpha = 0.75f)
+            MascotParticle(relX = -0.32f, speed = 0.55f, radiusDp = 2.0f, phase = 0.12f, alpha = 0.70f, radiusPx = with(density) { 2.0f.dp.toPx() }),
+            MascotParticle(relX = -0.22f, speed = 0.75f, radiusDp = 2.5f, phase = 0.48f, alpha = 0.85f, radiusPx = with(density) { 2.5f.dp.toPx() }),
+            MascotParticle(relX = -0.12f, speed = 0.45f, radiusDp = 1.8f, phase = 0.82f, alpha = 0.60f, radiusPx = with(density) { 1.8f.dp.toPx() }),
+            MascotParticle(relX = -0.02f, speed = 0.85f, radiusDp = 2.8f, phase = 0.25f, alpha = 0.90f, radiusPx = with(density) { 2.8f.dp.toPx() }),
+            MascotParticle(relX = 0.08f,  speed = 0.60f, radiusDp = 2.2f, phase = 0.63f, alpha = 0.75f, radiusPx = with(density) { 2.2f.dp.toPx() }),
+            MascotParticle(relX = 0.18f,  speed = 0.80f, radiusDp = 2.4f, phase = 0.34f, alpha = 0.85f, radiusPx = with(density) { 2.4f.dp.toPx() }),
+            MascotParticle(relX = 0.28f,  speed = 0.50f, radiusDp = 1.8f, phase = 0.91f, alpha = 0.65f, radiusPx = with(density) { 1.8f.dp.toPx() }),
+            MascotParticle(relX = 0.36f,  speed = 0.70f, radiusDp = 2.0f, phase = 0.15f, alpha = 0.70f, radiusPx = with(density) { 2.0f.dp.toPx() }),
+            MascotParticle(relX = -0.26f, speed = 0.90f, radiusDp = 1.6f, phase = 0.71f, alpha = 0.60f, radiusPx = with(density) { 1.6f.dp.toPx() }),
+            MascotParticle(relX = -0.08f, speed = 0.65f, radiusDp = 2.2f, phase = 0.05f, alpha = 0.80f, radiusPx = with(density) { 2.2f.dp.toPx() }),
+            MascotParticle(relX = 0.02f,  speed = 0.95f, radiusDp = 2.6f, phase = 0.52f, alpha = 0.90f, radiusPx = with(density) { 2.6f.dp.toPx() }),
+            MascotParticle(relX = 0.14f,  speed = 0.58f, radiusDp = 1.9f, phase = 0.78f, alpha = 0.65f, radiusPx = with(density) { 1.9f.dp.toPx() }),
+            MascotParticle(relX = 0.24f,  speed = 0.82f, radiusDp = 2.3f, phase = 0.22f, alpha = 0.80f, radiusPx = with(density) { 2.3f.dp.toPx() }),
+            MascotParticle(relX = -0.16f, speed = 0.72f, radiusDp = 2.1f, phase = 0.39f, alpha = 0.75f, radiusPx = with(density) { 2.1f.dp.toPx() })
         )
     }
 
@@ -313,14 +345,14 @@ fun AnimatedMirrlyLogo(
     val baseCat = remember { PathParser.createPathFromPathData(MIRRLY_MASCOT_CAT_PATH) }
     val baseEyes = remember { PathParser.createPathFromPathData(MIRRLY_MASCOT_EYES_PATH) }
 
-    val density = LocalDensity.current
-    val liftPx = with(density) { animatedLiftDp.toPx() }
-    val strokeWidthPx = remember(density, strokeWidthDp) { with(density) { strokeWidthDp.dp.toPx() } }
+    var cachedWidth by remember { mutableStateOf(0f) }
+    var cachedHeight by remember { mutableStateOf(0f) }
+    var cachedScaledPaths by remember { mutableStateOf<MascotScaledPaths?>(null) }
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        val t = if (!isAnimationsDisabled) timeState.value / 1_000_000_000f else 0f
-
         Canvas(modifier = Modifier.fillMaxSize()) {
+            val liftPx = animatedLiftDp.toPx()
+            val t = if (!isAnimationsDisabled) timeState.value / 1_000_000_000f else 0f
             val diameter = size.minDimension
 
             // Кинетическая левитация только в активном состоянии
@@ -339,7 +371,7 @@ fun AnimatedMirrlyLogo(
                     val pY = effectiveCenter.y + diameter * 0.32f - prog * (diameter * 0.65f)
                     val pX = effectiveCenter.x + diameter * p.relX + sin(t * 2.8f + p.phase * 6.28f) * (diameter * 0.024f)
                     val pAlpha = (sin(prog * Math.PI.toFloat()) * p.alpha).coerceIn(0f, 1f)
-                    val pRadius = p.radiusDp.dp.toPx()
+                    val pRadius = p.radiusPx
 
                     drawCircle(
                         color = protoColors.primary.copy(alpha = (pAlpha * 0.85f).coerceIn(0f, 1f)),
@@ -359,83 +391,94 @@ fun AnimatedMirrlyLogo(
                 }
             }
 
-            // Масштабирование путей композиции маскота под геометрию Canvas
-            val srcBounds = RectF(1f, 0f, 638f, 619f)
-            val paddingPx = diameter * 0.08f
-            val availW = size.width - 2 * paddingPx
-            val availH = size.height - 2 * paddingPx
-            val scale = (availW / srcBounds.width()).coerceAtMost(availH / srcBounds.height())
-            val dx = (size.width - srcBounds.width() * scale) / 2f - srcBounds.left * scale
-            val dy = (size.height - srcBounds.height() * scale) / 2f - srcBounds.top * scale + liftPx + driftY + rumbleY
+            // Кэширование геометрии путей маскота под геометрию Canvas (Zero Allocation в 120 FPS)
+            if (cachedScaledPaths == null || cachedWidth != size.width || cachedHeight != size.height) {
+                cachedWidth = size.width
+                cachedHeight = size.height
 
-            val transformMatrix = Matrix().apply {
-                postScale(scale, scale)
-                postTranslate(dx, dy)
+                val srcBounds = RectF(1f, 0f, 638f, 619f)
+                val paddingPx = diameter * 0.08f
+                val availW = size.width - 2 * paddingPx
+                val availH = size.height - 2 * paddingPx
+                val scale = (availW / srcBounds.width()).coerceAtMost(availH / srcBounds.height())
+                val dx = (size.width - srcBounds.width() * scale) / 2f - srcBounds.left * scale
+                val dy = (size.height - srcBounds.height() * scale) / 2f - srcBounds.top * scale
+
+                val transformMatrix = Matrix().apply {
+                    postScale(scale, scale)
+                    postTranslate(dx, dy)
+                }
+
+                cachedScaledPaths = MascotScaledPaths(
+                    planePath = android.graphics.Path(basePlane).apply { transform(transformMatrix) }.asComposePath(),
+                    wingShadowPath = android.graphics.Path(baseWing).apply { transform(transformMatrix) }.asComposePath(),
+                    catPath = android.graphics.Path(baseCat).apply { transform(transformMatrix) }.asComposePath(),
+                    eyesPath = android.graphics.Path(baseEyes).apply { transform(transformMatrix) }.asComposePath()
+                )
             }
 
-            val planePath = android.graphics.Path(basePlane).apply { transform(transformMatrix) }.asComposePath()
-            val wingPath = android.graphics.Path(baseWing).apply { transform(transformMatrix) }.asComposePath()
-            val catPath = android.graphics.Path(baseCat).apply { transform(transformMatrix) }.asComposePath()
-            val eyesPath = android.graphics.Path(baseEyes).apply { transform(transformMatrix) }.asComposePath()
+            val paths = cachedScaledPaths ?: return@Canvas
 
-            rotate(degrees = rollDeg, pivot = effectiveCenter) {
-                // 1. Самолётик: заливка основного тела
-                drawPath(path = planePath, color = planeFillColor)
+            translate(left = 0f, top = liftPx + driftY + rumbleY) {
+                rotate(degrees = rollDeg, pivot = Offset(size.width / 2f, size.height / 2f)) {
+                    // 1. Самолётик: заливка основного тела
+                    drawPath(path = paths.planePath, color = planeFillColor)
 
-                // 2. Самолётик: теневая грань складки крыла
-                drawPath(path = wingPath, color = wingShadowColor)
+                    // 2. Самолётик: теневая грань складки крыла
+                    drawPath(path = paths.wingShadowPath, color = wingShadowColor)
 
-                // 3. Неоновый контурный ореол вокруг самолётика при свечении
-                if (isActive && glowIntensity > 0f) {
+                    // 3. Неоновый контурный ореол вокруг самолётика при свечении
+                    if (isActive && glowIntensity > 0f) {
+                        drawPath(
+                            path = paths.planePath,
+                            color = planeStrokeColor.copy(alpha = (0.24f * glowIntensity).coerceIn(0f, 0.8f)),
+                            style = Stroke(
+                                width = strokeWidthPx * (2.2f + glowIntensity * 0.8f),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
+                        )
+                    }
+
+                    // 4. Самолётик: четкий контур
                     drawPath(
-                        path = planePath,
-                        color = planeStrokeColor.copy(alpha = (0.24f * glowIntensity).coerceIn(0f, 0.8f)),
+                        path = paths.planePath,
+                        color = planeStrokeColor,
                         style = Stroke(
-                            width = strokeWidthPx * (2.2f + glowIntensity * 0.8f),
+                            width = strokeWidthPx,
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round
+                        )
+                    )
+
+                    // 5. Кот: заливка силуэта
+                    drawPath(path = paths.catPath, color = catFillColor)
+
+                    // 6. Кот: глаза
+                    drawPath(path = paths.eyesPath, color = eyesColor)
+                    if (isActive) {
+                        drawPath(
+                            path = paths.eyesPath,
+                            color = Color.White.copy(alpha = 0.50f),
+                            style = Stroke(
+                                width = strokeWidthPx * 1.4f,
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
+                        )
+                    }
+
+                    // 7. Кот: контур
+                    drawPath(
+                        path = paths.catPath,
+                        color = catStrokeColor,
+                        style = Stroke(
+                            width = strokeWidthPx * 0.85f,
                             cap = StrokeCap.Round,
                             join = StrokeJoin.Round
                         )
                     )
                 }
-
-                // 4. Самолётик: четкий контур
-                drawPath(
-                    path = planePath,
-                    color = planeStrokeColor,
-                    style = Stroke(
-                        width = strokeWidthPx,
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round
-                    )
-                )
-
-                // 5. Кот: заливка силуэта
-                drawPath(path = catPath, color = catFillColor)
-
-                // 6. Кот: глаза
-                drawPath(path = eyesPath, color = eyesColor)
-                if (isActive) {
-                    drawPath(
-                        path = eyesPath,
-                        color = Color.White.copy(alpha = 0.50f),
-                        style = Stroke(
-                            width = strokeWidthPx * 1.4f,
-                            cap = StrokeCap.Round,
-                            join = StrokeJoin.Round
-                        )
-                    )
-                }
-
-                // 7. Кот: контур
-                drawPath(
-                    path = catPath,
-                    color = catStrokeColor,
-                    style = Stroke(
-                        width = strokeWidthPx * 0.85f,
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round
-                    )
-                )
             }
         }
     }
@@ -515,9 +558,14 @@ fun AnimatedDynamicVectorButton(
 
     val density = LocalDensity.current
     val strokeWidthPx = remember(density, strokeWidthDp) { with(density) { strokeWidthDp.dp.toPx() } }
-    val liftPx = with(density) { animatedLiftDp.toPx() }
+
+    var cachedWidth by remember { mutableStateOf(0f) }
+    var cachedHeight by remember { mutableStateOf(0f) }
+    var cachedPathData by remember { mutableStateOf("") }
+    var cachedComposePath by remember { mutableStateOf<Path?>(null) }
 
     Canvas(modifier = modifier) {
+        val liftPx = animatedLiftDp.toPx()
         val t = if (!isAnimationsDisabled) timeState.value / 1_000_000_000f else 0f
         val diameter = size.minDimension
 
@@ -533,11 +581,18 @@ fun AnimatedDynamicVectorButton(
 
         val effectiveCenter = Offset(size.width / 2f, size.height / 2f + liftPx + driftY + rumbleY)
 
-        val path = SvgPathDataParser.createScaledComposePath(
-            rawInput = pathData,
-            targetSize = size,
-            paddingPx = diameter * 0.12f
-        ) ?: return@Canvas
+        if (cachedComposePath == null || cachedWidth != size.width || cachedHeight != size.height || cachedPathData != pathData) {
+            cachedWidth = size.width
+            cachedHeight = size.height
+            cachedPathData = pathData
+            cachedComposePath = SvgPathDataParser.createScaledComposePath(
+                rawInput = pathData,
+                targetSize = size,
+                paddingPx = diameter * 0.12f
+            )
+        }
+
+        val path = cachedComposePath ?: return@Canvas
 
         rotate(degrees = rollAngle, pivot = effectiveCenter) {
             // Неоновый ореол при активном соединении с настраиваемой интенсивностью
@@ -563,6 +618,235 @@ fun AnimatedDynamicVectorButton(
                     join = StrokeJoin.Round
                 )
             )
+        }
+    }
+}
+
+/**
+ * Кинетический рендерер защитного щита «Кибер-эгида» (Cyber Aegis).
+ * Многослойная фасеточная геометрия с орбитальными квантовыми узлами,
+ * пульсирующим кристаллом в ядре, пружинным набором эшелона и защитой 120 FPS.
+ */
+@Composable
+fun AnimatedCyberAegis(
+    state: ProxyUiState,
+    protocolColors: ProtocolColors? = null,
+    strokeWidthDp: Float = 2.0f,
+    glowIntensity: Float = 1.0f,
+    modifier: Modifier = Modifier
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isAppResumed by remember { mutableStateOf(true) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isAppResumed = false
+                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> isAppResumed = true
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val app = MirrlyApplication.instance
+    val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
+
+    val timeState = produceState(initialValue = 0L, isAppResumed, isAnimationsDisabled) {
+        if (!isAppResumed || isAnimationsDisabled) return@produceState
+        val startNano = System.nanoTime() - value
+        while (isAppResumed && !isAnimationsDisabled) {
+            withFrameNanos { frameTimeNanos ->
+                value = frameTimeNanos - startNano
+            }
+        }
+    }
+
+    val defaultColors = LocalProtocolColors.current
+    val protoColors = protocolColors ?: defaultColors
+    val isActive = state == ProxyUiState.CONNECTED || state == ProxyUiState.CONNECTING
+
+    val targetStrokeColor = when (state) {
+        ProxyUiState.CONNECTING -> protoColors.light
+        ProxyUiState.CONNECTED -> protoColors.primary
+        ProxyUiState.DISCONNECTING -> protoColors.primary.copy(alpha = 0.65f)
+        ProxyUiState.DISCONNECTED -> protoColors.primary.copy(alpha = 0.80f)
+    }
+    val animatedColor by animateColorAsState(
+        targetValue = targetStrokeColor,
+        animationSpec = tween(450, easing = FastOutSlowInEasing),
+        label = "cyberAegisColor"
+    )
+
+    val targetLiftDp = when (state) {
+        ProxyUiState.CONNECTING -> (-4.0).dp
+        ProxyUiState.CONNECTED -> (-2.5).dp
+        ProxyUiState.DISCONNECTING -> (-0.5).dp
+        ProxyUiState.DISCONNECTED -> 0.0.dp
+    }
+    val animatedLiftDp by animateDpAsState(
+        targetValue = targetLiftDp,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
+        label = "cyberAegisLift"
+    )
+
+    val targetScale = when (state) {
+        ProxyUiState.CONNECTING -> 0.90f
+        ProxyUiState.CONNECTED -> 1.00f
+        ProxyUiState.DISCONNECTING -> 0.95f
+        ProxyUiState.DISCONNECTED -> 0.94f
+    }
+    val animatedScale by animateFloatAsState(
+        targetValue = targetScale,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMediumLow),
+        label = "cyberAegisScale"
+    )
+
+    val density = LocalDensity.current
+    val strokeWidthPx = remember(density, strokeWidthDp) { with(density) { strokeWidthDp.dp.toPx() } }
+
+    val baseAegisAndroidPath = remember {
+        PathParser.createPathFromPathData(CentralButtonPresets.CYBER_AEGIS_VECTOR)
+    }
+
+    var cachedWidth by remember { mutableStateOf(0f) }
+    var cachedHeight by remember { mutableStateOf(0f) }
+    var cachedComposePath by remember { mutableStateOf<Path?>(null) }
+
+    Canvas(
+        modifier = modifier.graphicsLayer {
+            scaleX = animatedScale
+            scaleY = animatedScale
+        }
+    ) {
+        val liftPx = animatedLiftDp.toPx()
+        val t = if (!isAnimationsDisabled) timeState.value / 1_000_000_000f else 0f
+        val diameter = size.minDimension
+
+        // Аэродинамическое парение и вибрация
+        val floatAmp = if (isActive) diameter * 0.022f else diameter * 0.012f
+        val floatFreq = if (isActive) 2.0f else 1.2f
+        val driftY = sin(t * floatFreq) * floatAmp
+        val rumbleY = if (state == ProxyUiState.CONNECTING) sin(t * 36f) * (diameter * 0.007f) else 0f
+        val rollAngle = if (state == ProxyUiState.CONNECTED) sin(t * 1.4f) * 1.8f else sin(t * 1.0f) * 0.8f
+
+        val effectiveCenter = Offset(size.width / 2f, size.height / 2f + liftPx + driftY + rumbleY)
+
+        // Кэширование геометрии пути при изменении размера Canvas (Zero Allocation в 120 FPS)
+        if (cachedComposePath == null || cachedWidth != size.width || cachedHeight != size.height) {
+            cachedWidth = size.width
+            cachedHeight = size.height
+
+            val bounds = RectF()
+            baseAegisAndroidPath.computeBounds(bounds, true)
+            val paddingPx = diameter * 0.12f
+            val availW = (size.width - 2 * paddingPx).coerceAtLeast(1f)
+            val availH = (size.height - 2 * paddingPx).coerceAtLeast(1f)
+            val scale = (availW / bounds.width()).coerceAtMost(availH / bounds.height())
+            val dx = (size.width - bounds.width() * scale) / 2f - bounds.left * scale
+            val dy = (size.height - bounds.height() * scale) / 2f - bounds.top * scale
+
+            val matrix = Matrix().apply {
+                postScale(scale, scale)
+                postTranslate(dx, dy)
+            }
+            val transformed = android.graphics.Path(baseAegisAndroidPath)
+            transformed.transform(matrix)
+            cachedComposePath = transformed.asComposePath()
+        }
+
+        val aegisPath = cachedComposePath ?: return@Canvas
+
+        rotate(degrees = rollAngle, pivot = effectiveCenter) {
+            // 1. Внешнее неоновое контурное свечение (Halo)
+            if (isActive && glowIntensity > 0f) {
+                drawPath(
+                    path = aegisPath,
+                    color = animatedColor.copy(alpha = (0.26f * glowIntensity).coerceIn(0f, 0.8f)),
+                    style = Stroke(
+                        width = strokeWidthPx * (2.2f + glowIntensity * 0.8f),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                )
+            }
+
+            // 2. Основной четкий контур силового щита
+            drawPath(
+                path = aegisPath,
+                color = animatedColor,
+                style = Stroke(
+                    width = strokeWidthPx,
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
+
+            // 3. Центральное квантовое ядро (Pulsing Diamond Core)
+            val corePulse = if (state == ProxyUiState.CONNECTING) {
+                0.7f + 0.3f * sin(t * 24f)
+            } else if (state == ProxyUiState.CONNECTED) {
+                0.85f + 0.15f * sin(t * 3.2f)
+            } else {
+                0.50f
+            }
+            val coreR = diameter * 0.055f * corePulse
+
+            // Фоновая аура ядра
+            drawCircle(
+                color = protoColors.primary.copy(alpha = if (isActive) 0.35f * glowIntensity else 0.15f),
+                radius = coreR * 1.8f,
+                center = effectiveCenter
+            )
+            // Ионный диск ядра
+            drawCircle(
+                color = protoColors.light.copy(alpha = if (isActive) 0.85f else 0.40f),
+                radius = coreR,
+                center = effectiveCenter
+            )
+            // Белая фотонная точка в центре
+            if (isActive) {
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.95f),
+                    radius = coreR * 0.45f,
+                    center = effectiveCenter
+                )
+            }
+
+            // 4. Орбитальные квантовые узлы по периметру щита (6 узлов)
+            if (isActive && !isAnimationsDisabled) {
+                val nodeCount = 6
+                val orbitRadiusX = diameter * 0.38f
+                val orbitRadiusY = diameter * 0.42f
+                val baseAngle = t * 1.2f
+
+                for (i in 0 until nodeCount) {
+                    val angleRad = baseAngle + i * (2.0 * Math.PI / nodeCount).toFloat()
+                    val nodeX = effectiveCenter.x + cos(angleRad).toFloat() * orbitRadiusX
+                    val nodeY = effectiveCenter.y + sin(angleRad).toFloat() * orbitRadiusY
+                    val nodeAlpha = 0.55f + 0.45f * sin(baseAngle * 2f + i)
+
+                    // Свечение узла
+                    drawCircle(
+                        color = protoColors.primary.copy(alpha = (nodeAlpha * 0.4f * glowIntensity).coerceIn(0f, 1f)),
+                        radius = strokeWidthPx * 2.2f,
+                        center = Offset(nodeX, nodeY)
+                    )
+                    // Ядро узла
+                    drawCircle(
+                        color = protoColors.light.copy(alpha = nodeAlpha),
+                        radius = strokeWidthPx * 1.1f,
+                        center = Offset(nodeX, nodeY)
+                    )
+                    // Фотонный центр узла
+                    drawCircle(
+                        color = Color.White.copy(alpha = nodeAlpha),
+                        radius = strokeWidthPx * 0.5f,
+                        center = Offset(nodeX, nodeY)
+                    )
+                }
+            }
         }
     }
 }

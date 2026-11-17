@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
+import com.mirrly.tgproxy.ui.theme.AmoledBackground
 import com.mirrly.tgproxy.ui.theme.AmoledBorder
 import com.mirrly.tgproxy.ui.theme.TextMuted
 import com.mirrly.tgproxy.ui.theme.TextWhite
@@ -190,9 +191,15 @@ fun ExternalLinkConfirmDialog(
     val haptic = LocalHapticFeedback.current
     val details = remember(url, title, description, context) { getLinkDetails(context, url, title, description) }
 
+    rememberDialogBlurState(blurRadiusPx = 60)
+
     MirrlyModalBottomSheet(
         onDismissRequest = onDismiss,
-        maxTabletWidth = 480.dp
+        maxTabletWidth = 480.dp,
+        containerColor = AmoledBackground.copy(alpha = 0.94f),
+        scrimColor = AmoledBackground.copy(alpha = 0.65f),
+        enableBackdropBlur = true,
+        blurRadiusPx = 60
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -300,17 +307,30 @@ fun ExternalLinkConfirmDialog(
                             onDismiss()
                             onConfirmed?.invoke()
                             try {
-                                val uri = Uri.parse(url.trim())
+                                val raw = url.trim()
+                                val uri = if (raw.contains("t.me/")) {
+                                    val domain = raw.substringAfter("t.me/").trim('/')
+                                    Uri.parse("tg://resolve?domain=$domain")
+                                } else {
+                                    Uri.parse(raw)
+                                }
                                 val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
                                 context.startActivity(intent)
-                            } catch (e: Exception) {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.err_open_link, e.localizedMessage ?: ""),
-                                    Toast.LENGTH_SHORT
-                                ).show()
+                            } catch (_: Exception) {
+                                try {
+                                    val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url.trim())).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(fallbackIntent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.err_open_link, e.localizedMessage ?: ""),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             }
                         }),
                     contentAlignment = Alignment.Center

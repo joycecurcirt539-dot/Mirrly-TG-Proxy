@@ -17,14 +17,14 @@ import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.core.BuiltinVpnServers
 import com.mirrly.tgproxy.core.NativeProxy
 import com.mirrly.tgproxy.core.VpnSocketProtector
-import com.mirrly.tgproxy.core.WarpAccountManager
-import com.mirrly.tgproxy.core.WarpEndpointScanner
 import com.mirrly.tgproxy.service.vpn.TunHolder
 import org.json.JSONObject
 import com.mirrly.tgproxy.service.vpn.VpnFailureReason
@@ -47,16 +47,30 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.asCoroutineDispatcher
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Промышленная системная служба VpnService (Tasks N01–N20).
  * Объединяет L3/L4 userspace стек TUN, защиту внешних сокетов от петель,
- * привязку к физической сети, DNS DoH резолвер и идемпотентный жизненный цикл.
+ * привязку к физической сети, системный DNS и идемпотентный жизненный цикл.
  */
 class MirrlyVpnService : VpnService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /**
+     * Выделенный исполнитель потоков с увеличенным размером стека 10 МБ (0xA00000 = 10_485_760L байт).
+     * Реализован строго по эталону Cloudflare WARP (com.cloudflare.increased_stack_size.*)
+     * для исключения StackOverflowError при глубокой рекурсии Tokio, криптографии Kyber-768/ML-KEM и UniFFI.
+     */
+    private val increasedStackExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(null, runnable, "cf-warp-increased-stack", 10_485_760L) // 10 МБ
+    }
+    private val vpnDispatcher = increasedStackExecutor.asCoroutineDispatcher()
+    private val isResetting = AtomicBoolean(false)
     @Volatile
     private var tunHolder: TunHolder? = null
     @Volatile
@@ -73,10 +87,12 @@ class MirrlyVpnService : VpnService() {
     private var sleepWakeDebounceJob: Job? = null
     @Volatile
     private var startTimeMs: Long = 0L
+    @Volatile
+    private var isScreenOn: Boolean = true
     private val lifecycleLock = Any()
 
     companion object {
-        private const val TAG = "MirrlyVpnService"
+        private const val TAG = "MirrlyVPN"
         const val ACTION_START = "com.mirrly.tgproxy.VPN_START"
         const val ACTION_STOP = "com.mirrly.tgproxy.VPN_STOP"
         const val ACTION_RESTART = "com.mirrly.tgproxy.VPN_RESTART"
@@ -163,6 +179,9 @@ class MirrlyVpnService : VpnService() {
                 activeProfileName = if (profileName.isNotEmpty()) profileName else current.activeProfileName,
                 uplinkMode = if (uplinkMode.isNotEmpty()) uplinkMode else current.uplinkMode
             )
+            try {
+                VpnTileService.requestSync(MirrlyApplication.instance)
+            } catch (_: Throwable) {}
         }
     }
 
@@ -178,10 +197,12 @@ class MirrlyVpnService : VpnService() {
             val ok = try {
                 protect(fd)
             } catch (e: Exception) {
-                AppLogger.w(TAG, "protect(fd=$fd) исключение: ${e.message}")
+                Log.w(TAG, "VPN [Protect]: protect(fd=$fd) исключение: ${e.message}")
+                AppLogger.w(TAG, "VPN [Protect]: protect(fd=$fd) исключение: ${e.message}")
                 false
             }
-            AppLogger.d(TAG, "NativeProxy: protect(fd=$fd) -> $ok")
+            Log.i(TAG, "VPN [Protect]: protect_socket_fd(fd=$fd) -> $ok")
+            AppLogger.i(TAG, "VPN [Protect]: protect_socket_fd(fd=$fd) -> $ok")
             ok
         }
         registerSleepWakeReceiver()
@@ -191,7 +212,7 @@ class MirrlyVpnService : VpnService() {
     /**
      * Регистрация приемника событий сна и пробуждения устройства (Cloudflare DeviceSleepWakeReceiver Model).
      * Отслеживает SCREEN_ON, SCREEN_OFF и выход из Doze-режима (ACTION_DEVICE_IDLE_MODE_CHANGED).
-     * При пробуждении перезапрашивает физическую сеть и сбрасывает устаревшие NAT-сессии WireGuard/AWG/MASQUE.
+     * При пробуждении перезапрашивает физическую сеть и сбрасывает устаревшие NAT-сессии WireGuard/AWG.
      */
     private fun registerSleepWakeReceiver() {
         if (sleepWakeReceiver != null) return
@@ -199,9 +220,11 @@ class MirrlyVpnService : VpnService() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     Intent.ACTION_SCREEN_OFF -> {
+                        isScreenOn = false
                         AppLogger.d(TAG, "DeviceSleepWakeReceiver: экран выключен, устройство переходит в энергосбережение")
                     }
                     Intent.ACTION_SCREEN_ON, PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
+                        isScreenOn = true
                         val actionName = intent.action ?: "WAKEUP"
                         AppLogger.i(TAG, "DeviceSleepWakeReceiver: событие пробуждения ($actionName), запуск восстановления туннеля...")
                         sleepWakeDebounceJob?.cancel()
@@ -214,7 +237,7 @@ class MirrlyVpnService : VpnService() {
                                 AppLogger.i(TAG, "DeviceSleepWakeReceiver: активная физическая сеть $physical, обновление underlying networks и сброс внешних сокетов")
                                 broker.applyUnderlyingNetworks(physical)
                                 try {
-                                    NativeProxy.resetVpnSockets()
+                                    NativeProxy.notifyVpnReconnect()
                                 } catch (e: Exception) {
                                     AppLogger.w(TAG, "DeviceSleepWakeReceiver: сбой сброса VPN сокетов: ${e.message}")
                                 }
@@ -272,11 +295,26 @@ class MirrlyVpnService : VpnService() {
     }
 
     private fun restartVpn() {
+        managedResetTunnel()
+    }
+
+    /**
+     * Конечный автомат перезапуска туннеля (Cloudflare managedResetTunnel Model).
+     * Обеспечивает защиту от дребезга и повторного входа (AtomicBoolean isResetting),
+     * выполняет деактивацию нативного ядра и добавляет защитную паузу 5000 мс перед
+     * повторным подключением к Anycast-узлам для предотвращения спама пакетами.
+     */
+    private fun managedResetTunnel() {
         if (!_vpnStatus.value.isRunning && tunHolder == null) {
-            AppLogger.d(TAG, "restartVpn: VPN не запущен, пропуск")
+            AppLogger.d(TAG, "managedResetTunnel: VPN не запущен, пропуск")
             return
         }
-        AppLogger.i(TAG, "Перезапуск VPN-туннеля (ACTION_RESTART)...")
+        if (!isResetting.compareAndSet(false, true)) {
+            AppLogger.w(TAG, "managedResetTunnel: перезапуск уже выполняется (isResetting=true), повторный запрос отклонен")
+            return
+        }
+
+        AppLogger.i(TAG, "Перезапуск VPN-туннеля (ACTION_RESTART / managedResetTunnel)...")
         vpnGeneration.incrementAndGet()
         startJob?.cancel()
         startJob = null
@@ -286,33 +324,53 @@ class MirrlyVpnService : VpnService() {
 
         stopJob?.cancel()
         stopJob = serviceScope.launch(Dispatchers.IO + NonCancellable) {
-            synchronized(lifecycleLock) {
-                try {
-                    NativeProxy.stopVpn()
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Ошибка stopVpn() при перезапуске: ${e.message}")
+            try {
+                synchronized(lifecycleLock) {
+                    try {
+                        NativeProxy.stopVpn()
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Ошибка stopVpn() при перезапуске: ${e.message}")
+                    }
+                    try {
+                        NativeProxy.clearProtectCallback()
+                    } catch (_: Exception) {}
+                    try {
+                        networkBroker?.stop()
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Ошибка networkBroker.stop() при перезапуске: ${e.message}")
+                    }
+                    networkBroker = null
+                    try {
+                        VpnSocketProtector.unregister()
+                    } catch (_: Exception) {}
+                    try {
+                        tunHolder?.closeSafely()
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Ошибка closeSafely() при перезапуске: ${e.message}")
+                    }
+                    tunHolder = null
                 }
-                try {
-                    NativeProxy.clearProtectCallback()
-                } catch (_: Exception) {}
-                try {
-                    networkBroker?.stop()
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Ошибка networkBroker.stop() при перезапуске: ${e.message}")
+
+                // Быстрая пауза 300 мс: даёт ОС время закрыть сетевые сокеты и освободить ресурсы
+                AppLogger.i(TAG, "managedResetTunnel: сброс туннеля и подготовка новой сессии...")
+                delay(300L)
+
+                // Очищаем статус и счетчики старой сессии
+                _vpnStatus.value = _vpnStatus.value.copy(
+                    bytesIn = 0L,
+                    bytesOut = 0L,
+                    activeTcpFlows = 0,
+                    activeUdpSessions = 0,
+                    uptimeMs = 0L
+                )
+
+                isResetting.set(false)
+
+                withContext(Dispatchers.Main) {
+                    startVpn()
                 }
-                networkBroker = null
-                try {
-                    VpnSocketProtector.unregister()
-                } catch (_: Exception) {}
-                try {
-                    tunHolder?.closeSafely()
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Ошибка closeSafely() при перезапуске: ${e.message}")
-                }
-                tunHolder = null
-            }
-            withContext(Dispatchers.Main) {
-                startVpn()
+            } finally {
+                isResetting.set(false)
             }
         }
     }
@@ -325,6 +383,15 @@ class MirrlyVpnService : VpnService() {
             updateState(VpnInternalState.RUNNING)
             return
         }
+
+        startTimeMs = System.currentTimeMillis()
+        _vpnStatus.value = _vpnStatus.value.copy(
+            bytesIn = 0L,
+            bytesOut = 0L,
+            activeTcpFlows = 0,
+            activeUdpSessions = 0,
+            uptimeMs = 0L
+        )
 
         if (packageName != "com.mirrly.tgproxy" || !NativeProxy.isEngineAuthorized()) {
             val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
@@ -366,15 +433,17 @@ class MirrlyVpnService : VpnService() {
             val ok = try {
                 protect(fd)
             } catch (e: Exception) {
-                AppLogger.w(TAG, "protect(fd=$fd) исключение: ${e.message}")
+                Log.w(TAG, "VPN [Protect]: protect(fd=$fd) исключение: ${e.message}")
+                AppLogger.w(TAG, "VPN [Protect]: protect(fd=$fd) исключение: ${e.message}")
                 false
             }
-            AppLogger.d(TAG, "NativeProxy: protect(fd=$fd) -> $ok")
+            Log.i(TAG, "VPN [Protect]: protect_socket_fd(fd=$fd) -> $ok")
+            AppLogger.i(TAG, "VPN [Protect]: protect_socket_fd(fd=$fd) -> $ok")
             ok
         }
 
         val previousStop = stopJob
-        startJob = serviceScope.launch(Dispatchers.IO) {
+        startJob = serviceScope.launch(vpnDispatcher) {
             try {
                 previousStop?.join()
                 if (!isActive || vpnGeneration.get() != gen) return@launch
@@ -382,68 +451,95 @@ class MirrlyVpnService : VpnService() {
                 val config = app.config
 
                 // 1. Инициализация параметров Cloudflare WARP (WireGuard AWG)
+                // Автовыбор: если включен ID_AUTO и в кэше менеджера еще нет замеров пинга,
+                // выполняем быстрый параллельный замер Anycast/EU узлов для выбора наилучшего
+                if (app.prefsManager.getSelectedBuiltinServerId() == BuiltinVpnServers.ID_AUTO &&
+                    !app.prefsManager.isVpnUseCustomProfile() &&
+                    app.warpProfileManager.getAllServerPings().isEmpty()
+                ) {
+                    try {
+                        val candidates = listOf(
+                            BuiltinVpnServers.SERVER_BUILTIN_DEFAULT,
+                            BuiltinVpnServers.SERVER_BUILTIN_NL,
+                            BuiltinVpnServers.SERVER_BUILTIN_DE,
+                            BuiltinVpnServers.SERVER_BUILTIN_FI
+                        )
+                        val endpointsCsv = candidates.joinToString(",") { it.endpoint }
+                        val probeJson = NativeProxy.probeWarpEndpoints(endpointsCsv, protocol = 0, timeoutMs = 700)
+                        val arr = org.json.JSONArray(probeJson)
+                        for (i in 0 until arr.length()) {
+                            val obj = arr.getJSONObject(i)
+                            val ep = obj.optString("endpoint", "")
+                            val rtt = obj.optLong("rtt_ms", -1L)
+                            if (ep.isNotBlank() && rtt > 0L) {
+                                candidates.find { it.endpoint == ep }?.let {
+                                    app.warpProfileManager.recordServerPing(it.id, rtt)
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
                 // Если профиль не был предварительно сгенерирован (новое устройство или свежая установка),
                 // гарантированно создаем и активируем базовый профиль AmneziaWG (Cloudflare Model).
                 val activeSavedProfile = app.warpProfileManager.getEffectiveActiveProfile()
                     ?: app.warpProfileManager.ensureDefaultProfile()
 
-                // Проверяем, зарегистрирован ли аккаунт в Cloudflare API.
-                // На новых устройствах или при чистой установке, если у пользователя нет своего импортированного профиля,
-                // обязательно выполняем онлайн-регистрацию в Cloudflare API для получения легитимного X25519 ключа и IPv4.
-                val savedWarpProf = app.prefsManager.getWarpProfile()
-                val isAccountActive = savedWarpProf != null && savedWarpProf.isUsable() && !savedWarpProf.isBootstrap() && config.isWarpAccountActive
-                val needsAutoReg = !isAccountActive && !app.warpProfileManager.hasUserProfiles()
+                val effectiveProfile = activeSavedProfile
 
-                val effectiveProfile = if (needsAutoReg) {
-                    AppLogger.i(TAG, "VPN: Первичная инициализация устройства: регистрация профиля в Cloudflare Anycast API...")
-                    updateState(VpnInternalState.PREPARING, profileName = "Регистрация в Cloudflare...")
-                    val regResult = WarpAccountManager.registerAndActivate(fallbackToBootstrap = true)
-                    if (regResult.isSuccess) {
-                        val newProfile = regResult.getOrThrow()
-                        app.prefsManager.saveWarpProfile(newProfile)
-                        config.applyWarpProfile(newProfile)
-                        app.prefsManager.saveConfig(config)
-                        val updated = app.warpProfileManager.updateDefaultProfileWithRegisteredAccount(newProfile)
-                        AppLogger.i(TAG, "VPN: Успешная регистрация в Cloudflare! Присвоен IPv4: ${newProfile.clientIpv4}")
-                        updated
-                    } else {
-                        AppLogger.w(TAG, "VPN: Сбой авторегистрации (${regResult.exceptionOrNull()?.message}), использование локального профиля")
-                        activeSavedProfile
-                    }
+                val isEffectiveBuiltin = effectiveProfile.origin == WarpProfileOrigin.BUILTIN
+                val isAuto = isEffectiveBuiltin && app.prefsManager.getSelectedBuiltinServerId() == BuiltinVpnServers.ID_AUTO && !app.prefsManager.isVpnUseCustomProfile()
+
+                var rawCleanName = effectiveProfile.name.trim()
+                rawCleanName = rawCleanName.replace(Regex("""\s*\((?:AmneziaWG|AWG|Clash|WireGuard)\)""", RegexOption.IGNORE_CASE), "").trim()
+                rawCleanName = rawCleanName.replace(Regex("""^Авто\s*\((.*)\)$"""), "$1").trim()
+
+                val cleanProfileName = if (isAuto) {
+                    "Автовыбор — $rawCleanName"
                 } else {
-                    activeSavedProfile
+                    rawCleanName
                 }
 
-                AppLogger.i(TAG, "VPN: активирован профиль пользователя '${effectiveProfile.name}' (${effectiveProfile.format.title})")
+                AppLogger.i(TAG, "VPN: активирован профиль пользователя '$cleanProfileName' (${effectiveProfile.format.title})")
                 val parsedResult = com.mirrly.tgproxy.core.WarpProfileParser.parse(effectiveProfile.content)
                 if (parsedResult is com.mirrly.tgproxy.core.WarpImportResult.Success) {
                     val userWarpProfile = parsedResult.profile
-                    config.applyWarpProfile(userWarpProfile)
+                    config.applyWarpProfile(userWarpProfile, overrideDns = !isEffectiveBuiltin)
                 } else {
                     AppLogger.w(TAG, "VPN: не удалось распарсить конфигурацию профиля '${effectiveProfile.name}'")
                 }
 
+                if (isEffectiveBuiltin) {
+                    // Для встроенных серверов AmneziaWG применяем DNS-серверы, настроенные пользователем
+                    // (Cloudflare, Comss.one SmartDNS, Google, Quad9 или пользовательский DNS)
+                    config.vpnDnsModeName = app.prefsManager.getVpnDnsMode().name
+                    config.vpnCustomDnsIps = app.prefsManager.getVpnCustomDnsIps()
+                    AppLogger.i(TAG, "VPN [DNS]: Для встроенного сервера применен DNS-режим '${config.vpnDnsMode.name}' (${config.getEffectiveVpnDnsIpv4().joinToString(", ")})")
+                }
+
                 val ext = effectiveProfile.format.extension.lowercase()
+                val isYamlProfile = effectiveProfile.format == com.mirrly.tgproxy.core.ImportedProfileType.CLASH_META_YAML || ext == "yaml"
                 val isCustomAwgProfileActive = effectiveProfile.content.isNotBlank() && ext == "conf"
 
                 if (isCustomAwgProfileActive) {
-                    config.awgCustomIni = effectiveProfile.content
+                    var rawIni = effectiveProfile.content
+                    if (isEffectiveBuiltin) {
+                        val dnsList = config.getEffectiveVpnDnsIpv4()
+                        if (dnsList.isNotEmpty()) {
+                            rawIni = com.mirrly.tgproxy.core.ProxyConfig.replaceDnsInAwgIni(rawIni, dnsList)
+                        }
+                    }
+                    config.awgCustomIni = rawIni
                     config.awgStrategyName = com.mirrly.tgproxy.core.AwgObfuscationStrategy.CUSTOM.name
                 }
 
                 if (effectiveProfile.endpoint.isNotBlank()) {
-                    val (_, port) = WarpEndpointScanner.parseEndpoint(effectiveProfile.endpoint)
-                    if (port in listOf(443, 8095, 8443, 4443)) {
-                        config.warpMasquePeerEndpoint = effectiveProfile.endpoint
-                        config.warpMeasuredMasqueEndpoint = effectiveProfile.endpoint
-                    } else {
-                        config.warpPeerEndpoint = effectiveProfile.endpoint
+                    config.warpPeerEndpoint = effectiveProfile.endpoint
+                    if (config.warpMeasuredWgEndpoint.isBlank()) {
                         config.warpMeasuredWgEndpoint = effectiveProfile.endpoint
                     }
                 }
 
-                // ВАЖНО: Целевой режим аплинка (MASQUE или AWG) определяется явным выбором пользователя (prefsManager),
-                // а не расширением файла профиля! Это гарантирует ручное переключение протоколов.
                 config.vpnUplinkMode = app.prefsManager.getVpnUplinkMode()
                 app.prefsManager.saveConfig(config)
 
@@ -455,70 +551,88 @@ class MirrlyVpnService : VpnService() {
 
                 // 3. Подготовка параметров Anycast и обфускации для передачи в нативный движок
 
-                // Анти-блокировка для РФ: раздельный выбор чистых Anycast эндпоинтов ДО поднятия TUN
-                val currentAwgEp = if (isCustomAwgProfileActive && effectiveProfile.endpoint.isNotBlank()) {
-                    effectiveProfile.endpoint
-                } else {
-                    config.effectivePeerEndpoint
+                // Анти-блокировка для РФ: раздельный выбор чистых Anycast эндпоинтов ДО поднятия TUN без искажения портов
+                val currentAwgEp = when {
+                    isCustomAwgProfileActive && effectiveProfile.endpoint.isNotBlank() -> effectiveProfile.endpoint
+                    config.warpUserEndpointOverride.isNotBlank() -> config.warpUserEndpointOverride
+                    config.warpMeasuredWgEndpoint.isNotBlank() -> config.warpMeasuredWgEndpoint
+                    config.warpPeerEndpoint.isNotBlank() -> config.warpPeerEndpoint
+                    else -> config.effectivePeerEndpoint
                 }
-                val (rawHost, awgPort) = WarpEndpointScanner.parseEndpoint(currentAwgEp)
-                val isAwgPortValid = awgPort in listOf(500, 4500, 1701)
-                val sticky = WarpEndpointScanner.getStickyProfile()
+                val (rawHost, awgPort) = com.mirrly.tgproxy.core.ProxyConfig.parseEndpoint(currentAwgEp)
+                val isAwgPortValid = awgPort in 1..65535
 
                 val isCloudflareHost = rawHost.contains("cloudflare", ignoreCase = true) ||
                     rawHost.startsWith("162.159.") ||
-                    rawHost.startsWith("188.114.") ||
-                    WarpEndpointScanner.CLEAN_IPV4_POOL.contains(rawHost)
+                    rawHost.startsWith("188.114.")
 
                 // Анти-блокировка для РФ: раздельный выбор чистых Anycast эндпоинтов ДО поднятия TUN
                 val cleanAwgEp = when {
-                    isCustomAwgProfileActive && !isCloudflareHost && awgPort > 0 -> {
+                    isCustomAwgProfileActive && effectiveProfile.endpoint.isNotBlank() && isAwgPortValid -> effectiveProfile.endpoint
+                    config.warpUserEndpointOverride.isNotBlank() -> config.warpUserEndpointOverride
+                    isCustomAwgProfileActive && !isCloudflareHost && isAwgPortValid -> {
                         // Кастомный VPS пользователя: сохраняем указанный эндпоинт и порт полностью
                         currentAwgEp
                     }
                     isAwgPortValid -> currentAwgEp
-                    sticky != null && sticky.port in listOf(500, 4500, 1701) -> sticky.endpoint
                     else -> {
-                        val host = if (rawHost.isNotBlank()) rawHost else "162.159.193.10"
-                        AppLogger.i(TAG, "VPN: порт $awgPort не поддерживается WireGuard Anycast, переключение на чистый порт $host:1701")
-                        "$host:1701"
+                        val host = if (rawHost.isNotBlank()) rawHost else "162.159.192.1"
+                        AppLogger.i(TAG, "VPN: порт $awgPort не указан или некорректен, переключение на дефолтный порт $host:4500")
+                        "$host:4500"
                     }
                 }
 
-                val currentMasqueEp = if (config.warpMasquePeerEndpoint.isNotBlank()) config.warpMasquePeerEndpoint else config.warpPeerEndpoint
-                val (rawMasqueHost, masquePort) = WarpEndpointScanner.parseEndpoint(currentMasqueEp)
-                val isMasquePortValid = masquePort in listOf(443, 8095, 8443, 4443)
-
-                val cleanMasqueEp = when {
-                    isMasquePortValid && masquePort !in listOf(500, 1701, 4500, 2408) -> currentMasqueEp
-                    sticky != null && sticky.port in listOf(443, 8095, 8443, 4443) -> sticky.endpoint
-                    rawMasqueHost.isNotBlank() -> "$rawMasqueHost:443"
-                    else -> "188.114.96.1:443"
-                }
-
-                if (!isCustomAwgProfileActive || isCloudflareHost) {
-                    if (cleanAwgEp != config.warpPeerEndpoint) {
+                if (!isCustomAwgProfileActive) {
+                    if (config.warpPeerEndpoint.isBlank()) {
                         AppLogger.i(TAG, "VPN: применен чистый Anycast эндпоинт для AmneziaWG: $cleanAwgEp")
                         config.warpPeerEndpoint = cleanAwgEp
                         config.warpMeasuredWgEndpoint = cleanAwgEp
                         app.prefsManager.saveConfig(config)
+                    } else if (config.warpMeasuredWgEndpoint != cleanAwgEp && config.warpUserEndpointOverride.isBlank()) {
+                        config.warpMeasuredWgEndpoint = cleanAwgEp
+                        app.prefsManager.saveConfig(config)
                     }
                 }
-                if (cleanMasqueEp != config.warpMasquePeerEndpoint) {
-                    AppLogger.i(TAG, "VPN: применен чистый Anycast эндпоинт для MASQUE: $cleanMasqueEp")
-                    config.warpMasquePeerEndpoint = cleanMasqueEp
-                    app.prefsManager.saveConfig(config)
-                }
+
+                val activeEp = cleanAwgEp
+                val epLog = "VPN [${config.vpnUplinkMode.name}]: Выбранный эндпоинт: $activeEp (профиль: '${effectiveProfile.name}', формат: ${effectiveProfile.format.title})"
+                Log.i(TAG, epLog)
+                AppLogger.i(TAG, epLog)
 
                 // Передаем настройки AmneziaWG (если активен кастомный профиль — синхронизируем в нем DNS с выбранным режимом)
                 val effectiveDnsString = config.getEffectiveVpnDnsIpv4().joinToString(", ")
-                val awgIni = if (isCustomAwgProfileActive) {
+                val awgIni = if (isYamlProfile && parsedResult is com.mirrly.tgproxy.core.WarpImportResult.Success) {
+                    val up = parsedResult.profile
+                    val reservedVal = if (up.reserved.isNotBlank()) up.reserved else up.clientId
+                    val reservedPart = if (reservedVal.isNotBlank()) "Reserved = $reservedVal\n" else ""
+                    val i1Part = if (up.awgI1.isNotBlank()) "I1 = ${up.awgI1}\n" else ""
+                    val i2Part = if (up.awgI2.isNotBlank()) "I2 = ${up.awgI2}\n" else ""
+                    val addr = if (up.clientIpv6.isNotBlank()) "${up.clientIpv4}/32, ${up.clientIpv6}/128" else "${up.clientIpv4}/32"
+                    AppLogger.i(TAG, "VPN: генерация AmneziaWG параметров из Clash YAML профиля (Jc=${up.awgJc}, Jmin=${up.awgJmin}, Jmax=${up.awgJmax})")
+                    """
+                    [Interface]
+                    PrivateKey = ${up.privateKeyBase64}
+                    Address = $addr
+                    ${reservedPart}${i1Part}${i2Part}DNS = $effectiveDnsString
+                    MTU = 1280
+                    Jc = ${up.awgJc}
+                    Jmin = ${up.awgJmin}
+                    Jmax = ${up.awgJmax}
+                    S1 = ${up.awgS1}
+                    S2 = ${up.awgS2}
+                    H1 = ${up.awgH1}
+                    H2 = ${up.awgH2}
+                    H3 = ${up.awgH3}
+                    H4 = ${up.awgH4}
+                    [Peer]
+                    PublicKey = ${up.peerPublicKey.ifBlank { "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=" }}
+                    AllowedIPs = 0.0.0.0/0, ::/0
+                    Endpoint = $cleanAwgEp
+                    PersistentKeepalive = 25
+                    """.trimIndent()
+                } else if (isCustomAwgProfileActive) {
                     AppLogger.i(TAG, "VPN: применен активный профиль '${effectiveProfile.name}' (${effectiveProfile.format.title})")
                     var baseIni = effectiveProfile.content
-                    if (isCloudflareHost && baseIni.contains(":2408")) {
-                        AppLogger.i(TAG, "VPN: замена заблокированного порта 2408 на 1701 в конфигурации .conf")
-                        baseIni = baseIni.replace(":2408", ":1701")
-                    }
                     if (baseIni.contains(Regex("""(?i)^DNS\s*=.*$""", RegexOption.MULTILINE))) {
                         baseIni.replace(Regex("""(?i)^DNS\s*=.*$""", RegexOption.MULTILINE), "DNS = $effectiveDnsString")
                     } else {
@@ -535,38 +649,7 @@ class MirrlyVpnService : VpnService() {
                     return@launch
                 }
 
-                // Передаем параметры туннеля MASQUE (RFC 9298) с проверенным Anycast SNI (cdnjs.cloudflare.com)
-                val masqueSni = if (config.warpMasqueSni.isNotBlank() &&
-                    !config.warpMasqueSni.equals("consumer-masque-proxy.cloudflareclient.com", ignoreCase = true) &&
-                    !config.warpMasqueSni.equals("consumer-masque.cloudflareclient.com", ignoreCase = true)
-                ) {
-                    config.warpMasqueSni.trim()
-                } else {
-                    com.mirrly.tgproxy.core.ProxyConfig.WARP_MASQUE_SNI_CDNJS
-                }
-                if (config.warpMasqueSni != masqueSni) {
-                    config.warpMasqueSni = masqueSni
-                    app.prefsManager.saveConfig(config)
-                }
-                NativeProxy.setWarpFullConfig(
-                    endpoint = cleanMasqueEp,
-                    sni = masqueSni,
-                    authToken = config.effectiveMasqueToken,
-                    clientIpv4 = config.effectiveMasqueClientIpv4,
-                    clientIpv6 = config.effectiveMasqueClientIpv6,
-                    p256PrivateKey = config.warpP256PrivateKey,
-                    clientCert = config.warpClientCert,
-                    peerPublicKey = config.effectiveMasquePeerPublicKey,
-                    uriTemplate = config.warpUriTemplate
-                )
-                try {
-                    val dohList = config.getEffectiveVpnDohEndpoints()
-                    NativeProxy.setDohEndpoints(dohList)
-                    AppLogger.i(TAG, "VPN: применены нативные DoH эндпоинты для режима ${config.vpnDnsMode.name}: $dohList")
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Не удалось настроить нативные DoH эндпоинты: ${e.message}")
-                }
-
+                
                 if (!isActive || vpnGeneration.get() != gen) {
                     AppLogger.w(TAG, "Старт VPN прерван новым поколением жизненного цикла перед созданием TUN")
                     return@launch
@@ -574,7 +657,18 @@ class MirrlyVpnService : VpnService() {
 
                 updateState(VpnInternalState.CONNECTING)
 
-                // Поднятие TUN интерфейса (Tasks N03, N08, N09, N12, N13, N18)
+                // 2. Создание и запуск VpnNetworkBroker СТРОГО ДО создания TUN и передачи FD в Rust (Cloudflare Life-Cycle Order):
+                // Привязываем физическую сеть (Wi-Fi/Cellular) к VpnService через setUnderlyingNetworks
+                val broker = VpnNetworkBroker(
+                    context = this@MirrlyVpnService,
+                    vpnService = this@MirrlyVpnService
+                )
+                networkBroker = broker
+                broker.start()
+                val physicalNetwork = broker.findActivePhysicalNetwork()
+                AppLogger.i(TAG, "VPN [LifeCycle]: Сетевой брокер запущен, физическая сеть: $physicalNetwork. setUnderlyingNetworks установлен до TUN.")
+
+                // 3. Поднятие TUN интерфейса через VpnTunManager.establish (Tasks N03, N08, N09, N12, N13, N18)
                 val splitConfig = VpnTunManager.SplitTunnelConfig(
                     isEnabled = app.prefsManager.isVpnSplitTunnelEnabled(),
                     isAllowlist = app.prefsManager.isVpnSplitTunnelAllowlist(),
@@ -582,13 +676,16 @@ class MirrlyVpnService : VpnService() {
                 )
 
                 val effectiveDnsList = config.getEffectiveVpnDnsIpv4()
+                val profileMtu = Regex("""(?i)^MTU\s*=\s*(\d+)""", RegexOption.MULTILINE)
+                    .find(awgIni)?.groupValues?.get(1)?.toIntOrNull()
 
                 val tunResult = VpnTunManager.establish(
                     vpnService = this@MirrlyVpnService,
                     config = config,
                     sessionName = "Mirrly VPN (${config.vpnUplinkMode.displayName})",
                     splitTunnel = splitConfig,
-                    customDnsServers = effectiveDnsList
+                    customDnsServers = effectiveDnsList,
+                    explicitMtu = profileMtu
                 )
 
                 var startedFdSuccess = false
@@ -600,19 +697,27 @@ class MirrlyVpnService : VpnService() {
                                 holder.closeSafely()
                             } catch (_: Exception) {}
                         }
+                        try {
+                            broker.stop()
+                        } catch (_: Exception) {}
+                        networkBroker = null
                         return@launch
                     }
 
                     tunResult.onSuccess { holder ->
                         tunHolder = holder
 
-                        // Запуск нативного L3 VPN движка в mirrlyengine (Rust)
+                        // 4. Передача файлового дескриптора в нативный L3 VPN движок в mirrlyengine (Rust)
                         val vpnCode = NativeProxy.startVpn(holder.fd, verbose = false)
                         if (vpnCode != 0 || !isActive || vpnGeneration.get() != gen) {
                             AppLogger.e(TAG, "Сбой старта или отмена нативного L3 VPN движка (code=$vpnCode, genMatch=${vpnGeneration.get() == gen})")
                             try {
                                 NativeProxy.stopVpn()
                             } catch (_: Exception) {}
+                            try {
+                                broker.stop()
+                            } catch (_: Exception) {}
+                            networkBroker = null
                             try {
                                 holder.closeSafely()
                             } catch (_: Exception) {}
@@ -624,23 +729,21 @@ class MirrlyVpnService : VpnService() {
                             return@onSuccess
                         }
 
-                        // Инициализация сетевого брокера физических интерфейсов (Tasks N05, N16)
-                        val broker = VpnNetworkBroker(
-                            context = this@MirrlyVpnService,
-                            vpnService = this@MirrlyVpnService,
-                            onNetworkMigrated = { net, nGen ->
-                                AppLogger.i(TAG, "Миграция физической сети на $net (поколение: $nGen)")
-                                try {
-                                    NativeProxy.resetVpnSockets()
-                                } catch (e: Exception) {
-                                    AppLogger.w(TAG, "Ошибка сброса сетевых сокетов при миграции: ${e.message}")
-                                }
+                        // 5. Привязка сетевого брокера к коллбэкам миграции физической сети
+                        broker.onNetworkMigrated = { net, nGen ->
+                            AppLogger.i(TAG, "Миграция физической сети на $net (поколение: $nGen)")
+                            try {
+                                NativeProxy.notifyVpnReconnect()
+                            } catch (e: Exception) {
+                                AppLogger.w(TAG, "Ошибка сброса сетевых сокетов при миграции: ${e.message}")
                             }
-                        )
-                        networkBroker = broker
-                        broker.start()
+                        }
                         startedFdSuccess = true
                     }.onFailure { err ->
+                        try {
+                            broker.stop()
+                        } catch (_: Exception) {}
+                        networkBroker = null
                         if (vpnGeneration.get() == gen) {
                             AppLogger.e(TAG, "Не удалось поднять TUN: ${err.message}")
                             updateState(VpnInternalState.FAILED, VpnFailureReason.ESTABLISH_FAILED)
@@ -656,15 +759,20 @@ class MirrlyVpnService : VpnService() {
                 // Переход в фазу верификации туннеля (Task N02: VERIFYING)
                 updateState(
                     internalState = VpnInternalState.VERIFYING,
-                    profileName = "${effectiveProfile.name} (${effectiveProfile.format.title})",
+                    profileName = cleanProfileName,
                     uplinkMode = config.vpnUplinkMode.name
                 )
 
                 // Ожидание и верификация фактического хэндшейка из нативного ядра
                 val verifyStartTime = System.currentTimeMillis()
                 var isTunnelReady = false
+                var handshakeLogged = false
+                var firstPacketLogged = false
+                var tenSecDiagLogged = false
+
                 while (isActive && vpnGeneration.get() == gen && (System.currentTimeMillis() - verifyStartTime) < 30000L) {
                     delay(100L)
+                    val elapsed = System.currentTimeMillis() - verifyStartTime
                     val vpnJsonStr = NativeProxy.getVpnStatusJson()
                     val json = try { if (vpnJsonStr != null) JSONObject(vpnJsonStr) else null } catch (_: Exception) { null }
                     val isNativeRunning = json?.optBoolean("is_running", true) ?: true
@@ -672,8 +780,51 @@ class MirrlyVpnService : VpnService() {
                     val lastError = json?.optString("last_error", "") ?: ""
                     val bytesDown = json?.optLong("bytes_down", 0L) ?: 0L
 
+                    if (isEstablished && !handshakeLogged) {
+                        handshakeLogged = true
+                        val msg = when (config.vpnUplinkMode) {
+                            
+                            com.mirrly.tgproxy.core.UplinkMode.AWG ->
+                                "VPN [AWG]: Хэндшейк WireGuard/AWG успешно подтвержден (is_established=true) за $elapsed ms"
+                            else ->
+                                "VPN [${config.vpnUplinkMode.name}]: Сессия туннеля установлена (is_established=true) за $elapsed ms"
+                        }
+                        Log.i(TAG, msg)
+                        AppLogger.i(TAG, msg)
+                    }
+
+                    if (bytesDown > 0 && !firstPacketLogged) {
+                        firstPacketLogged = true
+                        val msg = when (config.vpnUplinkMode) {
+                            
+                            com.mirrly.tgproxy.core.UplinkMode.AWG ->
+                                "VPN [AWG]: Первый входящий IP-пакет WireGuard принят за $elapsed ms (bytes_down=$bytesDown)"
+                            else ->
+                                "VPN [${config.vpnUplinkMode.name}]: Первый входящий пакет получен за $elapsed ms (bytes_down=$bytesDown)"
+                        }
+                        Log.i(TAG, msg)
+                        AppLogger.i(TAG, msg)
+                    }
+
+                    if (!tenSecDiagLogged && elapsed >= 10000L && !isEstablished && bytesDown == 0L) {
+                        tenSecDiagLogged = true
+                        val initSent = json?.optLong("awg_init_sent", 0L) ?: 0L
+                        val respRecv = json?.optLong("awg_resp_received", 0L) ?: 0L
+                        val cbOpen = json?.optBoolean("circuit_breaker_open", false) ?: false
+                        val cbFailures = json?.optInt("circuit_breaker_failures", 0) ?: 0
+                        val awgEp = json?.optString("awg_endpoint", cleanAwgEp) ?: cleanAwgEp
+                        val diagMsg = "VPN [AWG Diagnostic]: Хэндшейк WireGuard/AWG не проходит за 10 секунд! " +
+                            "Эндпоинт: $awgEp, init_sent=$initSent, resp_received=$respRecv, bytes_down=$bytesDown, " +
+                            "circuit_breaker_open=$cbOpen, cb_failures=$cbFailures, last_error='$lastError'. " +
+                            "Возможна блокировка UDP-портов провайдером или ТСПУ."
+                        Log.w(TAG, diagMsg)
+                        AppLogger.w(TAG, diagMsg)
+                    }
+
                     if (!isNativeRunning || lastError.isNotBlank()) {
-                        AppLogger.e(TAG, "VPN: ошибка нативного туннеля при установлении соединения: $lastError")
+                        val errMsg = "VPN: ошибка нативного туннеля при установлении соединения: $lastError"
+                        Log.e(TAG, errMsg)
+                        AppLogger.e(TAG, errMsg)
                         updateState(VpnInternalState.FAILED, VpnFailureReason.ESTABLISH_FAILED)
                         stopVpn()
                         return@launch
@@ -681,15 +832,37 @@ class MirrlyVpnService : VpnService() {
 
                     if (isEstablished || bytesDown > 0) {
                         isTunnelReady = true
-                        AppLogger.i(TAG, "VPN: нативный хэндшейк подтвержден ядром Rust за ${System.currentTimeMillis() - verifyStartTime} ms")
+                        val readyMsg = when (config.vpnUplinkMode) {
+                            
+                            com.mirrly.tgproxy.core.UplinkMode.AWG ->
+                                "VPN [AWG]: Нативный хэндшейк WireGuard/AWG подтвержден ядром Rust за $elapsed ms"
+                            else ->
+                                "VPN [${config.vpnUplinkMode.name}]: Нативный хэндшейк подтвержден ядром Rust за $elapsed ms"
+                        }
+                        Log.i(TAG, readyMsg)
+                        AppLogger.i(TAG, readyMsg)
                         break
                     }
                 }
 
                 if (!isTunnelReady || !isActive || vpnGeneration.get() != gen) {
                     if (vpnGeneration.get() == gen) {
-                        AppLogger.e(TAG, "VPN: таймаут верификации туннеля (сервер не ответил на Noise Handshake)")
-                        updateState(VpnInternalState.FAILED, VpnFailureReason.ESTABLISH_FAILED)
+                        val (timeoutLog, failReasonDesc) = when (config.vpnUplinkMode) {
+                            com.mirrly.tgproxy.core.UplinkMode.AWG -> Pair(
+                                "VPN: таймаут верификации туннеля (сервер не ответил на Noise Handshake). Рекомендуется сменить порт или эндпоинт.",
+                                "Таймаут WireGuard: проверьте доступность сети"
+                            )
+                            else -> Pair(
+                                "VPN: таймаут верификации туннеля (сервер не ответил на сетевой хэндшейк).",
+                                "Таймаут сетевого хэндшейка"
+                            )
+                        }
+                        AppLogger.e(TAG, timeoutLog)
+                        updateState(
+                            VpnInternalState.FAILED,
+                            reason = VpnFailureReason.ESTABLISH_FAILED,
+                            profileName = failReasonDesc
+                        )
                         stopVpn()
                     }
                     return@launch
@@ -697,11 +870,12 @@ class MirrlyVpnService : VpnService() {
 
                 updateState(
                     internalState = VpnInternalState.RUNNING,
-                    profileName = "${effectiveProfile.name} (${effectiveProfile.format.title})",
+                    profileName = cleanProfileName,
                     uplinkMode = config.vpnUplinkMode.name
                 )
 
                 startMetricsMonitor()
+                ProxyResurrectionManager.startWatchdog(this@MirrlyVpnService)
                 AppLogger.i(TAG, "Нативная L3 VPN-служба успешно прошла верификацию хэндшейка (${effectiveProfile.format.title}) и перешла в состояние RUNNING")
             } catch (e: Exception) {
                 if (vpnGeneration.get() == gen) {
@@ -717,9 +891,15 @@ class MirrlyVpnService : VpnService() {
         monitorJob?.cancel()
         monitorJob = serviceScope.launch {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            var lastNotifText = ""
 
             while (isActive && isRunning) {
-                delay(1000L)
+                // Посекундный тик: 1000 мс при включенном экране для плавного счетчика времени,
+                // 10000 мс в фоне для сбережения батареи
+                val pollInterval = if (isScreenOn) 1000L else 10000L
+                delay(pollInterval)
+                if (!isActive || !isRunning) break
+
                 val vpnJsonStr = NativeProxy.getVpnStatusJson()
                 val json = try { if (vpnJsonStr != null) JSONObject(vpnJsonStr) else null } catch (_: Exception) { null }
                 val isNativeRunning = json?.optBoolean("is_running", true) ?: true
@@ -745,17 +925,24 @@ class MirrlyVpnService : VpnService() {
                     uptimeMs = uptime
                 )
 
-                val notifText = "↓ ${formatBytes(bytesIn)} • ↑ ${formatBytes(bytesOut)}"
-                val notif = buildVpnNotification(notifText)
-                try {
-                    nm.notify(NotificationHelper.VPN_NOTIFICATION_ID, notif)
-                } catch (_: Exception) {}
+                // IPC Throttler: Only dispatch NotificationManager Binder IPC when screen is on AND text has changed
+                if (isScreenOn) {
+                    val notifText = "↓ ${formatBytes(bytesIn)} • ↑ ${formatBytes(bytesOut)}"
+                    if (notifText != lastNotifText) {
+                        lastNotifText = notifText
+                        val notif = buildVpnNotification(notifText)
+                        try {
+                            nm.notify(NotificationHelper.VPN_NOTIFICATION_ID, notif)
+                        } catch (_: Exception) {}
+                    }
+                }
             }
         }
     }
 
     private fun stopVpn() {
         ProxyResurrectionManager.cancel(this)
+        isResetting.set(false)
         vpnGeneration.incrementAndGet()
         updateState(VpnInternalState.STOPPING)
 
@@ -795,6 +982,15 @@ class MirrlyVpnService : VpnService() {
                 }
                 tunHolder = null
             }
+
+            // Очищаем счетчики и метрики завершенной сессии
+            _vpnStatus.value = _vpnStatus.value.copy(
+                bytesIn = 0L,
+                bytesOut = 0L,
+                activeTcpFlows = 0,
+                activeUdpSessions = 0,
+                uptimeMs = 0L
+            )
 
             // updateState доступен из любого потока (StateFlow thread-safe).
             // Не используем withContext(Dispatchers.Main) чтобы не упасть в CancellationException
@@ -841,7 +1037,19 @@ class MirrlyVpnService : VpnService() {
         startJob = null
         monitorJob?.cancel()
         monitorJob = null
+        isResetting.set(false)
         serviceScope.cancel()
+        try {
+            vpnDispatcher.close()
+        } catch (_: Exception) {}
+        try {
+            increasedStackExecutor.shutdown()
+        } catch (_: Exception) {}
+        val app = MirrlyApplication.instance
+        if (app.prefsManager.isVpnModeEnabled() && _vpnStatus.value.isRunning) {
+            AppLogger.w(TAG, "MirrlyVpnService destroyed by OS while active in preferences. Scheduling resurrection...")
+            ProxyResurrectionManager.schedule(this)
+        }
         // Гарантируем переход в IDLE для UI вне зависимости от незавершённых корутин
         updateState(VpnInternalState.IDLE)
         super.onDestroy()
@@ -870,10 +1078,11 @@ class MirrlyVpnService : VpnService() {
         )
 
         val current = _vpnStatus.value
-        val title = if (current.activeProfileName.isNotBlank()) {
-            "Mirrly VPN • ${current.activeProfileName}"
-        } else {
-            getString(R.string.vpn_tunnel_title)
+        val profileTitle = current.activeProfileName.trim()
+        val title = when {
+            profileTitle.startsWith("Mirrly VPN • ") -> profileTitle
+            profileTitle.isNotBlank() -> "Mirrly VPN • $profileTitle"
+            else -> getString(R.string.vpn_tunnel_title)
         }
 
         return NotificationCompat.Builder(this, NotificationHelper.VPN_CHANNEL_ID)

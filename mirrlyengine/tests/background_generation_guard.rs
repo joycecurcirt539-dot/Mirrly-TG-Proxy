@@ -34,7 +34,7 @@ async fn slow_result_a_cannot_rewrite_or_reset_generation_b() {
         let recovery_applied =
             record_if_current(a, "mob020-worker-a.example", RecoveryCause::Unknown);
         let route_applied =
-            old_route.transition_to_if_current(a, RouteKind::Worker, "late-a-failover");
+            old_route.transition_to_if_current(a, RouteKind::None, "late-a-failover");
         (
             rank_applied,
             dns_applied,
@@ -51,7 +51,7 @@ async fn slow_result_a_cannot_rewrite_or_reset_generation_b() {
     change_config(|| {
         CFPROXY.write().user_domain = B.to_string();
         BALANCER.write().update_domain_for_dc(DC, false, B);
-        route.set_intent(mirrlyengine::masque::UPLINK_AWG, 2, true);
+        route.set_intent(mirrlyengine::supervisor::UPLINK_AWG, 2, true);
     });
     let b = snapshot();
     let route_b_generation = route.get_generation();

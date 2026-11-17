@@ -19,7 +19,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Release](https://img.shields.io/badge/Release-v2.1.0-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Release](https://img.shields.io/badge/Release-v2.1.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Language](https://img.shields.io/badge/Language-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-application-ui)
 [![Genesis](https://img.shields.io/badge/Genesis-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
@@ -76,7 +76,7 @@
 
 The app **does not use** the system `VpnService` for routing Telegram and **does not intercept** third-party device traffic. Telegram connects to a local socket on the device (`127.0.0.1:1443` for MTProto or `127.0.0.1:10808` for SOCKS5) handled by the native `mirrlyengine` core (Rust/Tokio) and relayed through Cloudflare Edge Anycast or a Cloudflare Worker.
 
-> **System VPN mode is disabled and under active development.** VLESS, WARP, MASQUE, AWG, Proton, and cascade VPN routes do not function in the current release. The application is strictly designed for local Telegram proxying via MTProto (port 1443) and SOCKS5 (port 10808) without creating a system VPN tunnel and without capturing other device traffic.
+> **System VPN Mode:** Simple VPN mode supports Cloudflare WARP via AmneziaWG (AWG) and custom imported WireGuard profiles. Local Telegram proxying via MTProto (port 1443) and SOCKS5 (port 10808) operates independently.
 
 ---
 
@@ -108,7 +108,6 @@ The app **does not use** the system `VpnService` for routing Telegram and **does
   * *Cryptographic Integrity Verification*: Native C++ NDK signature validation (`SignatureVerifier`) and automated SHA-256 hash checks via `UpdateChecker`.
 
 #### 2. In Development
-* **System VPN Tunnel (L3) & VPN Uplinks**: Full-device traffic routing and VLESS/MASQUE protocols are undergoing rework.
 * **In-App Speed Test (`TunnelSpeedTestScreen`)**: Built-in throughput and Telegram DC benchmark module.
 
 ---
@@ -491,6 +490,7 @@ Project started on **July 27, 2026** with the `v1.0.0` release. Key development 
 | **`v2.0.0.2`** | Localization & UI | Persian localization (Farsi) with full RTL support, dynamic font scaling in speed test quality gauge, isolation of in-development VPN screen. |
 | **`v2.0.0.3`** | Redesign & Stability | Minimalist AMOLED redesign of Session History and Logs screens, transparent cards and buttons in Share tab, elimination of first-launch and language selection freeze on Samsung One UI and Huawei EMUI/HarmonyOS, cleanup of redundant Cloudflare DNS logs, and fast SOCKS5 port recycling (`SO_REUSEPORT`). |
 | **`v2.1.0`** | WARP Generator, AI Chat & Wallpapers | Rework notice banner for system VPN, built-in WireGuard and AmneziaWG profile generator with Keystore encryption, local diagnostic AI Chat, custom photo and video wallpapers under MirrlyUI outlines, removal of unused native libraries (-21 MB APK size reduction), and expansion of the Hall of Fame to 79 contributors. |
+| **`v2.1.2`** | Proxy Repair & AmneziaWG | Emergency proxy restoration (external TLS disabled by default, removal of loopback TCP MSS clamping, Anycast CDN pool warmup), 14 built-in AmneziaWG servers, background survival controls (Watchdog AlarmClock, OEM startup, CPU Anti-Freeze, Traffic Pulse), `MirrlyIcon` vector icons, and Cyber Snake arcade. |
 
 ---
 

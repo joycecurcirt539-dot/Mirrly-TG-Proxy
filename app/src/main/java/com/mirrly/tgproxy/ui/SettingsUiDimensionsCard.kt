@@ -17,9 +17,11 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -57,7 +59,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -140,8 +141,8 @@ fun SettingsUiDimensionsCard(
                         .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_expand),
+                    MirrlyIcon(
+                        id = R.drawable.ic_expand,
                         contentDescription = null,
                         tint = accentColor,
                         modifier = Modifier.size(18.dp)
@@ -169,8 +170,8 @@ fun SettingsUiDimensionsCard(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_info_circle),
+                        MirrlyIcon(
+                            id = R.drawable.ic_info_circle,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(14.dp)
@@ -551,7 +552,11 @@ fun SettingsUiDimensionsCard(
                 }
 
                 // Кнопка сброса пропорций к эталону
-                if (!isDefaultProportions) {
+                AnimatedVisibility(
+                    visible = !isDefaultProportions,
+                    enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
+                ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = Color.Transparent,
@@ -585,8 +590,8 @@ fun SettingsUiDimensionsCard(
                                     color = TextMuted
                                 )
                             }
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_close),
+                            MirrlyIcon(
+                                id = R.drawable.ic_close,
                                 contentDescription = null,
                                 tint = Color(0xFFFF4D4D),
                                 modifier = Modifier.size(14.dp)

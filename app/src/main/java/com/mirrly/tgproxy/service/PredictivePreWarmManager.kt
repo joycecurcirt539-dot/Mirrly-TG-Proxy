@@ -33,8 +33,7 @@ data class HotReserveRoutes(
     val bestWorkerId: String? = null,
     val fallbackWorkerIds: List<String> = emptyList(),
     val bestWarpEndpoint: String? = null,
-    val fallbackWarpEndpoints: List<String> = emptyList(),
-    val isDnsHealthy: Boolean = true
+    val fallbackWarpEndpoints: List<String> = emptyList()
 ) {
     fun isFresh(nowMs: Long = System.currentTimeMillis(), ttlMs: Long = 300_000L): Boolean =
         validatedAtTimestampMs > 0L && (nowMs - validatedAtTimestampMs) < ttlMs

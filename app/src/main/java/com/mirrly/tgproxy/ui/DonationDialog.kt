@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.content.Intent
 import android.net.Uri
@@ -51,9 +52,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -64,14 +68,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,7 +91,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -100,6 +102,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
+import com.mirrly.tgproxy.ui.theme.AmoledBorder
 import com.mirrly.tgproxy.ui.theme.AmoledSurface
 import com.mirrly.tgproxy.ui.theme.TextMuted
 import com.mirrly.tgproxy.ui.theme.TextWhite
@@ -156,6 +159,12 @@ fun DonationDialog(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
+
+    // Window navigation bar insets calculated in the Activity's Compose hierarchy
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val safeBottomPadding = remember(navBarBottom) {
+        navBarBottom.coerceAtLeast(56.dp) + 24.dp
+    }
 
     var selectedMethod by remember { mutableStateOf<DonationMethod?>(null) }
     var showWarningSheet by remember { mutableStateOf(false) }
@@ -218,8 +227,8 @@ fun DonationDialog(
                     .statusBarsPadding()
                     .padding(top = 12.dp, start = 12.dp)
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_arrow_left),
+                MirrlyIcon(
+                    id = R.drawable.ic_arrow_left,
                     contentDescription = stringResource(R.string.action_back),
                     tint = TextWhite,
                     modifier = Modifier.size(22.dp)
@@ -295,6 +304,15 @@ fun DonationDialog(
                             onToggle = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 selectedMethod = if (isSelected) null else method
+                            },
+                            onOpenLink = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                selectedMethod = method
+                                if (app.prefsManager.isSkipDonateWarning()) {
+                                    openExternalUrl(method.url)
+                                } else {
+                                    showWarningSheet = true
+                                }
                             }
                         )
                     }
@@ -374,8 +392,8 @@ fun DonationDialog(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .adaptiveContainerWidth(440.dp)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .padding(horizontal = 14.dp)
+                    .padding(bottom = safeBottomPadding)
             ) {
                 val method = selectedMethod ?: return@AnimatedVisibility
                 DonateWarningSheetContent(
@@ -401,7 +419,8 @@ fun DonationDialog(
 private fun DonationMethodCard(
     method: DonationMethod,
     isSelected: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    onOpenLink: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     val bounceScale = remember { Animatable(1f) }
@@ -507,8 +526,8 @@ private fun DonationMethodCard(
                 }
 
                 // Smooth Rotating Chevron
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                MirrlyIcon(
+                    id = R.drawable.ic_chevron_right,
                     contentDescription = null,
                     tint = if (isSelected) ActiveGreenLed else TextMuted,
                     modifier = Modifier
@@ -546,27 +565,37 @@ private fun DonationMethodCard(
                         lineHeight = 17.5.sp
                     )
 
-                    // Link Preview Pill
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Black.copy(alpha = 0.35f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
-                        modifier = Modifier.fillMaxWidth()
+                    // Link Preview Pill (Интерактивный переходник по ссылке)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                            .background(Color.Black.copy(alpha = 0.35f))
+                            .springPress(onClick = onOpenLink)
+                            .padding(horizontal = 10.dp, vertical = 7.dp)
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
                                 text = method.displayUrl,
                                 fontSize = 11.5.sp,
+                                fontFamily = FontFamily.Monospace,
                                 color = ActiveGreenLed,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.action_open_link),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ActiveGreenLed.copy(alpha = 0.90f)
                             )
                         }
                     }
@@ -593,13 +622,13 @@ private fun DonateWarningSheetContent(
         modifier = Modifier
             .fillMaxWidth()
             .frostedVignetteCard(
-                shape = RoundedCornerShape(26.dp),
+                shape = RoundedCornerShape(24.dp),
                 accentColor = ActiveGreenLed,
-                vignetteStrength = 0.65f,
+                vignetteStrength = 0.70f,
                 borderBrush = Brush.verticalGradient(
                     colors = listOf(
-                        ActiveGreenLed.copy(alpha = 0.60f),
-                        Color.White.copy(alpha = 0.18f)
+                        ActiveGreenLed.copy(alpha = 0.65f),
+                        Color.White.copy(alpha = 0.15f)
                     )
                 )
             )
@@ -622,19 +651,20 @@ private fun DonateWarningSheetContent(
                     .background(Color.White.copy(alpha = 0.25f))
             )
 
-            // Category Pill
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = ActiveGreenLed.copy(alpha = 0.12f),
-                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
+            // Category Pill (Outline-Only, Zero-Background)
+            Box(
+                modifier = Modifier
+                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.50f), RoundedCornerShape(20.dp))
+                    .background(Color.Transparent)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = stringResource(R.string.donate_warning_category),
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = ActiveGreenLed,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                    letterSpacing = 1.sp
                 )
             }
 
@@ -647,17 +677,17 @@ private fun DonateWarningSheetContent(
                 textAlign = TextAlign.Center
             )
 
-            // Target Info Pill
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color.Black.copy(alpha = 0.45f),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                modifier = Modifier.fillMaxWidth()
+            // Target Info Pill (Outline-Only, Zero-Background)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                    .background(Color.Transparent)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -669,13 +699,14 @@ private fun DonateWarningSheetContent(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = stringResource(id = method.titleRes),
-                            fontSize = 13.sp,
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = TextWhite
                         )
                         Text(
                             text = method.displayUrl,
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace,
                             color = ActiveGreenLed,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -684,98 +715,87 @@ private fun DonateWarningSheetContent(
                 }
             }
 
-            // Description
+            // Description (No AI Slop, clear & direct)
             Text(
                 text = stringResource(R.string.donate_warning_desc),
-                fontSize = 12.sp,
+                fontSize = 12.5.sp,
                 color = TextWhite.copy(alpha = 0.85f),
                 textAlign = TextAlign.Center,
-                lineHeight = 16.5.sp
+                lineHeight = 17.sp
             )
 
-            // Checkbox: "Don't ask again"
+            // Минималистичный чекбокс MirrlyUI (по образцу UnofficialBuildDialog)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable {
+                    .clip(RoundedCornerShape(10.dp))
+                    .springPress(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         doNotAskAgain = !doNotAskAgain
-                    }
-                    .background(Color.White.copy(alpha = 0.04f))
-                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    })
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Checkbox(
+                MirrlyVectorCheckbox(
                     checked = doNotAskAgain,
-                    onCheckedChange = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        doNotAskAgain = it
-                    },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = ActiveGreenLed,
-                        checkmarkColor = Color.Black,
-                        uncheckedColor = Color.White.copy(alpha = 0.40f)
-                    )
+                    accentColor = ActiveGreenLed
                 )
                 Text(
                     text = stringResource(R.string.donate_warning_do_not_ask_again),
-                    fontSize = 12.5.sp,
-                    color = TextWhite.copy(alpha = 0.90f),
-                    fontWeight = FontWeight.Medium
+                    fontSize = 12.sp,
+                    fontWeight = if (doNotAskAgain) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (doNotAskAgain) TextWhite else TextWhite.copy(alpha = 0.75f),
+                    lineHeight = 16.sp
                 )
             }
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            // Action Buttons: Cancel & Proceed
+            // Action Buttons: Cancel & Proceed (Outline-Only with tactile springPress)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDismiss()
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = TextWhite
-                    ),
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(44.dp)
-                        .springPress()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                        .background(Color.Transparent)
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDismiss()
+                        }),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = stringResource(R.string.action_cancel),
                         fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        color = TextWhite.copy(alpha = 0.8f)
                     )
                 }
 
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onConfirm(doNotAskAgain)
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ActiveGreenLed,
-                        contentColor = Color.Black
-                    ),
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(44.dp)
-                        .springPress()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.85f), RoundedCornerShape(14.dp))
+                        .background(ActiveGreenLed.copy(alpha = 0.12f))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onConfirm(doNotAskAgain)
+                        }),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = stringResource(R.string.action_open_link),
                         fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = ActiveGreenLed
                     )
                 }
             }
@@ -836,24 +856,24 @@ fun DonationMethodAnimatedIcon(
                     label = "ctCardScale"
                 )
 
-                // Infinite harmonic magnetic breathing when docked/selected
-                val infiniteTransition = rememberInfiniteTransition(label = "ctMagneticHover")
-                val hoverPhase by infiniteTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = (2 * Math.PI).toFloat(),
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 2400, easing = LinearEasing)
-                    ),
-                    label = "ctHoverPhase"
-                )
+                // Infinite harmonic magnetic breathing when docked/selected (Deferred to graphicsLayer)
+                val hoverPhaseState = if (isSelected) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "ctMagneticHover")
+                    infiniteTransition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = (2 * Math.PI).toFloat(),
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 2400, easing = LinearEasing)
+                        ),
+                        label = "ctHoverPhase"
+                    )
+                } else null
 
-                val magneticFloat = if (isSelected) kotlin.math.sin(hoverPhase) * 1.1f else 0f
-
-                // Diagonal trajectory: cards glide toward each other and snap into locked alignment
-                val leftX = (-3.2f * (1f - snapProgress)) + (snapProgress * 1.5f) + magneticFloat
-                val leftY = (3.2f * (1f - snapProgress)) - (snapProgress * 1.5f) - magneticFloat
-                val rightX = (3.2f * (1f - snapProgress)) - (snapProgress * 1.5f) - magneticFloat
-                val rightY = (-3.2f * (1f - snapProgress)) + (snapProgress * 1.5f) + magneticFloat
+                // Base docking trajectory (computed once during snap progress)
+                val baseLeftX = (-3.2f * (1f - snapProgress)) + (snapProgress * 1.5f)
+                val baseLeftY = (3.2f * (1f - snapProgress)) - (snapProgress * 1.5f)
+                val baseRightX = (3.2f * (1f - snapProgress)) - (snapProgress * 1.5f)
+                val baseRightY = (-3.2f * (1f - snapProgress)) + (snapProgress * 1.5f)
 
                 // Dynamic rotational alignment (parallel docking)
                 val leftRot = -3.5f * (1f - snapProgress)
@@ -863,8 +883,8 @@ fun DonationMethodAnimatedIcon(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_cloudtips_bg),
+                    MirrlyIcon(
+                        id = R.drawable.ic_cloudtips_bg,
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier
@@ -875,29 +895,31 @@ fun DonationMethodAnimatedIcon(
                                 scaleY = bgScale
                             }
                     )
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_cloudtips_left),
+                    MirrlyIcon(
+                        id = R.drawable.ic_cloudtips_left,
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                translationX = leftX
-                                translationY = leftY
+                                val mag = hoverPhaseState?.let { kotlin.math.sin(it.value) * 1.1f } ?: 0f
+                                translationX = baseLeftX + mag
+                                translationY = baseLeftY - mag
                                 rotationZ = leftRot
                                 scaleX = cardScale
                                 scaleY = cardScale
                             }
                     )
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_cloudtips_right),
+                    MirrlyIcon(
+                        id = R.drawable.ic_cloudtips_right,
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                translationX = rightX
-                                translationY = rightY
+                                val mag = hoverPhaseState?.let { kotlin.math.sin(it.value) * 1.1f } ?: 0f
+                                translationX = baseRightX - mag
+                                translationY = baseRightY + mag
                                 rotationZ = rightRot
                                 scaleX = cardScale
                                 scaleY = cardScale
@@ -916,47 +938,34 @@ fun DonationMethodAnimatedIcon(
                     label = "ytSnap"
                 )
 
-                val infiniteTransition = rememberInfiniteTransition(label = "yandexPulsar")
+                val yandexPulseState = if (isSelected) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "yandexPulsar")
+                    val rot = infiniteTransition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 360f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 2400, easing = LinearEasing)
+                        ),
+                        label = "ytSpiralRotation"
+                    )
+                    val breath = infiniteTransition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = (2 * Math.PI).toFloat(),
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 2000, easing = LinearEasing)
+                        ),
+                        label = "ytBreathPhase"
+                    )
+                    rot to breath
+                } else null
 
-                // Hypnotic spiral rotation: active strictly when selected
-                val spiralRotation by infiniteTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 360f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(
-                            durationMillis = 2400,
-                            easing = LinearEasing
-                        )
-                    ),
-                    label = "ytSpiralRotation"
-                )
-
-                // Living harmonic breath for viewfinder autofocus and pulsar depth
-                val breathPhase by infiniteTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = (2 * Math.PI).toFloat(),
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 2000, easing = LinearEasing)
-                    ),
-                    label = "ytBreathPhase"
-                )
-
-                // Viewfinder framing brackets: snap expansion + harmonic autofocus pulse (±2.5%)
-                val bracketBreath = if (isSelected) kotlin.math.sin(breathPhase) * 0.025f else 0f
-                val bracketScale = 1.0f + (snapProgress * 0.05f) + bracketBreath
-                val bracketRotation = (1f - snapProgress) * -4f // Tactile aperture shutter twist
-
-                // Spiral pulsar scale: pulsating breathing zoom (0.98f to 1.10f)
-                val spiralPulse = if (isSelected) kotlin.math.cos(breathPhase) * 0.06f else 0f
-                val spiralScale = 1.0f + (snapProgress * 0.04f) + spiralPulse
-
-                // Yellow card tactile micro-pop
+                val bracketRotation = (1f - snapProgress) * -4f
                 val bgScale = 1.0f + (snapProgress * 0.03f)
 
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     // Layer 1: Yellow squircle tile background
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_yandex_tips_bg),
+                    MirrlyIcon(
+                        id = R.drawable.ic_yandex_tips_bg,
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier
@@ -968,13 +977,16 @@ fun DonationMethodAnimatedIcon(
                     )
 
                     // Layer 2: 4 Framing corner brackets (Viewfinder reticle with autofocus snap)
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_yandex_tips_brackets),
+                    MirrlyIcon(
+                        id = R.drawable.ic_yandex_tips_brackets,
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
+                                val breath = yandexPulseState?.second?.value ?: 0f
+                                val bracketBreath = if (isSelected) kotlin.math.sin(breath) * 0.025f else 0f
+                                val bracketScale = 1.0f + (snapProgress * 0.05f) + bracketBreath
                                 scaleX = bracketScale
                                 scaleY = bracketScale
                                 rotationZ = bracketRotation
@@ -982,14 +994,17 @@ fun DonationMethodAnimatedIcon(
                     )
 
                     // Layer 3: Central hypnotic spiral pulsar
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_yandex_tips_spiral),
+                    MirrlyIcon(
+                        id = R.drawable.ic_yandex_tips_spiral,
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                rotationZ = if (isSelected) spiralRotation else 0f
+                                val breath = yandexPulseState?.second?.value ?: 0f
+                                val spiralPulse = if (isSelected) kotlin.math.cos(breath) * 0.06f else 0f
+                                val spiralScale = 1.0f + (snapProgress * 0.04f) + spiralPulse
+                                rotationZ = yandexPulseState?.first?.value ?: 0f
                                 scaleX = spiralScale
                                 scaleY = spiralScale
                             }
@@ -1007,19 +1022,18 @@ fun DonationMethodAnimatedIcon(
                     label = "dlSnap"
                 )
 
-                // Infinite harmonic pendulum swing for the chain link in active state
-                val infiniteTransition = rememberInfiniteTransition(label = "dlPendulum")
-                val swingPhase by infiniteTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = (2 * Math.PI).toFloat(),
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 2200, easing = LinearEasing)
-                    ),
-                    label = "dlSwing"
-                )
-
-                // Living pendulum swing (±3.5 deg)
-                val chainSwing = if (isSelected) kotlin.math.sin(swingPhase) * 3.5f else 0f
+                // Infinite harmonic pendulum swing for the chain link in active state (Deferred to graphicsLayer)
+                val swingPhaseState = if (isSelected) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "dlPendulum")
+                    infiniteTransition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = (2 * Math.PI).toFloat(),
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 2200, easing = LinearEasing)
+                        ),
+                        label = "dlSwing"
+                    )
+                } else null
 
                 // Squash & stretch physics for the orange speech bubble
                 val bubbleSquash = if (snapProgress in 0.01f..0.99f) {
@@ -1032,7 +1046,7 @@ fun DonationMethodAnimatedIcon(
 
                 // Chain tension and rotational snap into locked position
                 val chainScale = 1f + snapProgress * 0.07f
-                val chainRotation = (1f - snapProgress) * -8f + chainSwing
+                val baseChainRotation = (1f - snapProgress) * -8f
 
                 Box(
                     modifier = Modifier
@@ -1040,8 +1054,8 @@ fun DonationMethodAnimatedIcon(
                         .padding(4.5.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_dalink_bubble),
+                    MirrlyIcon(
+                        id = R.drawable.ic_dalink_bubble,
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier
@@ -1051,16 +1065,17 @@ fun DonationMethodAnimatedIcon(
                                 scaleY = bubbleScaleY
                             }
                     )
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_dalink_chain),
+                    MirrlyIcon(
+                        id = R.drawable.ic_dalink_chain,
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
+                                val swing = swingPhaseState?.let { kotlin.math.sin(it.value) * 3.5f } ?: 0f
                                 scaleX = chainScale
                                 scaleY = chainScale
-                                rotationZ = chainRotation
+                                rotationZ = baseChainRotation + swing
                             }
                     )
                 }

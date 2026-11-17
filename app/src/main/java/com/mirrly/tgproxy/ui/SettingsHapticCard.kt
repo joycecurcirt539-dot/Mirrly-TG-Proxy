@@ -17,9 +17,11 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -52,7 +54,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -124,8 +125,8 @@ fun SettingsHapticCard(
                         .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_fingerprint_badge),
+                    MirrlyIcon(
+                        id = R.drawable.ic_fingerprint_badge,
                         contentDescription = null,
                         tint = if (activeProfile != HapticProfile.STEALTH) accentColor else TextMuted,
                         modifier = Modifier.size(18.dp)
@@ -154,8 +155,8 @@ fun SettingsHapticCard(
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_info_circle),
+                            MirrlyIcon(
+                                id = R.drawable.ic_info_circle,
                                 contentDescription = null,
                                 tint = TextMuted,
                                 modifier = Modifier.size(14.dp)
@@ -248,7 +249,11 @@ fun SettingsHapticCard(
                 }
 
                 // Кнопка быстрого тестирования выбранного виброотклика
-                if (activeProfile != HapticProfile.STEALTH) {
+                AnimatedVisibility(
+                    visible = activeProfile != HapticProfile.STEALTH,
+                    enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
+                ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = Color.Transparent,
@@ -265,8 +270,8 @@ fun SettingsHapticCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_fingerprint_badge),
+                            MirrlyIcon(
+                                id = R.drawable.ic_fingerprint_badge,
                                 contentDescription = null,
                                 tint = accentColor,
                                 modifier = Modifier.size(16.dp)

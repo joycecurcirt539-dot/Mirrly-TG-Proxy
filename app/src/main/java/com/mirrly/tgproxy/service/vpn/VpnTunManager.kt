@@ -11,6 +11,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.mirrly.tgproxy.core.AppLogger
+import android.util.Log
 import com.mirrly.tgproxy.core.ProxyConfig
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -51,7 +52,9 @@ class TunHolder(
  */
 object VpnTunManager {
     private const val TAG = "VpnTunManager"
-    const val VPN_MTU = 1280 // RFC 2460 minimum IPv6 MTU, безопасный для WireGuard/MASQUE outer envelope
+    const val VPN_MTU_SAFE = 1280 // RFC 2460 minimum IPv6 MTU, безопасный для WireGuard/AWG outer envelope (Cellular LTE/5G)
+    const val VPN_MTU_HIGH_PERF = 1420 // Оптимальный MTU для WireGuard/AWG при внешнем MTU 1500 (Wi-Fi/Ethernet)
+    const val VPN_MTU = VPN_MTU_SAFE
 
     data class SplitTunnelConfig(
         val isEnabled: Boolean = false,
@@ -59,15 +62,47 @@ object VpnTunManager {
         val packageNames: Set<String> = emptySet()
     )
 
+    fun calculateOptimalMtu(vpnService: VpnService, explicitMtu: Int? = null): Int {
+        if (explicitMtu != null && explicitMtu in VPN_MTU_SAFE..1500) {
+            return explicitMtu
+        }
+        return try {
+            val cm = vpnService.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                ?: return VPN_MTU_SAFE
+            val activeNet = cm.activeNetwork ?: return VPN_MTU_SAFE
+            val caps = cm.getNetworkCapabilities(activeNet) ?: return VPN_MTU_SAFE
+            val isCellular = caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+            if (isCellular) {
+                // На LTE/5G сетях с агрессивным CGNAT и 464XLAT держим безопасный 1280
+                VPN_MTU_SAFE
+            } else {
+                val lp = cm.getLinkProperties(activeNet)
+                val physMtu = lp?.mtu ?: 0
+                if (physMtu >= 1500 || physMtu == 0) {
+                    VPN_MTU_HIGH_PERF
+                } else if (physMtu > 1360) {
+                    (physMtu - 80).coerceIn(VPN_MTU_SAFE, VPN_MTU_HIGH_PERF)
+                } else {
+                    VPN_MTU_SAFE
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Ошибка определения физического MTU, fallback на $VPN_MTU_SAFE: ${e.message}")
+            VPN_MTU_SAFE
+        }
+    }
+
     fun establish(
         vpnService: VpnService,
         config: ProxyConfig,
         sessionName: String = "Mirrly VPN",
         splitTunnel: SplitTunnelConfig? = null,
-        customDnsServers: List<String>? = null
+        customDnsServers: List<String>? = null,
+        explicitMtu: Int? = null
     ): Result<TunHolder> {
         return try {
-            val effectiveMtu = VPN_MTU
+            val effectiveMtu = calculateOptimalMtu(vpnService, explicitMtu)
+            AppLogger.i(TAG, "VPN [TUN]: Назначен эффективный MTU: $effectiveMtu (динамический расчет под сеть)")
             val builder = vpnService.Builder()
                 .setSession(sessionName)
                 .setMtu(effectiveMtu)
@@ -97,25 +132,41 @@ object VpnTunManager {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 // На Android 13+ маршрутизируем 0.0.0.0/0 и вызываем excludeRoute для локальных сетей
                 builder.addRoute("0.0.0.0", 0)
-                try {
-                    // Исключаем петлю обратной связи (Loopback 127.0.0.0/8) для изоляции SOCKS5/MTProto прокси от захвата в TUN
-                    builder.excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName("127.0.0.0"), 8))
-                    // Исключаем Link-Local (169.254.0.0/16)
-                    builder.excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName("169.254.0.0"), 16))
 
-                    if (shouldExclude10) {
-                        builder.excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName("10.0.0.0"), 8))
-                    }
-                    if (shouldExclude172) {
-                        builder.excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName("172.16.0.0"), 12))
-                    }
-                    if (shouldExclude192) {
-                        builder.excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName("192.168.0.0"), 16))
-                    }
-                    AppLogger.i(TAG, "Включен LAN bypass (Android 13+ excludeRoute): exclude10=$shouldExclude10, exclude172=$shouldExclude172, exclude192=$shouldExclude192, excludeLoopback=true")
+                // ВНИМАНИЕ: Петля обратной связи (127.0.0.0/8) обслуживается ядром Linux локально.
+                // Вызов excludeRoute для loopback категорически запрещен: Android VpnService.Builder
+                // проверяет isLoopbackAddress() и выбрасывает IllegalArgumentException.
+                // Cloudflare WARP эталон: "WarpTunnel: Ignoring loopback address in exclude route".
+
+                // Исключаем Link-Local (169.254.0.0/16)
+                try {
+                    builder.excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName("169.254.0.0"), 16))
                 } catch (e: Exception) {
-                    AppLogger.w(TAG, "Не удалось применить excludeRoute для LAN: ${e.message}")
+                    AppLogger.w(TAG, "Не удалось применить excludeRoute для 169.254.0.0/16: ${e.message}")
                 }
+
+                if (shouldExclude10) {
+                    try {
+                        builder.excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName("10.0.0.0"), 8))
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Не удалось применить excludeRoute для 10.0.0.0/8: ${e.message}")
+                    }
+                }
+                if (shouldExclude172) {
+                    try {
+                        builder.excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName("172.16.0.0"), 12))
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Не удалось применить excludeRoute для 172.16.0.0/12: ${e.message}")
+                    }
+                }
+                if (shouldExclude192) {
+                    try {
+                        builder.excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName("192.168.0.0"), 16))
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Не удалось применить excludeRoute для 192.168.0.0/16: ${e.message}")
+                    }
+                }
+                AppLogger.i(TAG, "Включен LAN bypass (Android 13+ excludeRoute): exclude10=$shouldExclude10, exclude172=$shouldExclude172, exclude192=$shouldExclude192")
             } else {
                 // На Android 7-12 разбиваем адресное пространство на непересекающиеся CIDR без локальных сетей
                 val nonLanRoutes = calculateNonLanRoutes(
@@ -142,7 +193,8 @@ object VpnTunManager {
                     builder.addRoute("::", 0)
                     if (ipv6Dns != null) {
                         builder.addDnsServer(ipv6Dns)
-                        AppLogger.i(TAG, "Включен IPv6 туннель: $effectiveIpv6/128 с DNS: $ipv6Dns")
+                        builder.addRoute(ipv6Dns, 128)
+                        AppLogger.i(TAG, "Включен IPv6 туннель: $effectiveIpv6/128 с DNS: $ipv6Dns/128")
                     } else {
                         AppLogger.i(TAG, "Включен IPv6 туннель: $effectiveIpv6/128")
                     }
@@ -153,21 +205,14 @@ object VpnTunManager {
                 AppLogger.i(TAG, "IPv6 туннелирование отключено (предотвращаем blackhole-задержки и ошибки сети)")
             }
 
-            // 4. Регистрация DNS-серверов туннеля VPN (Cloudflare WARP модель: виртуальный DNS 192.0.2.3 первым)
-            val virtualDns = "192.0.2.3"
-            try {
-                builder.addDnsServer(virtualDns)
-                builder.addRoute(virtualDns, 32)
-                AppLogger.i(TAG, "Настроен первичный виртуальный DNS сервер VPN: $virtualDns")
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Не удалось добавить первичный виртуальный DNS: ${e.message}")
-            }
+            // 4. Регистрация DNS-серверов туннеля VPN (проверенные адреса из effectiveDnsList: 1.1.1.1, 1.0.0.1 или пользовательские)
             for (dns in effectiveDnsList) {
-                if (dns == virtualDns) continue
                 try {
                     builder.addDnsServer(dns)
-                    builder.addRoute(dns, 32)
-                    AppLogger.i(TAG, "Настроен дополнительный DNS сервер VPN: $dns")
+                    val prefixLen = if (dns.contains(":")) 128 else 32
+                    builder.addRoute(dns, prefixLen)
+                    Log.i("MirrlyVPN", "VpnTunManager: Настроен DNS сервер VPN: $dns/$prefixLen")
+                    AppLogger.i(TAG, "Настроен DNS сервер VPN: $dns/$prefixLen")
                 } catch (e: Exception) {
                     AppLogger.w(TAG, "Не удалось добавить DNS сервер $dns: ${e.message}")
                 }
@@ -211,7 +256,7 @@ object VpnTunManager {
                     // Режим «Исключить выбранные приложения» (Blocklist / Bypass)
                     var excludedCount = 0
                     for (pkg in splitTunnel.packageNames) {
-                        if (pkg.isBlank() || pkg == ownPackage) continue
+                        if (pkg.isBlank() || pkg == ownPackage || pkg == "com.android.vending") continue
                         try {
                             builder.addDisallowedApplication(pkg)
                             excludedCount++
@@ -221,17 +266,34 @@ object VpnTunManager {
                     }
                     try {
                         builder.addDisallowedApplication(ownPackage)
+                        Log.i("MirrlyVPN", "VpnTunManager: собственный пакет ($ownPackage) гарантированно добавлен в исключения TUN (addDisallowedApplication)")
+                        AppLogger.i(TAG, "VpnTunManager: собственный пакет ($ownPackage) гарантированно добавлен в исключения TUN (addDisallowedApplication)")
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Не удалось добавить исключение для собственного пакета: ${e.message}")
                     }
-                    AppLogger.i(TAG, "Раздельное туннелирование (Blocklist): исключено $excludedCount приложений (+ собственное)")
+                    try {
+                        builder.addDisallowedApplication("com.android.vending")
+                        AppLogger.i(TAG, "VpnTunManager: Google Play (com.android.vending) добавлен в исключения TUN")
+                    } catch (e: Exception) {
+                        AppLogger.d(TAG, "Google Play (com.android.vending) не исключен: ${e.message}")
+                    }
+                    Log.i("MirrlyVPN", "VpnTunManager: собственный пакет ($ownPackage) исключен из маршрутизации TUN (Blocklist)")
+                    AppLogger.i(TAG, "Раздельное туннелирование (Blocklist): исключено $excludedCount приложений (+ собственное и Google Play)")
                 }
             } else {
-                // По умолчанию все приложения идут в VPN, кроме самого Mirrly
+                // По умолчанию все приложения идут в VPN, кроме самого Mirrly и Google Play
                 try {
                     builder.addDisallowedApplication(ownPackage)
+                    Log.i("MirrlyVPN", "VpnTunManager: собственный пакет ($ownPackage) гарантированно добавлен в исключения TUN (addDisallowedApplication)")
+                    AppLogger.i(TAG, "VpnTunManager: собственный пакет ($ownPackage) гарантированно добавлен в исключения TUN (addDisallowedApplication)")
                 } catch (e: Exception) {
                     AppLogger.w(TAG, "Не удалось добавить исключение для собственного пакета: ${e.message}")
+                }
+                try {
+                    builder.addDisallowedApplication("com.android.vending")
+                    AppLogger.i(TAG, "VpnTunManager: Google Play (com.android.vending) добавлен в исключения TUN")
+                } catch (e: Exception) {
+                    AppLogger.d(TAG, "Google Play (com.android.vending) не исключен: ${e.message}")
                 }
             }
 
@@ -239,7 +301,11 @@ object VpnTunManager {
             builder.setBlocking(true)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                builder.setMetered(false)
+                try {
+                    builder.setMetered(false)
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Не удалось вызвать setMetered(false): ${e.message}")
+                }
             }
 
             // 6. Поднятие системного дескриптора
@@ -332,4 +398,3 @@ object VpnTunManager {
         return result
     }
 }
-

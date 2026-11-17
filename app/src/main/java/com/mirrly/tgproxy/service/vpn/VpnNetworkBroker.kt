@@ -15,6 +15,7 @@ import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.core.NativeProxy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong
 class VpnNetworkBroker(
     private val context: Context,
     private val vpnService: VpnService,
-    private val onNetworkMigrated: (network: Network?, generation: Long) -> Unit
+    var onNetworkMigrated: ((network: Network?, generation: Long) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "VpnNetworkBroker"
@@ -188,7 +189,12 @@ class VpnNetworkBroker(
                 val newGen = currentNetworkGeneration.incrementAndGet()
                 applyUnderlyingNetworks(network)
                 AppLogger.i(TAG, "Сеть изменилась на $network (поколение: $newGen)")
-                onNetworkMigrated(network, newGen)
+                try {
+                    NativeProxy.notifyVpnReconnect()
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Ошибка вызова notifyVpnReconnect: ${e.message}")
+                }
+                onNetworkMigrated?.invoke(network, newGen)
             } else {
                 if (currentNetwork == network) {
                     currentNetwork = null
@@ -196,7 +202,12 @@ class VpnNetworkBroker(
                     val newGen = currentNetworkGeneration.incrementAndGet()
                     applyUnderlyingNetworks(null)
                     AppLogger.w(TAG, "Связь потеряна (поколение: $newGen)")
-                    onNetworkMigrated(null, newGen)
+                    try {
+                        NativeProxy.notifyVpnReconnect()
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Ошибка вызова notifyVpnReconnect: ${e.message}")
+                    }
+                    onNetworkMigrated?.invoke(null, newGen)
                 }
             }
         }

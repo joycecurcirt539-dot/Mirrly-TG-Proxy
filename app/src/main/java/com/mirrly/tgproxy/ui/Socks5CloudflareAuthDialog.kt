@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.content.ClipboardManager
 import android.content.Context
@@ -50,7 +51,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -439,10 +439,8 @@ fun Socks5CloudflareAuthDialog(
                                 color = TextMuted
                             )
                         }
-                        Icon(
-                            painter = painterResource(
-                                if (isApiTokenExpanded) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down
-                            ),
+                        MirrlyIcon(
+                            id = if (isApiTokenExpanded) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(16.dp)
@@ -672,10 +670,8 @@ fun Socks5CloudflareAuthDialog(
                                 color = TextMuted
                             )
                         }
-                        Icon(
-                            painter = painterResource(
-                                if (isCustomInputExpanded) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down
-                            ),
+                        MirrlyIcon(
+                            id = if (isCustomInputExpanded) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down,
                             contentDescription = null,
                             tint = TextMuted,
                             modifier = Modifier.size(16.dp)

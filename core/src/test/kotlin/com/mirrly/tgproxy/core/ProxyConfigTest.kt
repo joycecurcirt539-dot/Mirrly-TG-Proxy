@@ -208,13 +208,10 @@ class ProxyConfigTest {
         val config = ProxyConfig()
         assertEquals(UplinkMode.WORKER, config.uplinkMode)
 
-        config.uplinkModeName = UplinkMode.MASQUE.name
-        assertEquals(UplinkMode.MASQUE, config.uplinkMode)
+        config.uplinkModeName = UplinkMode.AWG.name
+        assertEquals(UplinkMode.AWG, config.uplinkMode)
 
         // Для системного VPN используются vpnUplinkMode
-        config.vpnUplinkModeName = UplinkMode.MASQUE.name
-        assertTrue(config.isVpnMasqueUplink)
-
         config.vpnUplinkModeName = UplinkMode.AWG.name
         assertTrue(config.isVpnAwgUplink)
         assertEquals(UplinkMode.AWG, config.vpnUplinkMode)
@@ -230,7 +227,7 @@ class ProxyConfigTest {
         val awg = config.getAmneziaWgConfig()
         assertTrue(awg.contains("PrivateKey = mYPrivateKeY123="))
         assertTrue(awg.contains("Address = 172.16.0.2/32"))
-        assertTrue(awg.contains("Jc = 4"))
+        assertTrue(awg.contains("Jc = 0"))
         assertTrue(awg.contains("S1 = 0"))
         assertTrue(awg.contains("S2 = 0"))
         assertTrue(awg.contains("H1 = 1"))
@@ -239,6 +236,20 @@ class ProxyConfigTest {
         assertTrue(awg.contains("H4 = 4"))
         assertTrue(!awg.contains("I1 ="), "AWG config must NOT contain hallucinated I1")
         assertTrue(awg.contains("Endpoint = 162.159.198.1:443"))
+
+        // DEEP_STEALTH strategy generates recommended QUIC CPS I1 and Jc = 5 for custom VPS
+        val deepAwg = config.getAmneziaWgConfig(cleanEndpoint = "198.51.100.25:51820", strategy = AwgObfuscationStrategy.DEEP_STEALTH)
+        assertTrue(deepAwg.contains("Jc = 5"))
+        assertTrue(deepAwg.contains("I1 = ${ProxyConfig.DEFAULT_QUIC_I1}"))
+
+        // Explicit custom awgI1 overrides strategy default
+        val customI1Cfg = ProxyConfig(
+            warpPrivateKey = "mYPrivateKeY123=",
+            warpClientIpv4 = "172.16.0.2",
+            awgI1 = "<b 0xc000000001><rc 8><t><rd 4><r 32>"
+        )
+        val customAwg = customI1Cfg.getAmneziaWgConfig()
+        assertTrue(customAwg.contains("I1 = <b 0xc000000001><rc 8><t><rd 4><r 32>"))
     }
 
     @Test
@@ -271,11 +282,9 @@ class ProxyConfigTest {
         // Google & Quad9 modes
         val cfgGoogle = ProxyConfig(vpnDnsModeName = VpnDnsMode.GOOGLE.name)
         assertEquals(listOf("8.8.8.8", "8.8.4.4"), cfgGoogle.getEffectiveVpnDnsIpv4())
-        assertEquals("https://dns.google/dns-query", cfgGoogle.getEffectiveVpnDohEndpoints())
 
         val cfgQuad9 = ProxyConfig(vpnDnsModeName = VpnDnsMode.QUAD9.name)
         assertEquals(listOf("9.9.9.9", "149.112.112.112"), cfgQuad9.getEffectiveVpnDnsIpv4())
-        assertEquals("https://dns.quad9.net/dns-query", cfgQuad9.getEffectiveVpnDohEndpoints())
 
         // Legacy migration: XBOX_DNS name string should map to COMSS_DNS
         val cfgLegacyXbox = ProxyConfig(vpnDnsModeName = "XBOX_DNS")
@@ -302,5 +311,254 @@ class ProxyConfigTest {
         // 5. Custom parser validates IPv4 syntax and skips invalid entries
         val parsed = ProxyConfig.parseCustomDnsIps(" 8.8.8.8 , invalid.host ; 8.8.4.4 \n 999.1.1.1 \t 1.1.1.1 ")
         assertEquals(listOf("8.8.8.8", "8.8.4.4", "1.1.1.1"), parsed)
+    }
+
+    @Test
+    fun testIsCloudflareEndpoint() {
+        // Cloudflare IPv4 ranges
+        assertTrue(isCloudflareEndpoint("162.159.193.10:1701"))
+        assertTrue(isCloudflareEndpoint("162.159.192.1:2408"))
+        assertTrue(isCloudflareEndpoint("188.114.96.1:8095"))
+        assertTrue(isCloudflareEndpoint("188.114.97.66:4500"))
+        assertTrue(isCloudflareEndpoint("172.64.0.1:443"))
+        assertTrue(isCloudflareEndpoint("1.1.1.1:53"))
+        assertTrue(isCloudflareEndpoint("1.0.0.1"))
+
+        // Cloudflare IPv6
+        assertTrue(isCloudflareEndpoint("[2606:4700:d0::a29f:c001]:8443"))
+        assertTrue(isCloudflareEndpoint("2606:4700:4700::1111"))
+
+        // Cloudflare hostnames
+        assertTrue(isCloudflareEndpoint("engage.cloudflareclient.com:2408"))
+        assertTrue(isCloudflareEndpoint("cloudflareclient.com"))
+        assertTrue(isCloudflareEndpoint("cdnjs.cloudflare.com:443"))
+        assertTrue(isCloudflareEndpoint("teams.cloudflareaccess.com"))
+
+        // Third-party VPS endpoints (non-Cloudflare)
+        assertFalse(isCloudflareEndpoint("198.51.100.25:51820"))
+        assertFalse(isCloudflareEndpoint("95.217.1.1:51820"))
+        assertFalse(isCloudflareEndpoint("vpn.example.com:51820"))
+        assertFalse(isCloudflareEndpoint("8.8.8.8:53"))
+        assertFalse(isCloudflareEndpoint(null))
+        assertFalse(isCloudflareEndpoint(""))
+    }
+
+    @Test
+    fun testSanitizeAwgConfigForCloudflare() {
+        val unsafeRaw = """
+            [Interface]
+            PrivateKey = aaaa
+            Address = 172.16.0.2/32
+            Jc = 4
+            Jmin = 40
+            Jmax = 70
+            S1 = 15
+            S2 = 35
+            S3 = 10
+            S4 = 20
+            H1 = 100
+            H2 = 200
+            H3 = 300
+            H4 = 400
+            I1 = <b 0x01>
+            DisableCookies = on
+            RandomTrailers = on
+
+            [Peer]
+            PublicKey = bbbb
+            Endpoint = 162.159.193.10:1701
+        """.trimIndent()
+
+        val sanitized = sanitizeAwgConfigForCloudflare(unsafeRaw)
+        assertTrue(sanitized.contains("Jc = 0"))
+        assertTrue(sanitized.contains("Jmin = 0"))
+        assertTrue(sanitized.contains("Jmax = 0"))
+        assertTrue(sanitized.contains("S1 = 0"))
+        assertTrue(sanitized.contains("S2 = 0"))
+        assertTrue(sanitized.contains("S3 = 0"))
+        assertTrue(sanitized.contains("S4 = 0"))
+        assertTrue(sanitized.contains("H1 = 1"))
+        assertTrue(sanitized.contains("H2 = 2"))
+        assertTrue(sanitized.contains("H3 = 3"))
+        assertTrue(sanitized.contains("H4 = 4"))
+        assertTrue(sanitized.contains("DisableCookies = off"))
+        assertTrue(sanitized.contains("RandomTrailers = off"))
+        assertFalse(sanitized.contains("I1 ="))
+        assertFalse(sanitized.contains("Jc = 4"))
+        assertFalse(sanitized.contains("H1 = 100"))
+    }
+
+    @Test
+    fun testApplyWarpProfileForCloudflareDisablesJunkPackets() {
+        val profile = WarpProfile(
+            accountId = "test-cf-acc",
+            token = "test-token",
+            licenseKey = "",
+            clientIpv4 = "172.16.0.2",
+            clientIpv6 = "",
+            peerEndpoint = "162.159.193.10:1701",
+            peerPublicKey = ProxyConfig.DEFAULT_CF_PEER_KEY,
+            privateKeyBase64 = "4B7hZt4c12pU7o+s3f79m1Q6gL8k3z1A5x7e9c0B2d4=",
+            publicKeyBase64 = "testPub",
+            isWarpPlus = false,
+            isWarpEnabled = true,
+            isRegistered = true,
+            isActivated = true,
+            credentialsValid = true,
+            dataPlaneReady = true,
+            awgJc = 4,
+            awgJmin = 40,
+            awgJmax = 70,
+            awgS1 = 15,
+            awgS2 = 35,
+            awgH1 = 100L,
+            awgRawConfig = """
+                [Interface]
+                PrivateKey = 4B7hZt4c12pU7o+s3f79m1Q6gL8k3z1A5x7e9c0B2d4=
+                Address = 172.16.0.2/32
+                Jc = 4
+                S1 = 15
+                [Peer]
+                PublicKey = ${ProxyConfig.DEFAULT_CF_PEER_KEY}
+                Endpoint = 162.159.193.10:1701
+            """.trimIndent()
+        )
+
+        val config = ProxyConfig()
+        config.applyWarpProfile(profile)
+
+        // For Cloudflare WARP, Jc must be strictly 0
+        assertEquals(0, config.awgJc)
+        assertEquals(0, config.awgJmin)
+        assertEquals(0, config.awgJmax)
+        assertEquals(0, config.awgS1)
+        assertEquals(0, config.awgS2)
+        assertEquals(1L, config.awgH1)
+        assertEquals(2L, config.awgH2)
+        assertEquals(3L, config.awgH3)
+        assertEquals(4L, config.awgH4)
+
+        val generatedAwg = config.getAmneziaWgConfig()
+        assertTrue(generatedAwg.contains("Jc = 0"))
+        assertTrue(generatedAwg.contains("S1 = 0"))
+        assertTrue(generatedAwg.contains("H1 = 1"))
+        assertFalse(generatedAwg.contains("Jc = 4"))
+        assertFalse(generatedAwg.contains("S1 = 15"))
+    }
+
+    @Test
+    fun testApplyWarpProfileForCustomVpsPreservesAwgParams() {
+        val customPeerKey = "t9Zk4c12pU7o+s3f79m1Q6gL8k3z1A5x7e9c0B2d4="
+        val vpsEndpoint = "198.51.100.25:51820"
+        val customRaw = """
+            [Interface]
+            PrivateKey = 4B7hZt4c12pU7o+s3f79m1Q6gL8k3z1A5x7e9c0B2d4=
+            Address = 10.8.0.2/24
+            Jc = 5
+            Jmin = 50
+            Jmax = 80
+            S1 = 20
+            S2 = 40
+            H1 = 100
+            H2 = 200
+            H3 = 300
+            H4 = 400
+
+            [Peer]
+            PublicKey = $customPeerKey
+            AllowedIPs = 0.0.0.0/0
+            Endpoint = $vpsEndpoint
+        """.trimIndent()
+
+        val profile = WarpProfile(
+            accountId = "custom-vps-acc",
+            token = "custom-token",
+            licenseKey = "",
+            clientIpv4 = "10.8.0.2",
+            clientIpv6 = "",
+            peerEndpoint = vpsEndpoint,
+            peerPublicKey = customPeerKey,
+            privateKeyBase64 = "4B7hZt4c12pU7o+s3f79m1Q6gL8k3z1A5x7e9c0B2d4=",
+            publicKeyBase64 = "testPub",
+            isWarpPlus = false,
+            isWarpEnabled = true,
+            isRegistered = true,
+            isActivated = true,
+            credentialsValid = true,
+            dataPlaneReady = true,
+            awgJc = 5,
+            awgJmin = 50,
+            awgJmax = 80,
+            awgS1 = 20,
+            awgS2 = 40,
+            awgH1 = 100L,
+            awgH2 = 200L,
+            awgH3 = 300L,
+            awgH4 = 400L,
+            awgRawConfig = customRaw
+        )
+
+        val config = ProxyConfig()
+        config.applyWarpProfile(profile)
+
+        // For 3rd-party VPS, custom parameters must be preserved!
+        assertEquals(5, config.awgJc)
+        assertEquals(50, config.awgJmin)
+        assertEquals(80, config.awgJmax)
+        assertEquals(20, config.awgS1)
+        assertEquals(40, config.awgS2)
+        assertEquals(100L, config.awgH1)
+        assertEquals(200L, config.awgH2)
+        assertEquals(300L, config.awgH3)
+        assertEquals(400L, config.awgH4)
+        assertEquals(customRaw, config.awgCustomIni)
+
+        val generatedAwg = config.getAmneziaWgConfig()
+        assertTrue(generatedAwg.contains("Jc = 5"))
+        assertTrue(generatedAwg.contains("S1 = 20"))
+        assertTrue(generatedAwg.contains("H1 = 100"))
+    }
+
+    @Test
+    fun testApplyWarpProfileWithOverrideDnsFalsePreservesUserDns() {
+        val profile = WarpProfile(
+            accountId = "acc-test",
+            token = "tok-test",
+            clientIpv4 = "172.16.0.2",
+            clientIpv6 = "2606:4700:110:8612:a3ec:f441:d3fc:3f76",
+            peerPublicKey = ProxyConfig.DEFAULT_CF_PEER_KEY,
+            privateKeyBase64 = "4B7hZt4c12pU7o+s3f79m1Q6gL8k3z1A5x7e9c0B2d4=",
+            publicKeyBase64 = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+            dnsServers = "1.1.1.1, 1.0.0.1",
+            isWarpEnabled = true,
+            isRegistered = true,
+            isActivated = true,
+            credentialsValid = true,
+            dataPlaneReady = true
+        )
+
+        val config = ProxyConfig(
+            vpnDnsModeName = VpnDnsMode.COMSS_DNS.name,
+            vpnCustomDnsIps = "83.220.169.155, 195.133.25.16"
+        )
+
+        // When connecting with built-in server, overrideDns is false
+        config.applyWarpProfile(profile, overrideDns = false)
+
+        assertEquals(VpnDnsMode.COMSS_DNS.name, config.vpnDnsModeName)
+        assertEquals("83.220.169.155, 195.133.25.16", config.vpnCustomDnsIps)
+        assertEquals(ProxyConfig.COMSS_DNS_IPV4, config.getEffectiveVpnDnsIpv4())
+        val generatedAwg = config.getAmneziaWgConfig()
+        assertTrue(generatedAwg.contains("DNS = ${ProxyConfig.COMSS_DNS_IPV4.joinToString(", ")}"))
+    }
+
+    @Test
+    fun testIsTlsEnabledDefaultsToFalseAndCanBeEnabled() {
+        val defaultConfig = ProxyConfig()
+        assertFalse(defaultConfig.isTlsEnabled)
+
+        val tlsOnConfig = ProxyConfig(isTlsEnabled = true, customCfDomain = "worker.example.dev")
+        assertTrue(tlsOnConfig.isTlsEnabled)
+        assertEquals("worker.example.dev", tlsOnConfig.getEffectiveCfDomain())
     }
 }

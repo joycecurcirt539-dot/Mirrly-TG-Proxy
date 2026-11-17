@@ -46,7 +46,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -389,8 +389,8 @@ fun OnboardingScreen(
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 0.4.sp
                             )
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_chevron_right),
+                            MirrlyIcon(
+                                id = R.drawable.ic_chevron_right,
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
                                 modifier = Modifier.size(16.dp)
@@ -721,8 +721,8 @@ private fun StepWallpaperSelection(
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_wallpaper),
+                    MirrlyIcon(
+                        id = R.drawable.ic_wallpaper,
                         contentDescription = null,
                         tint = if (isAmoledActive) ActiveGreenLed else Color.White.copy(alpha = 0.50f),
                         modifier = Modifier.size(24.dp)
@@ -1014,14 +1014,6 @@ private fun StepVpnMode() {
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.6f)))
 
                 FeatureRowItem(
-                    iconRes = R.drawable.ic_diag_cloudflare,
-                    title = stringResource(R.string.onboarding_vpn_feature_masque_title),
-                    detail = stringResource(R.string.onboarding_vpn_feature_masque_desc)
-                )
-
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.6f)))
-
-                FeatureRowItem(
                     iconRes = R.drawable.ic_settings,
                     title = stringResource(R.string.onboarding_vpn_feature_split_title),
                     detail = stringResource(R.string.onboarding_vpn_feature_split_desc)
@@ -1053,8 +1045,8 @@ private fun FeatureRowItem(
                 .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), RoundedCornerShape(11.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                painter = painterResource(id = iconRes),
+            MirrlyIcon(
+                id = iconRes,
                 contentDescription = null,
                 tint = ActiveGreenLed,
                 modifier = Modifier.size(19.dp)
@@ -1181,8 +1173,8 @@ private fun QuickStartStepRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    painter = painterResource(id = iconRes),
+                MirrlyIcon(
+                    id = iconRes,
                     contentDescription = null,
                     tint = TextWhite,
                     modifier = Modifier.size(15.dp)

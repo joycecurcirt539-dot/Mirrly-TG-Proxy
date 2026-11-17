@@ -532,12 +532,8 @@ impl<K: Eq + std::hash::Hash + Clone + Send + 'static, V: Clone + Send + 'static
     }
 }
 
-/// Global Singleflight group for Hostname DNS deduplication.
+/// Global Singleflight group for Hostname resolution deduplication.
 pub static DNS_SINGLEFLIGHT: Lazy<Singleflight<String, Vec<IpAddr>>> =
-    Lazy::new(Singleflight::new);
-
-/// Global Singleflight group for Dual-Scope DNS resolution.
-pub static DNS_SCOPE_SINGLEFLIGHT: Lazy<Singleflight<String, Result<Vec<IpAddr>, crate::dns::DnsError>>> =
     Lazy::new(Singleflight::new);
 
 // ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@
 package com.mirrly.tgproxy.service
 
 import com.mirrly.tgproxy.BuildConfig
-import com.mirrly.tgproxy.core.DohOkHttpDns
+import okhttp3.Dns
 import com.mirrly.tgproxy.core.WorkerRelayHealthProbe
 import com.mirrly.tgproxy.core.WorkerStatus
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit
 object WorkerPingTester {
     private val probe by lazy {
         WorkerRelayHealthProbe(OkHttpClient.Builder()
-            .dns(DohOkHttpDns.INSTANCE)
+            .dns(Dns.SYSTEM)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(25, TimeUnit.SECONDS)
             .callTimeout(30, TimeUnit.SECONDS)
@@ -43,7 +43,7 @@ object WorkerPingTester {
 
     private val httpClient by lazy {
         OkHttpClient.Builder()
-            .dns(DohOkHttpDns.INSTANCE)
+            .dns(Dns.SYSTEM)
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.SECONDS)
             .callTimeout(6, TimeUnit.SECONDS)
@@ -74,9 +74,17 @@ object WorkerPingTester {
             }
         } catch (_: Throwable) {}
 
+        val isTlsEnabled = try {
+            com.mirrly.tgproxy.MirrlyApplication.instance.config.isTlsEnabled
+        } catch (_: Throwable) {
+            false
+        }
+        if (!isTlsEnabled) {
+            return@withContext WorkerStatus.ERROR_UNREACHABLE to null
+        }
+
         val relayResult = probeRelayInternal(cleanDomain, timeoutMs = 25_000L)
         if (relayResult.first == WorkerStatus.ONLINE) {
-            com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 2)
             return@withContext relayResult
         } else if (relayResult.first == WorkerStatus.RATE_LIMITED_429) {
             return@withContext relayResult
@@ -104,9 +112,28 @@ object WorkerPingTester {
             return@withContext WorkerStatus.ERROR_UNREACHABLE to null
         }
 
+        val isTlsEnabled = try {
+            com.mirrly.tgproxy.MirrlyApplication.instance.config.isTlsEnabled
+        } catch (_: Throwable) {
+            false
+        }
+        if (!isTlsEnabled) {
+            try {
+                val (statusStr, rttMs) = com.mirrly.tgproxy.core.NativeProxy.pingWorker(
+                    cleanDomain,
+                    timeoutMs.coerceIn(1000L, 15_000L).toInt()
+                )
+                if (statusStr == "ONLINE") {
+                    return@withContext WorkerStatus.ONLINE to rttMs
+                } else if (statusStr == "RATE_LIMITED_429") {
+                    return@withContext WorkerStatus.RATE_LIMITED_429 to rttMs
+                }
+            } catch (_: Throwable) {}
+            return@withContext WorkerStatus.ERROR_UNREACHABLE to null
+        }
+
         val relayResult = probeRelayInternal(cleanDomain, timeoutMs)
         if (relayResult.first == WorkerStatus.ONLINE) {
-            com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 2)
             return@withContext relayResult
         } else if (relayResult.first == WorkerStatus.RATE_LIMITED_429) {
             return@withContext relayResult

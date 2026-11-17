@@ -9,7 +9,6 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.mirrly.tgproxy.core.AppLogger
-import com.mirrly.tgproxy.core.DohOkHttpDns
 import com.mirrly.tgproxy.core.UpdateChecker
 import com.mirrly.tgproxy.util.SignatureStatus
 import com.mirrly.tgproxy.util.SignatureVerifier
@@ -18,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -48,7 +48,7 @@ object UpdateDownloader {
 
     private val client by lazy {
         OkHttpClient.Builder()
-            .dns(DohOkHttpDns.INSTANCE)
+            .dns(Dns.SYSTEM)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .followRedirects(true)

@@ -79,7 +79,13 @@ fun rememberSensorTilt(
                 filteredX += alpha * (targetX - filteredX)
                 filteredY += alpha * (targetY - filteredY)
 
-                tiltState.value = Offset(filteredX * depthMultiplier, filteredY * depthMultiplier)
+                val newX = filteredX * depthMultiplier
+                val newY = filteredY * depthMultiplier
+                val cur = tiltState.value
+                // Deadband filter: bypass updates if tilt hasn't changed (phone on table or steady in hand)
+                if (kotlin.math.abs(newX - cur.x) > 0.002f || kotlin.math.abs(newY - cur.y) > 0.002f) {
+                    tiltState.value = Offset(newX, newY)
+                }
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -87,7 +93,8 @@ fun rememberSensorTilt(
 
         fun register() {
             if (!isRegistered) {
-                sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME)
+                // SENSOR_DELAY_UI provides ultra-smooth 60Hz kinetic motion without the battery-draining 100Hz+ loop of GAME
+                sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
                 isRegistered = true
             }
         }

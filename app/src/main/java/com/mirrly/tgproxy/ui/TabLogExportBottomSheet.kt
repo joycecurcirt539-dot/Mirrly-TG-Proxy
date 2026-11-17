@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
@@ -37,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -133,8 +133,8 @@ fun TabLogExportBottomSheet(
                         }),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_close),
+                    MirrlyIcon(
+                        id = R.drawable.ic_close,
                         contentDescription = null,
                         tint = TextMuted,
                         modifier = Modifier.size(14.dp)
@@ -202,8 +202,8 @@ fun TabLogExportBottomSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_copy),
+                        MirrlyIcon(
+                            id = R.drawable.ic_copy,
                             contentDescription = null,
                             tint = if (logs.isNotEmpty()) levelColor else TextMuted,
                             modifier = Modifier.size(16.dp)
@@ -248,8 +248,8 @@ fun TabLogExportBottomSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_export),
+                        MirrlyIcon(
+                            id = R.drawable.ic_export,
                             contentDescription = null,
                             tint = TextWhite,
                             modifier = Modifier.size(16.dp)

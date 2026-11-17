@@ -89,9 +89,7 @@ pub async fn run_socks5_server(
 
     // Prime the multi-DC warm socket pool for DC2 chat, DC2 media, and DC4 media
     let initial_user_domain = CFPROXY.read().user_domain.clone();
-    if !initial_user_domain.is_empty() {
-        trigger_warm_socks5_pool_prime(initial_user_domain, cancel_root.clone());
-    }
+    trigger_warm_socks5_pool_prime(initial_user_domain, cancel_root.clone());
     ensure_warm_pool_housekeeper(cancel_root.clone());
 
     let mut sessions = tokio::task::JoinSet::new();
@@ -143,7 +141,7 @@ async fn handle_socks5_client(
     }
     let _guard = ActiveGuard;
 
-    set_sock_opts(&client);
+    set_client_sock_opts(&client);
     if !crate::traffic_guard::is_traffic_authorized() {
         let _ = client.write_all(&[0x05, 0xFF]).await;
         return;
@@ -442,12 +440,15 @@ async fn handle_socks5_client(
     // Extract DC, media flag, and protocol tag from destination host and initial 64-byte handshake
     let host_dc = lookup_telegram_dc(&target_host);
     let init_dc = dc_from_init(&init_buf[..64]);
-    let (dc, is_media, detected_proto) = match (host_dc, init_dc) {
+    let (dc, mut is_media, detected_proto) = match (host_dc, init_dc) {
         (Some((hdc, hmedia)), Some((_idc, imedia, proto))) => (hdc, hmedia || imedia, Some(proto)),
         (Some((hdc, hmedia)), None) => (hdc, hmedia, None),
         (None, Some((idc, imedia, proto))) => (idc, imedia, Some(proto)),
         (None, None) => (2, false, None),
     };
+    if dc == 4 {
+        is_media = true;
+    }
 
     let (worker_dst, effective_port) =
         resolve_socks5_telegram_destination(&target_host, target_port, Some(dc), is_media);
@@ -2418,20 +2419,6 @@ async fn handle_socks5_udp_associate(
                     stats.mark_established();
                     linfo!("SOCKS5 UDP: Uplink established for {}", target_addr);
                     match uplink {
-                        crate::supervisor::SocksUdpUplink::Masque(masque_tunnel) => {
-                            bridge_masque_udp_target(
-                                masque_tunnel,
-                                rx,
-                                udp_socket_clone,
-                                client_addr_clone,
-                                atyp,
-                                raw_addr,
-                                target_port,
-                                cancel_child,
-                                stats,
-                            )
-                            .await;
-                        }
                         crate::supervisor::SocksUdpUplink::Awg(awg_tunnel) => {
                             bridge_awg_udp_target(
                                 awg_tunnel,
@@ -2547,6 +2534,25 @@ pub fn build_socks5_udp_packet(
     pkt
 }
 
+/// Computes the 16-bit one's complement Internet Checksum (RFC 1071).
+pub fn calc_internet_checksum(data: &[u8]) -> u16 {
+    let mut sum = 0u32;
+    let mut i = 0;
+    while i + 1 < data.len() {
+        let word = u16::from_be_bytes([data[i], data[i + 1]]);
+        sum = sum.wrapping_add(word as u32);
+        i += 2;
+    }
+    if i < data.len() {
+        let word = u16::from_be_bytes([data[i], 0]);
+        sum = sum.wrapping_add(word as u32);
+    }
+    while (sum >> 16) != 0 {
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
+    !(sum as u16)
+}
+
 pub fn build_ipv4_udp_packet(
     src_ip: Ipv4Addr,
     dst_ip: Ipv4Addr,
@@ -2569,7 +2575,7 @@ pub fn build_ipv4_udp_packet(
     pkt.extend_from_slice(&src_ip.octets());
     pkt.extend_from_slice(&dst_ip.octets());
 
-    let ip_cksum = crate::masque::calc_internet_checksum(&pkt[0..20]);
+    let ip_cksum = calc_internet_checksum(&pkt[0..20]);
     pkt[10..12].copy_from_slice(&ip_cksum.to_be_bytes());
 
     let udp_start = pkt.len();
@@ -2587,7 +2593,7 @@ pub fn build_ipv4_udp_packet(
     pseudo.extend_from_slice(&(udp_len as u16).to_be_bytes());
     pseudo.extend_from_slice(&pkt[udp_start..]);
 
-    let udp_cksum = crate::masque::calc_internet_checksum(&pseudo);
+    let udp_cksum = calc_internet_checksum(&pseudo);
     let final_udp_cksum = if udp_cksum == 0 { 0xFFFF } else { udp_cksum };
     pkt[udp_start + 6..udp_start + 8].copy_from_slice(&final_udp_cksum.to_be_bytes());
 
@@ -2625,7 +2631,7 @@ pub fn build_ipv6_udp_packet(
     pseudo.extend_from_slice(&[0, 0, 0, 17]);
     pseudo.extend_from_slice(&pkt[udp_start..]);
 
-    let udp_cksum = crate::masque::calc_internet_checksum(&pseudo);
+    let udp_cksum = calc_internet_checksum(&pseudo);
     let final_udp_cksum = if udp_cksum == 0 { 0xFFFF } else { udp_cksum };
     pkt[udp_start + 6..udp_start + 8].copy_from_slice(&final_udp_cksum.to_be_bytes());
 
@@ -2723,7 +2729,7 @@ async fn bridge_awg_udp_target(
 ) {
     let target_addr_str = tunnel.target_addr.clone();
     let (target_ip, resolved_target_port) =
-        match crate::masque::parse_target_endpoint(&target_addr_str).await {
+        match crate::dns::parse_target_endpoint(&target_addr_str).await {
             Ok((ip, p)) => (ip, if p != 0 { p } else { target_port }),
             Err(e) => {
                 lwarn!(
@@ -2834,157 +2840,6 @@ async fn bridge_awg_udp_target(
     cancel_token.cancel();
 }
 
-async fn bridge_masque_udp_target(
-    tunnel: crate::masque::MasqueTunnel,
-    mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
-    udp_socket: Arc<tokio::net::UdpSocket>,
-    client_addr: Arc<parking_lot::RwLock<Option<SocketAddr>>>,
-    atyp: u8,
-    raw_addr: Vec<u8>,
-    target_port: u16,
-    cancel_token: CancellationToken,
-    stats: UdpSessionStats,
-) {
-    if tunnel.is_raw_l4 {
-        lwarn!("MASQUE UDP: raw L4 connect mode does not support L3 UDP datagrams; aborting");
-        return;
-    }
-
-    let target_addr_str = tunnel.target_addr.clone();
-    let (target_ip, resolved_target_port) =
-        match crate::masque::parse_target_endpoint(&target_addr_str).await {
-            Ok((ip, p)) => (ip, if p != 0 { p } else { target_port }),
-            Err(e) => {
-                lwarn!(
-                    "MASQUE UDP: failed to resolve target endpoint '{}': {}",
-                    target_addr_str,
-                    e
-                );
-                return;
-            }
-        };
-
-    let (client_v4_opt, client_v6_opt) = {
-        let cfg = crate::masque::WARP_CONFIG.read();
-        let v4 = if !cfg.client_ipv4.trim().is_empty() {
-            cfg.client_ipv4.trim().parse::<Ipv4Addr>().ok()
-        } else {
-            Some(Ipv4Addr::new(172, 16, 0, 2))
-        };
-        let v6 = if !cfg.client_ipv6.trim().is_empty() {
-            cfg.client_ipv6.trim().parse::<Ipv6Addr>().ok()
-        } else {
-            None
-        };
-        (v4, v6)
-    };
-
-    let current_v4 = tunnel.effective_ipv4(client_v4_opt);
-    let current_v6 = tunnel.effective_ipv6(client_v6_opt);
-
-    if target_ip.is_ipv4() && current_v4.is_none() {
-        lwarn!("MASQUE UDP: target is IPv4 but no client IPv4 available; aborting");
-        return;
-    }
-    if target_ip.is_ipv6() && current_v6.is_none() {
-        lwarn!("MASQUE UDP: target is IPv6 but no client IPv6 available; aborting");
-        return;
-    }
-
-    let local_port = 40000 + (rand::random::<u16>() % 20000);
-    let qid = tunnel.quarter_stream_id;
-    let conn = tunnel.connection.clone();
-    let cancel_up = cancel_token.clone();
-    let cancel_down = cancel_token.clone();
-
-    let conn_up = conn.clone();
-    let stats_up = stats.clone();
-    let mut up_task = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = cancel_up.cancelled() => break,
-                opt = rx.recv() => {
-                    match opt {
-                        Some(payload) => {
-                            stats_up.on_packet_sent(payload.len());
-                            let ip_pkt = match target_ip {
-                                IpAddr::V4(v4) => {
-                                    build_ipv4_udp_packet(current_v4.unwrap(), v4, local_port, resolved_target_port, &payload)
-                                }
-                                IpAddr::V6(v6) => {
-                                    build_ipv6_udp_packet(current_v6.unwrap(), v6, local_port, resolved_target_port, &payload)
-                                }
-                            };
-                            let dgram = crate::masque::encode_h3_datagram(qid, 0, &ip_pkt);
-                            STATS.bytes_up.fetch_add(payload.len() as i64, Ordering::Relaxed);
-                            let send_res = tokio::time::timeout(
-                                Duration::from_millis(100),
-                                conn_up.send_datagram_wait(bytes::Bytes::from(dgram)),
-                            )
-                            .await;
-                            match send_res {
-                                Ok(Ok(())) => {}
-                                Ok(Err(e)) => {
-                                    ldebug!("MASQUE UDP send datagram error: {:?}", e);
-                                    break;
-                                }
-                                Err(_) => {}
-                            }
-                        }
-                        None => break,
-                    }
-                }
-            }
-        }
-    });
-
-    let raw_addr_down = raw_addr.clone();
-    let udp_socket_down = udp_socket.clone();
-    let client_addr_down = client_addr.clone();
-    let stats_down = stats.clone();
-    let mut down_task = tokio::spawn(async move {
-        let mut dgram_rx = tunnel.dgram_rx.lock().await;
-        loop {
-            let res = tokio::select! {
-                _ = cancel_down.cancelled() => break,
-                pkt_opt = tokio::time::timeout(Duration::from_secs(120), dgram_rx.recv()) => pkt_opt,
-            };
-            match res {
-                Ok(Some(ip_pkt_bytes)) => {
-                    if let Some(info) = parse_udp_from_ip_packet(&ip_pkt_bytes) {
-                        if info.dst_port == local_port {
-                            stats_down.on_packet_received();
-                            let s5_pkt = build_socks5_udp_packet(
-                                atyp,
-                                &raw_addr_down,
-                                target_port,
-                                info.payload,
-                            );
-                            let dest_opt = *client_addr_down.read();
-                            if let Some(dest) = dest_opt {
-                                STATS.bytes_down.fetch_add(info.payload.len() as i64, Ordering::Relaxed);
-                                if udp_socket_down.send_to(&s5_pkt, dest).await.is_err() {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                Ok(None) | Err(_) => break,
-            }
-        }
-    });
-
-    tokio::select! {
-        _ = cancel_token.cancelled() => {},
-        _ = &mut up_task => {},
-        _ = &mut down_task => {},
-    }
-    up_task.abort();
-    down_task.abort();
-    cancel_token.cancel();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3005,7 +2860,7 @@ mod tests {
         assert_eq!(total_len, 20 + 8 + payload.len());
         assert_eq!(pkt[9], 17);
 
-        let ip_cksum = crate::masque::calc_internet_checksum(&pkt[0..20]);
+        let ip_cksum = calc_internet_checksum(&pkt[0..20]);
         assert_eq!(ip_cksum, 0);
 
         let udp_cksum = u16::from_be_bytes([pkt[26], pkt[27]]);

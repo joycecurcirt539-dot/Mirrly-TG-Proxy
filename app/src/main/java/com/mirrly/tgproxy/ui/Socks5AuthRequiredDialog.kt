@@ -19,6 +19,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -36,7 +37,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -174,8 +174,8 @@ fun Socks5AuthRequiredDialog(
                                     modifier = Modifier.size(32.dp)
                                 ) {
                                     Crossfade(targetState = showPassword, animationSpec = tween(180), label = "dlgEyeFade") { isVisible ->
-                                        Icon(
-                                            painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
+                                        MirrlyIcon(
+                                            id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye,
                                             contentDescription = null,
                                             tint = if (isVisible) s5Accent else TextMuted,
                                             modifier = Modifier.size(18.dp)

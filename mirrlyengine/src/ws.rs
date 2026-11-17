@@ -255,6 +255,26 @@ pub fn get_tls_config_for_fingerprint(fp: &str) -> Arc<ClientConfig> {
 
 pub static TLS_CONFIG: Lazy<Arc<ClientConfig>> = Lazy::new(|| TLS_CONFIG_CHROME.clone());
 
+pub static TLS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn is_tls_enabled() -> bool {
+    TLS_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_tls_enabled(enabled: bool) {
+    TLS_ENABLED.store(enabled, Ordering::Relaxed);
+    crate::linfo!("Transport TLS enabled: {}", enabled);
+}
+
+#[inline]
+pub fn default_ws_port() -> u16 {
+    if is_tls_enabled() {
+        443
+    } else {
+        80
+    }
+}
+
 pub static TLS_RECORD_PADDING_ENABLED: AtomicBool = AtomicBool::new(true);
 
 pub fn is_tls_record_padding_enabled() -> bool {
@@ -1416,21 +1436,10 @@ pub fn set_client_sock_opts(stream: &TcpStream) {
         ka = ka.with_retries(3);
     }
     let _ = sock.set_tcp_keepalive(&ka);
-
-    #[cfg(any(target_os = "android", unix))]
-    unsafe {
-        use std::os::unix::io::AsRawFd;
-        // Clamp MSS to safe 1240 bytes (MTU 1280) to eliminate PMTUD black holes across
-        // cellular networks, GTP-U tunnels, and Wi-Fi tethering hotspots (Redmi/MIUI).
-        let mss: libc::c_int = 1240;
-        libc::setsockopt(
-            sock.as_raw_fd(),
-            libc::IPPROTO_TCP,
-            libc::TCP_MAXSEG,
-            &mss as *const _ as *const libc::c_void,
-            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-        );
-    }
+    // Note: Do NOT clamp TCP_MAXSEG on local client/loopback connections.
+    // The Telegram client connects via 127.0.0.1 where MTU is 65536 bytes.
+    // Clamping MSS on loopback would fragment local IPC into 1240-byte chunks
+    // and bottleneck transfer speeds to 256 KB/s.
 }
 
 pub fn set_sock_opts(stream: &TcpStream) {
@@ -1524,16 +1533,18 @@ pub async fn connect_outbound_tcp(
     let _ = socket.set_tcp_keepalive(&ka);
 
     #[cfg(any(target_os = "android", unix))]
-    unsafe {
-        use std::os::unix::io::AsRawFd;
-        let mss: libc::c_int = 1240;
-        libc::setsockopt(
-            socket.as_raw_fd(),
-            libc::IPPROTO_TCP,
-            libc::TCP_MAXSEG,
-            &mss as *const _ as *const libc::c_void,
-            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-        );
+    if MOBILE_NETWORK.load(Ordering::Relaxed) {
+        unsafe {
+            use std::os::unix::io::AsRawFd;
+            let mss: libc::c_int = 1240;
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::IPPROTO_TCP,
+                libc::TCP_MAXSEG,
+                &mss as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            );
+        }
     }
 
     let target_recv = RECV_BUF.load(Ordering::Relaxed);
@@ -1615,7 +1626,7 @@ pub fn encode_ws_early_data(data: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
 }
 
-/// Parses the early data maximum byte length from a WebSocket path (e.g., "/vless-ws?ed=2048" -> Some(2048)).
+/// Parses the early data maximum byte length from a WebSocket path (e.g., "/apiws?ed=2048" -> Some(2048)).
 pub fn parse_early_data_header_len(path: &str) -> Option<usize> {
     if let Some(pos) = path.find("ed=") {
         let after = &path[pos + 3..];
@@ -2062,6 +2073,10 @@ pub async fn ws_handshake_split_host_ext(
     early_data: Option<&[u8]>,
     timeout: Duration,
 ) -> Result<RawWebSocket, WsError> {
+    if !is_tls_enabled() {
+        return ws_handshake_plain_ext(raw_conn, host_header, path, early_data, timeout).await;
+    }
+
     set_sock_opts(&raw_conn);
 
     let tls_config = tls_config_for_ws_path(path, fingerprint);
@@ -2153,6 +2168,27 @@ pub async fn ws_connect_happy_eyeballs_split_ext(
     early_data: Option<&[u8]>,
     addrs: &[SocketAddr],
     timeout: Duration,
+) -> Result<(RawWebSocket, SocketAddr), WsError> {
+    ws_connect_happy_eyeballs_split_with_tls(
+        tls_sni,
+        host_header,
+        path,
+        early_data,
+        addrs,
+        timeout,
+        is_tls_enabled(),
+    )
+    .await
+}
+
+pub async fn ws_connect_happy_eyeballs_split_with_tls(
+    tls_sni: &str,
+    host_header: &str,
+    path: &str,
+    early_data: Option<&[u8]>,
+    addrs: &[SocketAddr],
+    timeout: Duration,
+    use_tls: bool,
 ) -> Result<(RawWebSocket, SocketAddr), WsError> {
     let expected = crate::generation_guard::snapshot();
     if addrs.is_empty() {
@@ -2270,89 +2306,95 @@ pub async fn ws_connect_happy_eyeballs_split_ext(
                     return Err(WsError::Canceled);
                 }
 
-                // 2. TLS Handshake
-                remaining = timeout.saturating_sub(start_time.elapsed());
-                let dial_ip = addr.ip().to_string();
-                let tls_config =
-                    tls_config_for_ws_path(&path, crate::recovery::effective_tls_fingerprint());
-                let connector = TlsConnector::from(tls_config);
-                let sni = server_name(&tls_sni);
-                let handshake_timeout = ws_handshake_timeout(
-                    remaining.saturating_sub(Duration::from_millis(50)),
-                );
+                // 2. TLS Handshake (skipped when transport TLS is disabled)
+                let ws_stream = if use_tls {
+                    remaining = timeout.saturating_sub(start_time.elapsed());
+                    let dial_ip = addr.ip().to_string();
+                    let tls_config =
+                        tls_config_for_ws_path(&path, crate::recovery::effective_tls_fingerprint());
+                    let connector = TlsConnector::from(tls_config);
+                    let sni = server_name(&tls_sni);
+                    let handshake_timeout = ws_handshake_timeout(
+                        remaining.saturating_sub(Duration::from_millis(50)),
+                    );
 
-                let should_split = is_tls_client_hello_split_enabled()
-                    && (tls_sni.contains("workers.dev") || tls_sni.contains("pages.dev"));
-                let split_stream = TlsClientHelloSplitStream::new(
-                    stream,
-                    if should_split { 1 } else { 0 },
-                    Duration::ZERO,
-                );
+                    let should_split = is_tls_client_hello_split_enabled()
+                        && (tls_sni.contains("workers.dev") || tls_sni.contains("pages.dev"));
+                    let split_stream = TlsClientHelloSplitStream::new(
+                        stream,
+                        if should_split { 1 } else { 0 },
+                        Duration::ZERO,
+                    );
 
-                let tls_start = Instant::now();
-                let tls_stream = tokio::select! {
-                    _ = cancel.cancelled() => return Err(WsError::Canceled),
-                    res = tokio::time::timeout(handshake_timeout, connector.connect(sni, split_stream)) => {
-                        match res {
-                            Ok(Ok(c)) => {
-                                let duration_ms = tls_start.elapsed().as_millis() as u64;
-                                let kind = c.get_ref().1.handshake_kind();
-                                crate::tls_observability::TLS_TRACKER.write().record_success(
-                                    &host_header,
-                                    expected.network,
-                                    kind,
-                                    duration_ms,
-                                );
-                                c
-                            }
-                            Ok(Err(e)) => {
-                                let duration_ms = tls_start.elapsed().as_millis() as u64;
-                                crate::tls_observability::TLS_TRACKER.write().record_failure(
-                                    &host_header,
-                                    expected.network,
-                                    duration_ms,
-                                    &e.to_string(),
-                                );
-                                crate::recovery::record_stage_failure(
-                                    expected.network,
-                                    &host_header,
-                                    addr.ip(),
-                                    crate::recovery::EstablishmentStage::Tls,
-                                );
-                                crate::recovery::record_if_current(
-                                    expected,
-                                    &host_header,
-                                    crate::recovery::RecoveryCause::TlsReset,
-                                );
-                                if e.kind() != std::io::ErrorKind::ConnectionReset {
-                                    ldebug!("HE cand {} via {} tls fail: {}", tls_sni, dial_ip, e);
+                    let tls_start = Instant::now();
+                    let tls_stream = tokio::select! {
+                        _ = cancel.cancelled() => return Err(WsError::Canceled),
+                        res = tokio::time::timeout(handshake_timeout, connector.connect(sni, split_stream)) => {
+                            match res {
+                                Ok(Ok(c)) => {
+                                    let duration_ms = tls_start.elapsed().as_millis() as u64;
+                                    let kind = c.get_ref().1.handshake_kind();
+                                    crate::tls_observability::TLS_TRACKER.write().record_success(
+                                        &host_header,
+                                        expected.network,
+                                        kind,
+                                        duration_ms,
+                                    );
+                                    c
                                 }
-                                return Err(WsError::Io(e));
-                            }
-                            Err(_) => {
-                                let duration_ms = tls_start.elapsed().as_millis() as u64;
-                                crate::tls_observability::TLS_TRACKER.write().record_failure(
-                                    &host_header,
-                                    expected.network,
-                                    duration_ms,
-                                    "handshake_timeout",
-                                );
-                                crate::recovery::record_stage_failure(
-                                    expected.network,
-                                    &host_header,
-                                    addr.ip(),
-                                    crate::recovery::EstablishmentStage::Tls,
-                                );
-                                crate::recovery::record_if_current(
-                                    expected,
-                                    &host_header,
-                                    crate::recovery::RecoveryCause::TlsReset,
-                                );
-                                ldebug!("HE cand {} via {} tls fail: timeout", tls_sni, dial_ip);
-                                return Err(WsError::Timeout);
+                                Ok(Err(e)) => {
+                                    let duration_ms = tls_start.elapsed().as_millis() as u64;
+                                    crate::tls_observability::TLS_TRACKER.write().record_failure(
+                                        &host_header,
+                                        expected.network,
+                                        duration_ms,
+                                        &e.to_string(),
+                                    );
+                                    crate::recovery::record_stage_failure(
+                                        expected.network,
+                                        &host_header,
+                                        addr.ip(),
+                                        crate::recovery::EstablishmentStage::Tls,
+                                    );
+                                    crate::recovery::record_if_current(
+                                        expected,
+                                        &host_header,
+                                        crate::recovery::RecoveryCause::TlsReset,
+                                    );
+                                    if e.kind() != std::io::ErrorKind::ConnectionReset {
+                                        ldebug!("HE cand {} via {} tls fail: {}", tls_sni, dial_ip, e);
+                                    }
+                                    return Err(WsError::Io(e));
+                                }
+                                Err(_) => {
+                                    let duration_ms = tls_start.elapsed().as_millis() as u64;
+                                    crate::tls_observability::TLS_TRACKER.write().record_failure(
+                                        &host_header,
+                                        expected.network,
+                                        duration_ms,
+                                        "handshake_timeout",
+                                    );
+                                    crate::recovery::record_stage_failure(
+                                        expected.network,
+                                        &host_header,
+                                        addr.ip(),
+                                        crate::recovery::EstablishmentStage::Tls,
+                                    );
+                                    crate::recovery::record_if_current(
+                                        expected,
+                                        &host_header,
+                                        crate::recovery::RecoveryCause::TlsReset,
+                                    );
+                                    ldebug!("HE cand {} via {} tls fail: timeout", tls_sni, dial_ip);
+                                    return Err(WsError::Timeout);
+                                }
                             }
                         }
-                    }
+                    };
+                    WsStream::Tls(tls_stream)
+                } else {
+                    set_sock_opts(&stream);
+                    WsStream::Plain(stream)
                 };
 
                 if cancel.is_cancelled() {
@@ -2376,7 +2418,7 @@ pub async fn ws_connect_happy_eyeballs_split_ext(
                         return Err(WsError::Canceled);
                     }
                     res = ws_upgrade_stream(
-                        WsStream::Tls(tls_stream),
+                        ws_stream,
                         &host_header,
                         &path,
                         maybe_ed.as_deref(),
@@ -2583,7 +2625,7 @@ pub async fn ws_connect_once(
     }
 
     if let Ok(ip) = dial_addr.parse::<IpAddr>() {
-        let sock_addr = SocketAddr::new(ip, 443);
+        let sock_addr = SocketAddr::new(ip, default_ws_port());
         let (stream, _) = happy_eyeballs_tcp_connect(&[sock_addr], timeout).await?;
         return ws_handshake_over_stream(stream, dial_addr, domain, path, timeout).await;
     }
@@ -2591,7 +2633,7 @@ pub async fn ws_connect_once(
     let target_addr = if dial_addr.contains(':') {
         dial_addr.to_string()
     } else {
-        format!("{}:443", dial_addr)
+        format!("{}:{}", dial_addr, default_ws_port())
     };
 
     let addrs: Vec<SocketAddr> = match tokio::net::lookup_host(&target_addr).await {
@@ -2646,9 +2688,10 @@ pub async fn ws_connect(
         crate::cfproxy::resolve_dual_stack_ips(domain).await
     };
 
+    let port = default_ws_port();
     let candidate_addrs: Vec<SocketAddr> = candidate_ips
         .into_iter()
-        .map(|ip_addr| SocketAddr::new(ip_addr, 443))
+        .map(|ip_addr| SocketAddr::new(ip_addr, port))
         .collect();
 
     if candidate_addrs.is_empty() {
@@ -2680,7 +2723,7 @@ mod tests {
                 assert!(Arc::ptr_eq(&tls_config_for_ws_path(path, fp), &TLS_CONFIG_RELAY));
             }
         }
-        for path in ["/apiws", "/vless-ws", "/tcp-v20", "/tcp/other", "/tcp", "/tcp-v2?ed=2048"] {
+        for path in ["/apiws", "/ws-relay", "/tcp-v20", "/tcp/other", "/tcp", "/tcp-v2?ed=2048"] {
             assert!(!is_tcp_relay_path(path));
         }
     }
@@ -2754,20 +2797,20 @@ mod tests {
 
     #[test]
     fn test_early_data_encoding_and_path_parsing() {
-        let sample = b"hello vless early data";
+        let sample = b"hello websocket early data";
         let encoded = encode_ws_early_data(sample);
         assert!(!encoded.contains('='));
         assert!(!encoded.contains('+'));
         assert!(!encoded.contains('/'));
 
-        assert_eq!(parse_early_data_header_len("/vless-ws?ed=2048"), Some(2048));
+        assert_eq!(parse_early_data_header_len("/tcp-v2?ed=2048"), Some(2048));
         assert_eq!(
-            parse_early_data_header_len("/vless-ws?foo=bar&ed=4096&baz=1"),
+            parse_early_data_header_len("/tcp-v2?foo=bar&ed=4096&baz=1"),
             Some(4096)
         );
-        assert_eq!(parse_early_data_header_len("/vless-ws"), None);
+        assert_eq!(parse_early_data_header_len("/tcp-v2"), None);
         assert_eq!(parse_early_data_header_len("/apiws"), None);
-        assert_eq!(parse_early_data_header_len("/vless-ws?ed=0"), None);
+        assert_eq!(parse_early_data_header_len("/tcp-v2?ed=0"), None);
     }
 
     #[test]

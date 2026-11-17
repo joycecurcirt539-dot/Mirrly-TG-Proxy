@@ -12,6 +12,10 @@ import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
 
+/**
+ * Плитка быстрых настроек Android для управления исключительно локальным прокси (MTProto / SOCKS5).
+ * Не затрагивает режим системного VPN (MirrlyVpnService вынесен в независимый VpnTileService).
+ */
 @RequiresApi(Build.VERSION_CODES.N)
 class ProxyTileService : TileService() {
 
@@ -22,24 +26,6 @@ class ProxyTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val prefs = PreferencesManager(this)
-        val isVpnMode = prefs.isVpnModeEnabled()
-
-        if (MirrlyVpnService.isRunning) {
-            MirrlyVpnService.stop(this)
-            updateTileState(false)
-            return
-        }
-
-        if (isVpnMode) {
-            val prepIntent = MirrlyVpnService.prepare(this)
-            if (prepIntent == null) {
-                MirrlyVpnService.start(this)
-                updateTileState(true)
-                return
-            }
-        }
-
         val server = MirrlyApplication.instance.proxyServer
         val serviceIntent = Intent(this, ProxyForegroundService::class.java)
 
@@ -49,6 +35,7 @@ class ProxyTileService : TileService() {
             updateTileState(false)
             return
         }
+
         try {
             if (server.isRunning) {
                 serviceIntent.action = ProxyForegroundService.ACTION_STOP
@@ -70,17 +57,17 @@ class ProxyTileService : TileService() {
 
     private fun updateTileState(forcedState: Boolean? = null) {
         val tile = qsTile ?: return
-        val isVpn = MirrlyVpnService.isRunning
         val isProxy = MirrlyApplication.instance.proxyServer.isRunning
-        val isRunning = forcedState ?: (isVpn || isProxy)
+        val isRunning = forcedState ?: isProxy
 
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.label = if (isRunning) {
-            "Mirrly"
-        } else {
-            "Mirrly"
+        tile.label = getString(R.string.tile_proxy_label)
+        tile.icon = Icon.createWithResource(this, R.drawable.ic_qs_proxy)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            tile.subtitle = if (isRunning) getString(R.string.tile_subtitle_connected) else getString(R.string.tile_subtitle_disconnected)
         }
-        tile.icon = Icon.createWithResource(this, if (isVpn) R.drawable.ic_vpn else R.drawable.ic_qs_proxy)
+
         tile.updateTile()
     }
 

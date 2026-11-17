@@ -38,7 +38,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.painterResource
+import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -304,8 +304,8 @@ fun CloudflareSubdomainSetupDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_stat_proxy_error),
+                            MirrlyIcon(
+                                id = R.drawable.ic_stat_proxy_error,
                                 contentDescription = null,
                                 tint = ErrorRed,
                                 modifier = Modifier.size(14.dp)

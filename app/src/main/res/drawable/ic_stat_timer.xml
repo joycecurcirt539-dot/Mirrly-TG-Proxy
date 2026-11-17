@@ -3,22 +3,12 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+
+    <!-- Chronograph Bezel, Actuation Crown & Fixed 3:00 Clock Hands -->
     <path
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M12,8v5" />
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M9,2h6" />
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M5,8a8.696,8.696 0,0 0,-1.75 5.25C3.25,18.08 7.17,22 12,22s8.75,-3.92 8.75,-8.75S16.83,4.5 12,4.5c-1.26,0 -2.45,0.26 -3.53,0.74" />
+        android:pathData="M10,2 H14 M12,2 V4.5 M12,4.5 A8.5,8.5 0 1,0 12.01,4.5 M12,8 V13 H16.5" />
 </vector>

@@ -6,14 +6,16 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
 
-pub const CASCADE_STAGE_NONE: i32 = 0;
-pub const CASCADE_STAGE_MASQUE: i32 = 1;
-pub const CASCADE_STAGE_AWG: i32 = 2;
-pub const CASCADE_STAGE_WORKER: i32 = 3;
-pub const CASCADE_STAGE_VLESS: i32 = 4;
-pub const CASCADE_STAGE_OPERA: i32 = 5;
-pub const CASCADE_STAGE_DIRECT: i32 = 6;
-pub const CASCADE_STAGE_VLESS_OPERA_HOP: i32 = 7;
+// Uplink modes
+pub const UPLINK_WORKER: i32 = 0;
+pub const UPLINK_AWG: i32 = 4;
+
+pub const STAGE_NONE: i32 = 0;
+pub const STAGE_AWG: i32 = 2;
+
+// Compatibility aliases
+pub const CASCADE_STAGE_NONE: i32 = STAGE_NONE;
+pub const CASCADE_STAGE_AWG: i32 = STAGE_AWG;
 
 /// Immutable association transport and configuration identity; never reselected per target.
 #[derive(Debug, Clone)]
@@ -23,8 +25,8 @@ pub struct UdpRoutePin {
     mode: i32,
     intent_generation: u64,
 }
+
 pub enum SocksUdpUplink {
-    Masque(crate::masque::MasqueTunnel),
     Awg(crate::awg::AwgTunnel),
 }
 
@@ -34,35 +36,26 @@ tokio::task_local! {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeOperator {
-    PrivateVps,
+    None,
     CloudflareWarp,
-    CloudflareWorker,
-    OperaRelay,
-    Direct,
 }
 
 impl NodeOperator {
     pub fn is_private(&self) -> bool {
-        matches!(self, NodeOperator::PrivateVps)
+        false
     }
 
     pub fn display_name(&self) -> &'static str {
         match self {
-            NodeOperator::PrivateVps => "Private VPS",
+            NodeOperator::None => "None",
             NodeOperator::CloudflareWarp => "Cloudflare Anycast",
-            NodeOperator::CloudflareWorker => "Cloudflare Worker",
-            NodeOperator::OperaRelay => "Opera Proxy",
-            NodeOperator::Direct => "Direct TCP",
         }
     }
 
     pub fn id_str(&self) -> &'static str {
         match self {
-            NodeOperator::PrivateVps => "private_vps",
+            NodeOperator::None => "none",
             NodeOperator::CloudflareWarp => "cloudflare_warp",
-            NodeOperator::CloudflareWorker => "cloudflare_worker",
-            NodeOperator::OperaRelay => "opera_relay",
-            NodeOperator::Direct => "direct",
         }
     }
 }
@@ -70,94 +63,42 @@ impl NodeOperator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteKind {
     None,
-    Masque,        // Cloudflare WARP MASQUE HTTP/3
-    Awg,           // Cloudflare WARP AmneziaWG
-    Worker,        // Cloudflare Worker WSS Relay (Public)
-    VlessDirect,   // VLESS direct to VPS / CDN
-    VlessOperaHop, // VLESS with Opera as transport hop to VPS
-    OperaDirect,   // Opera direct exit HTTP CONNECT to target_addr (Public)
-    Direct,        // Direct TCP
+    Awg, // Cloudflare WARP AmneziaWG
 }
 
 impl RouteKind {
     pub fn stage_code(&self) -> i32 {
         match self {
-            RouteKind::None => CASCADE_STAGE_NONE,
-            RouteKind::Masque => CASCADE_STAGE_MASQUE,
-            RouteKind::Awg => CASCADE_STAGE_AWG,
-            RouteKind::Worker => CASCADE_STAGE_WORKER,
-            RouteKind::VlessDirect => CASCADE_STAGE_VLESS,
-            RouteKind::OperaDirect => CASCADE_STAGE_OPERA,
-            RouteKind::Direct => CASCADE_STAGE_DIRECT,
-            RouteKind::VlessOperaHop => CASCADE_STAGE_VLESS_OPERA_HOP,
+            RouteKind::None => STAGE_NONE,
+            RouteKind::Awg => STAGE_AWG,
         }
     }
 
     pub fn id_str(&self) -> &'static str {
         match self {
             RouteKind::None => "none",
-            RouteKind::Masque => "warp_masque",
             RouteKind::Awg => "warp_awg",
-            RouteKind::Worker => "cf_worker",
-            RouteKind::VlessDirect => "vless_direct",
-            RouteKind::VlessOperaHop => "vless_opera_hop",
-            RouteKind::OperaDirect => "opera_direct",
-            RouteKind::Direct => "direct",
         }
     }
 
     pub fn display_name(&self) -> &'static str {
         match self {
             RouteKind::None => "None",
-            RouteKind::Masque => "WARP MASQUE",
             RouteKind::Awg => "WARP AmneziaWG",
-            RouteKind::Worker => "Cloudflare Worker",
-            RouteKind::VlessDirect => "VLESS",
-            RouteKind::VlessOperaHop => "VLESS via Opera Hop",
-            RouteKind::OperaDirect => "Opera VPN",
-            RouteKind::Direct => "Direct TCP",
         }
     }
 
-    pub fn operator(&self, is_private: bool) -> NodeOperator {
+    pub fn operator(&self, _is_private: bool) -> NodeOperator {
         match self {
-            RouteKind::None => NodeOperator::Direct,
-            RouteKind::Masque | RouteKind::Awg => NodeOperator::CloudflareWarp,
-            RouteKind::Worker => NodeOperator::CloudflareWorker,
-            RouteKind::VlessDirect | RouteKind::VlessOperaHop => {
-                if is_private {
-                    NodeOperator::PrivateVps
-                } else {
-                    NodeOperator::CloudflareWorker
-                }
-            }
-            RouteKind::OperaDirect => NodeOperator::OperaRelay,
-            RouteKind::Direct => NodeOperator::Direct,
+            RouteKind::None => NodeOperator::None,
+            RouteKind::Awg => NodeOperator::CloudflareWarp,
         }
     }
 
-    pub fn effective_display_name(&self, is_private: bool) -> &'static str {
+    pub fn effective_display_name(&self, _is_private: bool) -> &'static str {
         match self {
             RouteKind::None => "Not connected",
-            RouteKind::Masque => "WARP MASQUE (Anycast)",
             RouteKind::Awg => "WARP AmneziaWG (Anycast)",
-            RouteKind::Worker => "Cloudflare Worker WSS (Public Relay)",
-            RouteKind::VlessDirect => {
-                if is_private {
-                    "VLESS (Private VPS)"
-                } else {
-                    "VLESS (Cloudflare CDN)"
-                }
-            }
-            RouteKind::VlessOperaHop => {
-                if is_private {
-                    "VLESS via Opera Hop (Private VPS)"
-                } else {
-                    "VLESS via Opera Hop (Cloudflare CDN)"
-                }
-            }
-            RouteKind::OperaDirect => "Opera VPN (Direct Exit)",
-            RouteKind::Direct => "Direct TCP",
         }
     }
 }
@@ -166,8 +107,6 @@ impl RouteKind {
 pub struct TrustPolicy {
     pub is_private_node: bool,
     pub allow_public_relay_fallback: bool,
-    pub allow_opera_direct_exit: bool,
-    pub allow_opera_transport_hop: bool,
 }
 
 impl Default for TrustPolicy {
@@ -175,8 +114,6 @@ impl Default for TrustPolicy {
         Self {
             is_private_node: false,
             allow_public_relay_fallback: false,
-            allow_opera_direct_exit: false,
-            allow_opera_transport_hop: false,
         }
     }
 }
@@ -204,9 +141,7 @@ pub struct RouteSupervisor {
     active_route: RwLock<RouteKind>,
     trace: RwLock<VecDeque<TransitionRecord>>,
     trust_policy: RwLock<TrustPolicy>,
-    masque_cooldown_until_ms: AtomicU64,
     awg_cooldown_until_ms: AtomicU64,
-    vless_cooldown_until_ms: AtomicU64,
     transport_ready: AtomicBool,
     app_ready: AtomicBool,
     last_app_error: RwLock<String>,
@@ -220,16 +155,14 @@ impl RouteSupervisor {
             route_generation: AtomicU64::new(1),
             active_stage: AtomicI32::new(CASCADE_STAGE_NONE),
             intent: RwLock::new(RoutingIntent {
-                mode: crate::masque::UPLINK_WORKER,
+                mode: UPLINK_WORKER,
                 generation: 1,
                 fallback_enabled: true,
             }),
             active_route: RwLock::new(RouteKind::None),
             trace: RwLock::new(VecDeque::with_capacity(32)),
             trust_policy: RwLock::new(TrustPolicy::default()),
-            masque_cooldown_until_ms: AtomicU64::new(0),
             awg_cooldown_until_ms: AtomicU64::new(0),
-            vless_cooldown_until_ms: AtomicU64::new(0),
             transport_ready: AtomicBool::new(false),
             app_ready: AtomicBool::new(false),
             last_app_error: RwLock::new(String::new()),
@@ -242,17 +175,13 @@ impl RouteSupervisor {
         &self,
         is_private_node: bool,
         allow_public_relay_fallback: bool,
-        allow_opera_direct_exit: bool,
-        allow_opera_transport_hop: bool,
     ) {
         let mut p = self.trust_policy.write();
         p.is_private_node = is_private_node;
         p.allow_public_relay_fallback = allow_public_relay_fallback;
-        p.allow_opera_direct_exit = allow_opera_direct_exit;
-        p.allow_opera_transport_hop = allow_opera_transport_hop;
         linfo!(
-            "RouteSupervisor: trust policy updated -> is_private={}, allow_public_fallback={}, allow_opera_direct={}, allow_opera_hop={}",
-            is_private_node, allow_public_relay_fallback, allow_opera_direct_exit, allow_opera_transport_hop
+            "RouteSupervisor: trust policy updated -> is_private={}, allow_public_fallback={}",
+            is_private_node, allow_public_relay_fallback
         );
     }
 
@@ -301,9 +230,7 @@ impl RouteSupervisor {
     }
 
     pub fn reset(&self) {
-        self.masque_cooldown_until_ms.store(0, Ordering::Relaxed);
         self.awg_cooldown_until_ms.store(0, Ordering::Relaxed);
-        self.vless_cooldown_until_ms.store(0, Ordering::Relaxed);
         self.transport_ready.store(false, Ordering::Relaxed);
         self.app_ready.store(false, Ordering::Relaxed);
         *self.last_app_error.write() = String::new();
@@ -313,18 +240,9 @@ impl RouteSupervisor {
     }
 
     pub fn set_intent(&self, mode: i32, intent_gen: u64, fallback_enabled: bool) {
-        let policy = *self.trust_policy.read();
         let initial_route = match mode {
-            crate::masque::UPLINK_MASQUE | crate::masque::UPLINK_WARP_CASCADE => RouteKind::Masque,
-            crate::masque::UPLINK_AWG => RouteKind::Awg,
-            crate::masque::UPLINK_VLESS | crate::masque::UPLINK_HYBRID => {
-                if policy.allow_opera_transport_hop {
-                    RouteKind::VlessOperaHop
-                } else {
-                    RouteKind::VlessDirect
-                }
-            }
-            _ => RouteKind::Worker,
+            UPLINK_AWG => RouteKind::Awg,
+            _ => RouteKind::None,
         };
 
         {
@@ -334,9 +252,7 @@ impl RouteSupervisor {
             intent_guard.fallback_enabled = fallback_enabled;
         }
 
-        self.masque_cooldown_until_ms.store(0, Ordering::Relaxed);
         self.awg_cooldown_until_ms.store(0, Ordering::Relaxed);
-        self.vless_cooldown_until_ms.store(0, Ordering::Relaxed);
         self.transport_ready.store(false, Ordering::Relaxed);
         self.app_ready.store(false, Ordering::Relaxed);
         *self.last_app_error.write() = String::new();
@@ -414,67 +330,33 @@ impl RouteSupervisor {
             .unwrap_or_default()
             .as_millis() as u64;
 
-        let (mode, fallback_enabled) = {
+        let (_mode, fallback_enabled) = {
             let i = self.intent.read();
             (i.mode, i.fallback_enabled)
         };
-        let policy = *self.trust_policy.read();
-        let is_private = policy.is_private_node;
         let active = *self.active_route.read();
 
         match active {
-            RouteKind::Masque => {
-                self.masque_cooldown_until_ms
-                    .store(now_ms + 30_000, Ordering::Relaxed);
-                self.transition_to(RouteKind::Awg, reason);
-            }
             RouteKind::Awg => {
                 self.awg_cooldown_until_ms
                     .store(now_ms + 30_000, Ordering::Relaxed);
-                if mode == crate::masque::UPLINK_WARP_CASCADE && fallback_enabled {
-                    self.transition_to(RouteKind::Worker, reason);
-                } else {
-                    self.transition_to(RouteKind::Masque, reason);
+                if fallback_enabled {
+                    self.transition_to(RouteKind::None, reason);
                 }
             }
-            RouteKind::VlessDirect | RouteKind::VlessOperaHop => {
-                self.vless_cooldown_until_ms
-                    .store(now_ms + 30_000, Ordering::Relaxed);
-                if is_private && !policy.allow_public_relay_fallback {
-                    lwarn!(
-                        "RouteSupervisor: VLESS Private VPS failed. Fallback to public relay is prohibited by trust policy. Isolating route."
-                    );
-                    self.transition_to(RouteKind::None, "vless_private_isolated_by_trust_policy");
-                } else if fallback_enabled {
-                    self.transition_to(RouteKind::Worker, reason);
-                }
-            }
-            _ => {}
+            RouteKind::None => {}
         }
 
         self.active_stage.load(Ordering::Relaxed)
     }
 
-
-
-    /// Pin the effective UDP transport once, before SOCKS success. Worker/Opera/direct
-    /// have no negotiated UDP capability and must receive REP=command-not-supported.
+    /// Pin the effective UDP transport once, before SOCKS success. Only AWG
+    /// supports negotiated UDP capability; non-AWG receives REP=command-not-supported.
     pub fn pin_udp_route(&self) -> Option<UdpRoutePin> {
         let generation = crate::generation_guard::snapshot();
         let intent = self.intent.read().clone();
         let route = match intent.mode {
-            crate::masque::UPLINK_MASQUE => RouteKind::Masque,
-            crate::masque::UPLINK_AWG => RouteKind::Awg,
-            crate::masque::UPLINK_WARP_CASCADE => match self.get_active_route() {
-                RouteKind::Masque => RouteKind::Masque,
-                RouteKind::Awg => RouteKind::Awg,
-                _ => return None,
-            },
-            crate::masque::UPLINK_HYBRID => match self.get_active_route() {
-                RouteKind::Masque => RouteKind::Masque,
-                RouteKind::Awg => RouteKind::Awg,
-                _ => return None,
-            },
+            UPLINK_AWG => RouteKind::Awg,
             _ => return None,
         };
         Some(UdpRoutePin {
@@ -504,7 +386,7 @@ impl RouteSupervisor {
         if cancel_token.is_cancelled() || !self.udp_pin_is_current(pin) {
             return None;
         }
-        // No fallback: every target in this association uses the same transport.
+        // Every target in this association uses the pinned AWG transport.
         let result = tokio::select! {
             biased;
             _ = cancel_token.cancelled() => return None,
@@ -513,10 +395,7 @@ impl RouteSupervisor {
                     RouteKind::Awg => {
                         crate::awg::awg_acquire_tunnel(target_addr, cancel_token).await.map(SocksUdpUplink::Awg)
                     }
-                    RouteKind::Masque => {
-                        crate::masque::masque_acquire_tunnel(target_addr, cancel_token).await.map(SocksUdpUplink::Masque)
-                    }
-                    _ => None,
+                    RouteKind::None => None,
                 }
             }) => result.ok().flatten(),
         };
@@ -525,6 +404,7 @@ impl RouteSupervisor {
         }
         result
     }
+
     pub fn get_route_state_json(&self) -> String {
         let gen = self.route_generation.load(Ordering::SeqCst);
         let stage = self.active_stage.load(Ordering::Relaxed);
@@ -543,16 +423,13 @@ impl RouteSupervisor {
         let operator = route.operator(is_private).display_name();
         let trust_maintained = match route {
             RouteKind::None => true,
-            RouteKind::VlessDirect | RouteKind::VlessOperaHop => true,
-            RouteKind::Masque | RouteKind::Awg | RouteKind::Worker => {
+            RouteKind::Awg => {
                 if is_private {
                     policy.allow_public_relay_fallback
                 } else {
                     true
                 }
             }
-            RouteKind::OperaDirect => policy.allow_opera_direct_exit,
-            RouteKind::Direct => false,
         };
 
         let mut trace_json_items = Vec::new();
@@ -568,36 +445,22 @@ impl RouteSupervisor {
         }
 
         let candidates = match intent.mode {
-            crate::masque::UPLINK_VLESS => {
-                if policy.allow_opera_transport_hop {
-                    r#"["vless_direct","vless_opera_hop"]"#
-                } else {
-                    r#"["vless_direct"]"#
-                }
-            }
-            crate::masque::UPLINK_WARP_CASCADE => r#"["warp_masque","warp_awg","cf_worker"]"#,
-            crate::masque::UPLINK_MASQUE => r#"["warp_masque"]"#,
-            crate::masque::UPLINK_AWG => r#"["warp_awg"]"#,
-            crate::masque::UPLINK_HYBRID => {
-                r#"["vless_direct","warp_masque","warp_awg","cf_worker"]"#
-            }
-            _ => r#"["cf_worker"]"#,
+            UPLINK_AWG => r#"["warp_awg"]"#,
+            _ => r#"[]"#,
         };
 
         format!(
-            r#"{{"generation":{},"intent_mode":{},"intent_generation":{},"stage_code":{},"stage_name":"{}","effective_route":"{}","operator":"{}","is_private":{},"trust_boundary_maintained":{},"allow_public_relay_fallback":{},"allow_opera_direct_exit":{},"allow_opera_transport_hop":{},"transport_ready":{},"app_ready":{},"supports_udp":{},"last_app_error":"{}","app_success_count":{},"app_failure_count":{},"route_id":"{}","candidates":{},"trace":[{}]}}"#,
+            r#"{{"generation":{},"intent_mode":{},"intent_generation":{},"stage_code":{},"stage_name":"{}","effective_route":"{}","operator":"{}","is_private":{},"trust_boundary_maintained":{},"allow_public_relay_fallback":{},"transport_ready":{},"app_ready":{},"supports_udp":{},"last_app_error":"{}","app_success_count":{},"app_failure_count":{},"route_id":"{}","candidates":{},"trace":[{}]}}"#,
             gen,
             intent.mode,
             intent.generation,
             stage,
-            escape_json(route.display_name()),
-            escape_json(effective_route),
-            escape_json(operator),
+            route.display_name(),
+            effective_route,
+            operator,
             is_private,
             trust_maintained,
             policy.allow_public_relay_fallback,
-            policy.allow_opera_direct_exit,
-            policy.allow_opera_transport_hop,
             transport_ready,
             app_ready,
             self.supports_udp(),
@@ -616,6 +479,7 @@ fn escape_json(s: &str) -> String {
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 pub static ROUTE_SUPERVISOR: Lazy<RouteSupervisor> = Lazy::new(RouteSupervisor::new);
@@ -636,33 +500,21 @@ mod tests {
     fn test_route_supervisor_supports_udp() {
         let sup = RouteSupervisor::new();
 
-        sup.set_intent(crate::masque::UPLINK_MASQUE, 1, false);
+        sup.set_intent(UPLINK_AWG, 1, false);
         assert!(sup.supports_udp());
 
-        sup.set_intent(crate::masque::UPLINK_AWG, 1, false);
-        assert!(sup.supports_udp());
-
-        sup.set_intent(crate::masque::UPLINK_WARP_CASCADE, 1, true);
-        assert!(sup.supports_udp());
-
-        sup.set_intent(crate::masque::UPLINK_VLESS, 1, false);
-        assert!(!sup.supports_udp());
-
-        sup.set_intent(crate::masque::UPLINK_HYBRID, 1, true);
-        assert!(!sup.supports_udp());
-
-        sup.set_intent(crate::masque::UPLINK_WORKER, 1, false);
+        sup.set_intent(UPLINK_WORKER, 1, false);
         assert!(!sup.supports_udp());
     }
 
     #[test]
     fn test_route_state_json_contains_supports_udp() {
         let sup = RouteSupervisor::new();
-        sup.set_intent(crate::masque::UPLINK_MASQUE, 1, false);
+        sup.set_intent(UPLINK_AWG, 1, false);
         let json = sup.get_route_state_json();
         assert!(json.contains("\"supports_udp\":true"));
 
-        sup.set_intent(crate::masque::UPLINK_WORKER, 1, false);
+        sup.set_intent(UPLINK_WORKER, 1, false);
         let json_worker = sup.get_route_state_json();
         assert!(json_worker.contains("\"supports_udp\":false"));
     }
