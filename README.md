@@ -4,7 +4,7 @@
 
 # Mirrly TG Proxy для Android
 
-**Локальный шлюз маршрутизации для Telegram на нативном движке Rust (mirrlyengine) с поддержкой MTProto, SOCKS5, мульти-аплинк туннелирования (Anycast CDN Flowseal, Cloudflare Worker WSS) без системного VPN**
+**Локальный шлюз маршрутизации для Telegram на нативном движке Rust (mirrlyengine) с поддержкой MTProto, SOCKS5, мульти-аплинк туннелирования (Anycast CDN [Flowseal](https://github.com/Flowseal), Cloudflare Worker WSS) без системного VPN**
 
 <br/>
 
@@ -502,7 +502,7 @@ chmod +x tools/build/build_native.sh
 | **`v1.1.4`** | Полный Rust стек | Удаление устаревших JVM-сокетов, мгновенный failover, Anti-Open-Relay фильтрация в скрипте воркера. |
 | **`v1.1.5`** | Оркестратор протоколов | 3-фазный менеджер переключения протоколов, гонка воркеров разработчика. |
 | **`v1.1.6–1.1.6.1`** | WebSocket оптимизация | Сборка фрагментированных фреймов до 16 МБ, очередь записи, автодеплой `deploy.bat`. |
-| **`v1.1.7`** | Anycast CDN и UI | Перевод MTProto на Anycast CDN Flowseal, гонка со сдвигом 25 мс, рендеринг без аллокаций памяти (120 FPS). |
+| **`v1.1.7`** | Anycast CDN и UI | Перевод MTProto на Anycast CDN [Flowseal](https://github.com/Flowseal), гонка со сдвигом 25 мс, рендеринг без аллокаций памяти (120 FPS). |
 | **`v1.1.8`** | DoH, аналитика, QoS | DoH Race Resolver, DC-Affinity, аналитика суточной квоты с графиком Безье, Battery & Thermal QoS, Multi-APK Architecture Engine. |
 | **`v1.1.8.1`** | Редизайн таймера сна | Нормализация доменов воркеров, Pre-Flight проверка узлов, обновленный диалог таймера сна. |
 | **`v1.1.8.2`** | ML Kit и изоляция | Аппаратный сканер QR-кодов Google ML Kit, генератор фирменных QR-кодов, изоляция секретного ключа MTProto, WebPKI сертификаты. |

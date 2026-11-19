@@ -4,7 +4,7 @@
 
 # Mirrly TG Proxy برای اندروید
 
-**گیت‌وی مسیریابی محلی برای تلگرام با هسته بومی Rust (mirrlyengine) با پشتیبانی از MTProto، SOCKS5، و تونل‌سازی چند مسیره (Anycast CDN Flowseal، Cloudflare Worker WSS) بدون نیاز به VPN سیستمی**
+**گیت‌وی مسیریابی محلی برای تلگرام با هسته بومی Rust (mirrlyengine) با پشتیبانی از MTProto، SOCKS5، و تونل‌سازی چند مسیره (Anycast CDN [Flowseal](https://github.com/Flowseal)، Cloudflare Worker WSS) بدون نیاز به VPN سیستمی**
 
 <br/>
 
