@@ -47,6 +47,46 @@
         <package android:name="ru.dahl.messenger" />
         <package android:name="com.scriptsaz.litegram" />
         <package android:name="org.thunderdog.challegram" />
+        <!-- Known proxy / VPN / local server packages for port conflict attribution -->
+        <package android:name="com.v2ray.ang" />
+        <package android:name="moe.nb4a" />
+        <package android:name="io.nekohasekai.sagernet" />
+        <package android:name="io.nekohasekai.sfa" />
+        <package android:name="moe.matsuri.lite" />
+        <package android:name="app.hiddify.com" />
+        <package android:name="com.github.kr328.clash" />
+        <package android:name="com.github.metacubed.clash.meta" />
+        <package android:name="com.follow.clash" />
+        <package android:name="com.getsurfboard" />
+        <package android:name="io.github.dovecote.byedpi" />
+        <package android:name="io.github.krlvm.powertunnel.android" />
+        <package android:name="org.torproject.android" />
+        <package android:name="com.github.shadowsocks" />
+        <package android:name="org.outline.android.client" />
+        <package android:name="com.nebula.karing" />
+        <package android:name="com.happproxy" />
+        <package android:name="com.adguard.android" />
+        <package android:name="com.celzero.bravedns" />
+        <package android:name="app.intra" />
+        <package android:name="org.amnezia.vpn" />
+        <package android:name="org.amnezia.awg" />
+        <package android:name="com.wireguard.android" />
+        <package android:name="com.evozi.injector" />
+        <package android:name="com.termux" />
+        <package android:name="com.mirrly.tgproxy.debug" />
+        <package android:name="com.mirrly.tgproxy.beta" />
+        <!-- OEM startup and background managers for autostart deep-linking on Android 11+ -->
+        <package android:name="com.hihonor.systemmanager" />
+        <package android:name="com.huawei.systemmanager" />
+        <package android:name="com.miui.securitycenter" />
+        <package android:name="com.miui.powerkeeper" />
+        <package android:name="com.coloros.safecenter" />
+        <package android:name="com.oplus.safecenter" />
+        <package android:name="com.oplus.battery" />
+        <package android:name="com.oppo.safe" />
+        <package android:name="com.vivo.permissionmanager" />
+        <package android:name="com.iqoo.secure" />
+        <package android:name="com.letv.android.letvsafe" />
     </queries>
 
     <application
@@ -56,8 +96,8 @@
         android:fullBackupContent="@xml/backup_rules"
         android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true"
-        android:icon="@drawable/ic_launcher_mirrly"
-        android:roundIcon="@drawable/ic_launcher_mirrly"
+        android:icon="@mipmap/ic_launcher_default"
+        android:roundIcon="@mipmap/ic_launcher_default"
         android:label="${appLabel}"
         android:supportsRtl="true"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -77,10 +117,6 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale|layoutDirection"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Mirrly">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
             </intent-filter>
@@ -124,6 +160,119 @@
                 <data android:path="/" />
             </intent-filter>
         </activity>
+
+        <!-- Dynamic Launcher Icon Aliases (MAIN / LAUNCHER entry points) -->
+        <activity-alias
+            android:name="com.mirrly.tgproxy.LauncherIconDefault"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_default"
+            android:roundIcon="@mipmap/ic_launcher_default"
+            android:label="${appLabel}"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.mirrly.tgproxy.LauncherIconLegacy"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_legacy"
+            android:roundIcon="@mipmap/ic_launcher_legacy"
+            android:label="${appLabel}"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.mirrly.tgproxy.LauncherIconOutline"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_outline"
+            android:roundIcon="@mipmap/ic_launcher_outline"
+            android:label="${appLabel}"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.mirrly.tgproxy.LauncherIconStealth"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_stealth"
+            android:roundIcon="@mipmap/ic_launcher_stealth"
+            android:label="${appLabel}"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.mirrly.tgproxy.LauncherIconRuby"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_ruby"
+            android:roundIcon="@mipmap/ic_launcher_ruby"
+            android:label="${appLabel}"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.mirrly.tgproxy.LauncherIconCobalt"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_cobalt"
+            android:roundIcon="@mipmap/ic_launcher_cobalt"
+            android:label="${appLabel}"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.mirrly.tgproxy.LauncherIconAmber"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_amber"
+            android:roundIcon="@mipmap/ic_launcher_amber"
+            android:label="${appLabel}"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.mirrly.tgproxy.LauncherIconViolet"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_violet"
+            android:roundIcon="@mipmap/ic_launcher_violet"
+            android:label="${appLabel}"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".service.ProxyForegroundService"

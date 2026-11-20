@@ -86,7 +86,11 @@ object WorkerFailoverManager {
 
     fun isFailoverApplicable(app: MirrlyApplication): Boolean {
         if (!app.proxyServer.isRunning || !app.prefsManager.isAutoFailoverEnabled()) return false
-        return app.config.isSocks5Mode || (app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO && app.config.useWorkerMtproto)
+        val isSocks5Worker = app.config.isSocks5Mode &&
+            app.config.socks5UplinkMode == com.mirrly.tgproxy.core.ProxyConfig.SOCKS5_UPLINK_WORKER
+        val isMtprotoWorker = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO &&
+            app.config.useWorkerMtproto
+        return isSocks5Worker || isMtprotoWorker
     }
 
     fun startRecoveryWatchdogIfNeeded() {

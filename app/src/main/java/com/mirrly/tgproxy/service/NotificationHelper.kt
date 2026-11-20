@@ -9,6 +9,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.ui.MainActivity
@@ -34,6 +35,9 @@ object NotificationHelper {
 
     const val FAILOVER_CHANNEL_ID = "mirrly_failover_channel"
     const val FAILOVER_NOTIFICATION_ID = 5005
+    const val PORT_CONFLICT_NOTIFICATION_ID = 5008
+    const val SOCKS5_FLOWSEAL_FALLBACK_NOTIFICATION_ID = 5009
+    const val EXTRA_OPEN_PORT_CONFLICT = "extra_open_port_conflict"
 
     const val BATTERY_GUARD_CHANNEL_ID = "mirrly_battery_guard_channel"
     const val BATTERY_GUARD_WARNING_NOTIFICATION_ID = 6006
@@ -42,9 +46,30 @@ object NotificationHelper {
     const val VPN_CHANNEL_ID = "mirrly_vpn_channel"
     const val VPN_NOTIFICATION_ID = 7007
 
+    private fun isVibrationDisabled(): Boolean {
+        return try {
+            MirrlyApplication.instance.prefsManager.isVibrationDisabled()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun NotificationCompat.Builder.applyVibrationPreference(
+        useDefaultAllWhenEnabled: Boolean = false
+    ): NotificationCompat.Builder {
+        if (isVibrationDisabled()) {
+            setSilent(true)
+            setVibrate(longArrayOf(0L))
+        } else if (useDefaultAllWhenEnabled) {
+            setDefaults(NotificationCompat.DEFAULT_ALL)
+        }
+        return this
+    }
+
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val vibrationEnabled = !isVibrationDisabled()
 
             val proxyChannel = NotificationChannel(
                 CHANNEL_ID,
@@ -53,6 +78,7 @@ object NotificationHelper {
             ).apply {
                 description = context.getString(R.string.notif_channel_proxy_desc)
                 setShowBadge(false)
+                enableVibration(false)
             }
             manager.createNotificationChannel(proxyChannel)
 
@@ -62,7 +88,7 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = context.getString(R.string.notif_channel_update_desc)
-                enableVibration(true)
+                enableVibration(vibrationEnabled)
             }
             manager.createNotificationChannel(updateChannel)
 
@@ -72,7 +98,7 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = context.getString(R.string.notif_channel_timer_desc)
-                enableVibration(true)
+                enableVibration(vibrationEnabled)
             }
             manager.createNotificationChannel(timerChannel)
 
@@ -82,7 +108,7 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = context.getString(R.string.notif_channel_failover_desc)
-                enableVibration(true)
+                enableVibration(vibrationEnabled)
             }
             manager.createNotificationChannel(failoverChannel)
 
@@ -92,7 +118,7 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = context.getString(R.string.notif_channel_battery_guard_desc)
-                enableVibration(true)
+                enableVibration(vibrationEnabled)
             }
             manager.createNotificationChannel(batteryGuardChannel)
 
@@ -102,19 +128,27 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = context.getString(R.string.status_vpn_system_connected_desc)
+                enableVibration(false)
             }
             manager.createNotificationChannel(vpnChannel)
         }
     }
 
-    fun showFailoverNotification(context: Context, title: String, message: String) {
+    private fun showChannelFailoverNotice(
+        context: Context,
+        notificationId: Int,
+        requestCode: Int,
+        title: String,
+        message: String,
+        onlyAlertOnce: Boolean
+    ) {
         createNotificationChannel(context)
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            5006,
+            requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -127,11 +161,52 @@ object NotificationHelper {
             .setColor(0xFFF59E0B.toInt())
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(onlyAlertOnce)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .applyVibrationPreference()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         try {
-            manager.notify(FAILOVER_NOTIFICATION_ID, builder.build())
+            manager.notify(notificationId, builder.build())
+        } catch (_: Exception) {}
+    }
+
+    fun showFailoverNotification(context: Context, title: String, message: String) {
+        showChannelFailoverNotice(
+            context = context,
+            notificationId = FAILOVER_NOTIFICATION_ID,
+            requestCode = 5006,
+            title = title,
+            message = message,
+            onlyAlertOnce = false
+        )
+    }
+
+    fun showSocks5FlowsealFallbackNotification(
+        context: Context,
+        notice: Socks5UplinkPolicy.QuickTileNotice
+    ) {
+        val (titleRes, bodyRes) = when (notice) {
+            Socks5UplinkPolicy.QuickTileNotice.NO_AUTH_NO_WORKERS ->
+                R.string.notif_socks5_tile_flowseal_no_auth_title to R.string.notif_socks5_tile_flowseal_no_auth_body
+            Socks5UplinkPolicy.QuickTileNotice.NO_WORKER_FALLBACK ->
+                R.string.notif_socks5_tile_flowseal_no_worker_title to R.string.notif_socks5_tile_flowseal_no_worker_body
+            Socks5UplinkPolicy.QuickTileNotice.NONE -> return
+        }
+        showChannelFailoverNotice(
+            context = context,
+            notificationId = SOCKS5_FLOWSEAL_FALLBACK_NOTIFICATION_ID,
+            requestCode = SOCKS5_FLOWSEAL_FALLBACK_NOTIFICATION_ID,
+            title = context.getString(titleRes),
+            message = context.getString(bodyRes),
+            onlyAlertOnce = true
+        )
+    }
+
+    fun cancelSocks5FlowsealFallbackNotification(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        try {
+            manager.cancel(SOCKS5_FLOWSEAL_FALLBACK_NOTIFICATION_ID)
         } catch (_: Exception) {}
     }
 
@@ -175,6 +250,7 @@ object NotificationHelper {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .applyVibrationPreference()
 
         builder.addAction(R.drawable.ic_copy, context.getString(R.string.notif_action_copy_link), copyPendingIntent)
         builder.addAction(R.drawable.ic_notif_stop, context.getString(R.string.notif_action_stop), stopPendingIntent)
@@ -230,7 +306,7 @@ object NotificationHelper {
             .addAction(R.drawable.ic_stat_update, context.getString(R.string.notif_action_download_apk), downloadPendingIntent)
             .addAction(R.drawable.ic_eye, context.getString(R.string.notif_action_whats_new), notesPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .applyVibrationPreference(useDefaultAllWhenEnabled = true)
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -279,6 +355,7 @@ object NotificationHelper {
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .applyVibrationPreference()
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -347,6 +424,7 @@ object NotificationHelper {
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .applyVibrationPreference()
             .addAction(R.drawable.ic_stat_timer, context.getString(R.string.notif_action_extend_15m), extendPendingIntent)
             .addAction(R.drawable.ic_notif_stop, context.getString(R.string.notif_action_cancel), cancelTimerPendingIntent)
             .build()
@@ -399,6 +477,7 @@ object NotificationHelper {
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .applyVibrationPreference()
             .addAction(R.drawable.ic_power, context.getString(R.string.notif_action_restart), restartPendingIntent)
             .build()
 
@@ -474,6 +553,7 @@ object NotificationHelper {
             .setAutoCancel(false)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .applyVibrationPreference()
             .setContentIntent(contentPendingIntent)
             .addAction(R.drawable.ic_check, context.getString(R.string.notif_action_cancel), cancelPendingIntent)
             .addAction(R.drawable.ic_notif_stop, context.getString(R.string.notif_action_stop_now), stopPendingIntent)
@@ -535,6 +615,7 @@ object NotificationHelper {
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .applyVibrationPreference()
             .addAction(R.drawable.ic_power, context.getString(R.string.notif_action_restart), restartPendingIntent)
             .build()
 
@@ -548,6 +629,67 @@ object NotificationHelper {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         try {
             manager.cancel(BATTERY_GUARD_WARNING_NOTIFICATION_ID)
+        } catch (_: Exception) {}
+    }
+
+    fun showPortConflictNotification(
+        context: Context,
+        report: com.mirrly.tgproxy.core.PortConflictReport
+    ) {
+        createNotificationChannel(context)
+
+        val appIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_OPEN_PORT_CONFLICT, true)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            PORT_CONFLICT_NOTIFICATION_ID,
+            appIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val portsStr = report.occupiedPorts.joinToString(", ") { it.port.toString() }
+            .ifBlank { report.failedPort?.toString().orEmpty() }
+        val exactApps = report.occupiedPorts.mapNotNull { it.exactOwnerApp?.appName }.distinct()
+        val candidateNames = if (exactApps.isNotEmpty()) {
+            exactApps
+        } else {
+            report.candidateApps.take(3).map { it.appName }
+        }
+
+        val bodyText = if (candidateNames.isNotEmpty()) {
+            context.getString(
+                R.string.port_conflict_notif_body_with_apps,
+                portsStr,
+                candidateNames.joinToString(", ")
+            )
+        } else {
+            context.getString(R.string.port_conflict_notif_body_generic, portsStr)
+        }
+
+        val notification = NotificationCompat.Builder(context, FAILOVER_CHANNEL_ID)
+            .setContentTitle(context.getString(R.string.port_conflict_notif_title))
+            .setContentText(bodyText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bodyText))
+            .setSmallIcon(R.drawable.ic_stat_proxy_error)
+            .setColor(0xFFEF4444.toInt())
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .applyVibrationPreference()
+            .build()
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        try {
+            manager.notify(PORT_CONFLICT_NOTIFICATION_ID, notification)
+        } catch (_: Exception) {}
+    }
+
+    fun cancelPortConflictNotification(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        try {
+            manager.cancel(PORT_CONFLICT_NOTIFICATION_ID)
         } catch (_: Exception) {}
     }
 }

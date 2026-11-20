@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -65,7 +66,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.service.HapticProfile
 import com.mirrly.tgproxy.ui.MirrlyBottomSheetHeader
 import com.mirrly.tgproxy.ui.MirrlyModalBottomSheet
 import com.mirrly.tgproxy.ui.theme.AmoledBackground
@@ -155,6 +158,14 @@ fun SnakeGameScreen(
     // Audio & Haptic
     var soundEnabled by remember { mutableStateOf(true) }
     var hapticEnabled by remember { mutableStateOf(true) }
+    val isGlobalVibrationDisabled by MirrlyApplication.instance.prefsManager.vibrationDisabledFlow.collectAsState()
+    val globalHapticProfile by MirrlyApplication.instance.prefsManager.hapticProfileFlow.collectAsState()
+    val isHapticGloballyMuted = HapticProfile.isVibrationMuted(isGlobalVibrationDisabled, globalHapticProfile)
+    val effectiveHapticEnabled = hapticEnabled && !isHapticGloballyMuted
+
+    LaunchedEffect(effectiveHapticEnabled) {
+        acousticEngine.isHapticEnabled = effectiveHapticEnabled
+    }
 
     // Settings Parameters (Controlled by user)
     var selectedSpeed by remember { mutableStateOf(SnakeSpeed.NORMAL) }
@@ -271,16 +282,17 @@ fun SnakeGameScreen(
 
                     // Haptic Toggle Icon Button
                     IconButton(
+                        enabled = !isHapticGloballyMuted,
                         onClick = {
                             hapticEnabled = !hapticEnabled
-                            acousticEngine.isHapticEnabled = hapticEnabled
+                            acousticEngine.isHapticEnabled = hapticEnabled && !isHapticGloballyMuted
                         },
                         modifier = Modifier.size(36.dp)
                     ) {
                         MirrlyIcon(
-                            id = if (hapticEnabled) R.drawable.ic_vibrate else R.drawable.ic_vibrate_off,
+                            id = if (effectiveHapticEnabled) R.drawable.ic_vibrate else R.drawable.ic_vibrate_off,
                             contentDescription = stringResource(R.string.snake_btn_hap),
-                            tint = if (hapticEnabled) accentColor else TextMuted,
+                            tint = if (effectiveHapticEnabled) accentColor else TextMuted,
                             modifier = Modifier.size(20.dp)
                         )
                     }

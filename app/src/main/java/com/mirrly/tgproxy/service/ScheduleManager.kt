@@ -189,7 +189,7 @@ class ScheduleReceiver : BroadcastReceiver() {
                 val calendar = Calendar.getInstance()
                 if (scheduleConfig.isEnabled && scheduleConfig.isDayActive(calendar.get(Calendar.DAY_OF_WEEK))) {
                     if (!app.proxyServer.isRunning) {
-                        if (app.config.isSocks5Mode && app.config.getEffectiveCfDomain().isBlank()) {
+                        if (app.config.isSocks5WorkerMissing(app.prefsManager.getActiveWorker(com.mirrly.tgproxy.core.ProxyMode.SOCKS5).domain)) {
                             AppLogger.w("ScheduleReceiver", "Schedule start aborted: SOCKS5 worker not configured")
                             ScheduleManager.syncSchedule(context)
                             return

@@ -84,7 +84,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import com.mirrly.tgproxy.MirrlyApplication
@@ -164,13 +163,35 @@ class MainActivity : ComponentActivity() {
         super.attachBaseContext(wrapped)
     }
 
+    override fun onStart() {
+        super.onStart()
+        com.mirrly.tgproxy.service.PortConflictMonitor.setForegroundState(true)
+    }
+
+    override fun onStop() {
+        com.mirrly.tgproxy.service.PortConflictMonitor.setForegroundState(false)
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         testBannerState.value = intent.getStringExtra("test_banner")
         handleOAuthReturn(intent)
+        handlePortConflictNotificationIntent(intent)
         extractWorkerDeepLink(intent)?.let {
             onDeepLinkReceived?.invoke(it)
+        }
+    }
+
+    private fun handlePortConflictNotificationIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(com.mirrly.tgproxy.service.NotificationHelper.EXTRA_OPEN_PORT_CONFLICT, false) == true) {
+            intent.removeExtra(com.mirrly.tgproxy.service.NotificationHelper.EXTRA_OPEN_PORT_CONFLICT)
+            MirrlyApplication.instance.applicationScope.launch {
+                if (com.mirrly.tgproxy.service.PortConflictMonitor.conflictReport.value == null) {
+                    com.mirrly.tgproxy.service.PortConflictMonitor.checkOnAppStartup(applicationContext, force = true)
+                }
+            }
         }
     }
 
@@ -206,6 +227,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         testBannerState.value = intent?.getStringExtra("test_banner")
         handleOAuthReturn(intent)
+        handlePortConflictNotificationIntent(intent)
 
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -214,9 +236,6 @@ class MainActivity : ComponentActivity() {
 
         // Lock screen orientation to Portrait only
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-
-        // Enable Edge-to-Edge edge transparent status bar drawing
-        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // Force hardware acceleration at window level to eliminate OpenGLRenderer swap errors
         window.setFlags(
@@ -322,6 +341,10 @@ class MainActivity : ComponentActivity() {
                         com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(applicationContext, notifyIfFound = true)
                     }
                 }
+
+                val portConflictReport by com.mirrly.tgproxy.service.PortConflictMonitor.conflictReport.collectAsState()
+                val isPortConflictScanning by com.mirrly.tgproxy.service.PortConflictMonitor.isScanning.collectAsState()
+                val isPortConflictResolved by com.mirrly.tgproxy.service.PortConflictMonitor.isResolvedInSheet.collectAsState()
 
                 LaunchedEffect(Unit) {
                     withContext(Dispatchers.IO) {
@@ -450,9 +473,32 @@ class MainActivity : ComponentActivity() {
                 val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
                 var globalTouchPoint by remember { mutableStateOf<Offset?>(null) }
                 var isVpnTabActive by remember { mutableStateOf(false) }
-                var showOnboarding by rememberSaveable { mutableStateOf(!app.prefsManager.hasSeenOnboarding()) }
+                var onboardingInitialStep by rememberSaveable {
+                    mutableIntStateOf(
+                        if (!app.prefsManager.hasSeenOnboarding()) 0 else ONBOARDING_STEP_BACKGROUND
+                    )
+                }
+                var showOnboarding by rememberSaveable {
+                    mutableStateOf(
+                        !app.prefsManager.hasSeenOnboarding() ||
+                            (
+                                !app.prefsManager.hasCompletedBackgroundOnboarding() &&
+                                    !com.mirrly.tgproxy.service.OemAutostartHelper.isIgnoringBatteryOptimizations(applicationContext)
+                                )
+                    )
+                }
                 var showAiChat by rememberSaveable { mutableStateOf(false) }
                 var aiChatInitialPrompt by rememberSaveable { mutableStateOf<String?>(null) }
+
+                LaunchedEffect(showOnboarding) {
+                    if (!showOnboarding) {
+                        withContext(Dispatchers.IO) {
+                            if (!app.config.autostartOnBoot || app.prefsManager.isVpnModeEnabled()) {
+                                com.mirrly.tgproxy.service.PortConflictMonitor.checkOnAppStartup(applicationContext)
+                            }
+                        }
+                    }
+                }
 
                 val customWallpaperPath by app.prefsManager.customBackgroundUriFlow.collectAsState()
                 val customWallpaperRevision by app.prefsManager.customBackgroundRevisionFlow.collectAsState()
@@ -478,8 +524,19 @@ class MainActivity : ComponentActivity() {
                 }
                 val customWallpaperImage = rememberWallpaperImage(previewFile, customWallpaperRevision)
 
+                var settingsInitialCategory by remember { mutableStateOf(SettingsCategory.ALL) }
+                var settingsCategoryNonce by remember { mutableIntStateOf(0) }
+                var expandWallpaperOnSettingsOpen by remember { mutableStateOf(false) }
+
                 // Stable callbacks for child screens (Enables Smart Recomposition Skipping)
-                val onOpenSettings = remember { { navigateTo("settings") } }
+                val onOpenSettings = remember {
+                    {
+                        settingsInitialCategory = SettingsCategory.ALL
+                        expandWallpaperOnSettingsOpen = false
+                        settingsCategoryNonce++
+                        navigateTo("settings")
+                    }
+                }
                 val onOpenLogs = remember { { navigateTo("logs") } }
                 val onOpenHistory = remember { { navigateTo("history") } }
                 val onOpenUpdate = remember { { navigateTo("update") } }
@@ -511,7 +568,12 @@ class MainActivity : ComponentActivity() {
                 val onOpenSpeedTest = remember { { navigateTo("speed_test") } }
                 val onOpenWorkerAnalytics = remember { { navigateTo("worker_analytics") } }
                 val onOpenHallOfFame = remember { { navigateTo("hall_of_fame") } }
-                val onOpenOnboarding = remember { { showOnboarding = true } }
+                val onOpenOnboarding = remember {
+                    {
+                        onboardingInitialStep = 0
+                        showOnboarding = true
+                    }
+                }
                 val onOpenAiChatWithPrompt: (String?) -> Unit = remember {
                     { prompt ->
                         aiChatInitialPrompt = prompt
@@ -937,6 +999,7 @@ class MainActivity : ComponentActivity() {
                             dim = customWallpaperDim,
                             powerSaveEnabled = customWallpaperVideoPowerSave,
                             shaderSpeed = wallpaperShaderSpeed,
+                            pauseVideo = showOnboarding,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
@@ -1166,7 +1229,10 @@ class MainActivity : ComponentActivity() {
                                     showUnofficialDialog = true
                                 },
                                 onOpenAiChat = onOpenAiChatWithPrompt,
-                                initialIsVpn = isVpnTabActive
+                                initialIsVpn = isVpnTabActive,
+                                initialCategory = settingsInitialCategory,
+                                initialCategoryNonce = settingsCategoryNonce,
+                                expandWallpaperOnOpen = expandWallpaperOnSettingsOpen
                             )
                         }
                     }
@@ -1480,11 +1546,13 @@ class MainActivity : ComponentActivity() {
                         OnboardingScreen(
                             initialLanguage = app.prefsManager.getAppLanguage(),
                             prefsManager = app.prefsManager,
+                            initialStep = onboardingInitialStep,
                             onLanguageSelected = { selectedLang ->
                                 app.prefsManager.setAppLanguage(selectedLang)
                             },
                             onComplete = {
                                 app.prefsManager.setHasSeenOnboarding(true)
+                                app.prefsManager.setHasCompletedBackgroundOnboarding(true)
                                 showOnboarding = false
                             }
                         )
@@ -1528,6 +1596,97 @@ class MainActivity : ComponentActivity() {
                             report = report,
                             onDismiss = {
                                 CrashReportManager.clearPendingCrash(applicationContext)
+                            }
+                        )
+                    }
+
+                    val pendingMigratedWallpaperPreset by app.prefsManager.pendingMigratedWallpaperPresetFlow.collectAsState()
+                    pendingMigratedWallpaperPreset?.takeIf {
+                        !showOnboarding && !showUnofficialDialog && !showAiChat && pendingCrash == null
+                    }?.let { migratedPreset ->
+                        CustomWallpaperMigratedSheet(
+                            preset = migratedPreset,
+                            onRestoreMyBackground = {
+                                scope.launch {
+                                    try {
+                                        app.prefsManager.applyPreset(migratedPreset)
+                                    } finally {
+                                        app.prefsManager.dismissPendingMigratedWallpaperNotice()
+                                    }
+                                }
+                            },
+                            onOpenWallpaperSettings = {
+                                app.prefsManager.dismissPendingMigratedWallpaperNotice()
+                                settingsInitialCategory = SettingsCategory.MISC
+                                expandWallpaperOnSettingsOpen = true
+                                settingsCategoryNonce++
+                                navigateTo("settings")
+                            },
+                            onKeepBlackAndDismiss = {
+                                app.prefsManager.dismissPendingMigratedWallpaperNotice()
+                            }
+                        )
+                    }
+
+                    portConflictReport?.takeIf { !showOnboarding && !showUnofficialDialog && pendingCrash == null }?.let { conflict ->
+                        PortConflictSheet(
+                            report = conflict,
+                            isScanning = isPortConflictScanning,
+                            isResolved = isPortConflictResolved,
+                            onRecheck = {
+                                scope.launch {
+                                    com.mirrly.tgproxy.service.PortConflictMonitor.recheck(applicationContext)
+                                }
+                            },
+                            onAutoSwitchPorts = {
+                                scope.launch {
+                                    val switched = com.mirrly.tgproxy.service.PortConflictMonitor.switchConflictingPortsToFree(applicationContext)
+                                    if (switched.isNotEmpty()) {
+                                        val summary = switched.joinToString(", ") { "${it.first} ${it.second}" }
+                                        Toast.makeText(
+                                            applicationContext,
+                                            getString(R.string.port_conflict_toast_ports_updated, summary),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        Toast.makeText(
+                                            applicationContext,
+                                            getString(R.string.port_conflict_toast_no_free_port),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            },
+                            onStartProxy = {
+                                val fallbackSocks5Worker = app.prefsManager.getActiveWorker(com.mirrly.tgproxy.core.ProxyMode.SOCKS5).domain
+                                if (app.config.isSocks5WorkerMissing(fallbackSocks5Worker)) {
+                                    Toast.makeText(
+                                        applicationContext,
+                                        getString(R.string.socks5_no_worker_error),
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    return@PortConflictSheet
+                                }
+                                com.mirrly.tgproxy.service.PortConflictMonitor.dismiss()
+                                com.mirrly.tgproxy.service.NotificationHelper.cancelPortConflictNotification(applicationContext)
+                                val serviceIntent = Intent(
+                                    applicationContext,
+                                    com.mirrly.tgproxy.service.ProxyForegroundService::class.java
+                                ).apply {
+                                    action = com.mirrly.tgproxy.service.ProxyForegroundService.ACTION_START
+                                }
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                        startForegroundService(serviceIntent)
+                                    } else {
+                                        startService(serviceIntent)
+                                    }
+                                } catch (e: Exception) {
+                                    com.mirrly.tgproxy.core.AppLogger.e("MainActivity", "Failed to start proxy after conflict resolution: ${e.message}")
+                                }
+                            },
+                            onDismiss = {
+                                com.mirrly.tgproxy.service.PortConflictMonitor.dismiss()
                             }
                         )
                     }
@@ -1617,24 +1776,60 @@ class MainActivity : ComponentActivity() {
 
     private fun optimizeForHighRefreshRate() {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val modes = display?.supportedModes ?: emptyArray()
-                val maxMode = modes.maxByOrNull { it.refreshRate }
-                if (maxMode != null && maxMode.refreshRate > 60f) {
-                    window.attributes = window.attributes.apply {
-                        preferredDisplayModeId = maxMode.modeId
-                    }
-                }
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val activeDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
                 @Suppress("DEPRECATION")
-                val modes = window.windowManager.defaultDisplay.supportedModes ?: emptyArray()
-                val maxMode = modes.maxByOrNull { it.refreshRate }
-                if (maxMode != null && maxMode.refreshRate > 60f) {
-                    window.attributes = window.attributes.apply {
-                        preferredDisplayModeId = maxMode.modeId
-                    }
-                }
+                window.windowManager.defaultDisplay
+            } ?: return
+            val current = activeDisplay.mode ?: return
+            val currentCandidate = DisplayModeCandidate(
+                modeId = current.modeId,
+                physicalWidth = current.physicalWidth,
+                physicalHeight = current.physicalHeight,
+                refreshRate = current.refreshRate
+            )
+            val supportedCandidates = activeDisplay.supportedModes.orEmpty().map {
+                DisplayModeCandidate(
+                    modeId = it.modeId,
+                    physicalWidth = it.physicalWidth,
+                    physicalHeight = it.physicalHeight,
+                    refreshRate = it.refreshRate
+                )
+            }
+            val targetRefreshRate = selectPreferredRefreshRateHz(currentCandidate, supportedCandidates)
+                ?: return
+            window.attributes = window.attributes.apply {
+                // Keep preferredDisplayModeId unset so Pixel/LTPO devices never switch
+                // physical display resolution (e.g. 1080p <-> 1440p) on launch or minimize.
+                preferredDisplayModeId = 0
+                preferredRefreshRate = targetRefreshRate
             }
         } catch (_: Exception) {}
     }
+}
+
+internal data class DisplayModeCandidate(
+    val modeId: Int,
+    val physicalWidth: Int,
+    val physicalHeight: Int,
+    val refreshRate: Float
+)
+
+internal fun selectPreferredRefreshRateHz(
+    currentMode: DisplayModeCandidate?,
+    supportedModes: List<DisplayModeCandidate>
+): Float? {
+    if (currentMode == null || currentMode.physicalWidth <= 0 || currentMode.physicalHeight <= 0) {
+        return null
+    }
+    val maxSameResolutionRate = supportedModes
+        .asSequence()
+        .filter {
+            it.physicalWidth == currentMode.physicalWidth &&
+                it.physicalHeight == currentMode.physicalHeight
+        }
+        .maxOfOrNull { it.refreshRate }
+        ?: return null
+    return maxSameResolutionRate.takeIf { it > 60f }
 }

@@ -104,8 +104,13 @@ object PreflightDiagnosticsEngine {
         if (serverStarter != null) {
             val started = serverStarter()
             if (!started) {
+                val failure = com.mirrly.tgproxy.MirrlyApplication.instance.proxyServer.lastStartFailure.value
                 _preflightStage.value = PreflightStage.FAILED
-                _preflightStatusMessage.value = "Ошибка запуска локального сервиса"
+                _preflightStatusMessage.value = if (failure?.kind == com.mirrly.tgproxy.core.StartFailureKind.ADDR_IN_USE) {
+                    context.getString(R.string.port_conflict_preflight_status, failure.port)
+                } else {
+                    "Ошибка запуска локального сервиса"
+                }
                 return@withContext PreflightResult(
                     isSuccess = false,
                     selectedRouteSummary = "Server startup failed"

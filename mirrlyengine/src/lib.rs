@@ -94,6 +94,97 @@ pub(crate) fn bind_reuse_tcp(addr: &str) -> std::io::Result<tokio::net::TcpListe
     tokio::net::TcpListener::from_std(std_listener)
 }
 
+pub const START_ERR_ADDR_IN_USE: c_int = -3;
+pub const START_ERR_PERMISSION_DENIED: c_int = -4;
+pub const START_ERR_OTHER: c_int = -5;
+
+static LAST_START_ERROR: Lazy<parking_lot::RwLock<Option<String>>> =
+    Lazy::new(|| parking_lot::RwLock::new(None));
+
+enum BindStartFailure {
+    Io { addr: String, err: std::io::Error },
+    ChannelClosed { addr: String },
+}
+
+fn clear_last_start_error() {
+    *LAST_START_ERROR.write() = None;
+}
+
+fn classify_start_io_error(err: &std::io::Error) -> c_int {
+    match err.kind() {
+        std::io::ErrorKind::AddrInUse => START_ERR_ADDR_IN_USE,
+        std::io::ErrorKind::PermissionDenied => START_ERR_PERMISSION_DENIED,
+        _ => START_ERR_OTHER,
+    }
+}
+
+fn record_start_error(label: &str, failure: BindStartFailure) -> c_int {
+    let (code, message) = match failure {
+        BindStartFailure::Io { addr, err } => {
+            let code = classify_start_io_error(&err);
+            let os_detail = err
+                .raw_os_error()
+                .map(|os| format!("os error {}", os))
+                .unwrap_or_else(|| format!("{:?}", err.kind()));
+            (
+                code,
+                format!("{} listen on {} failed: {} ({})", label, addr, err, os_detail),
+            )
+        }
+        BindStartFailure::ChannelClosed { addr } => (
+            START_ERR_OTHER,
+            format!("{} listen on {} aborted before bind completed", label, addr),
+        ),
+    };
+    crate::lerror!("{}", message);
+    *LAST_START_ERROR.write() = Some(message);
+    code
+}
+
+fn spawn_bound_listener<F, Fut>(
+    rt: &Runtime,
+    label: &'static str,
+    addr: String,
+    serve: F,
+) -> Result<tokio::task::JoinHandle<()>, c_int>
+where
+    F: FnOnce(tokio::net::TcpListener) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = std::io::Result<()>> + Send + 'static,
+{
+    clear_last_start_error();
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), std::io::Error>>();
+    let addr_for_task = addr.clone();
+
+    let handle = rt.spawn(async move {
+        match bind_reuse_tcp(&addr_for_task) {
+            Ok(listener) => {
+                let _ = tx.send(Ok(()));
+                if let Err(e) = serve(listener).await {
+                    crate::lerror!("{} serve on {}: {}", label, addr_for_task, e);
+                }
+            }
+            Err(e) => {
+                let _ = tx.send(Err(e));
+            }
+        }
+    });
+
+    match rx.recv() {
+        Ok(Ok(())) => Ok(handle),
+        Ok(Err(err)) => {
+            handle.abort();
+            Err(record_start_error(label, BindStartFailure::Io { addr, err }))
+        }
+        Err(_) => {
+            handle.abort();
+            Err(record_start_error(
+                label,
+                BindStartFailure::ChannelClosed { addr },
+            ))
+        }
+    }
+}
+
 struct VpnState {
     handle: tokio::task::JoinHandle<()>,
     cancel_token: CancellationToken,
@@ -209,46 +300,28 @@ pub unsafe extern "C" fn StartProxy(
     let cancel_sessions = Arc::new(parking_lot::RwLock::new(cancel_tasks.child_token()));
     let pool = Arc::new(WsPool::new(cancel_tasks.clone()));
 
-    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
-
+    let addr = format!("{}:{}", host, go_port);
     let pool_task = pool.clone();
     let host_task = host.clone();
     let map_task = dc_opt_map.clone();
     let cancel_root = cancel_tasks.clone();
     let cancel_sessions_task = cancel_sessions.clone();
 
-    let handle = rt.spawn(async move {
-        let addr = format!("{}:{}", host_task, go_port);
-        match bind_reuse_tcp(&addr) {
-            Ok(listener) => {
-                let _ = tx.send(Ok(()));
-                if let Err(e) = run_proxy(
-                    pool_task,
-                    host_task,
-                    go_port,
-                    map_task,
-                    cancel_root,
-                    cancel_sessions_task,
-                    listener,
-                )
-                .await
-                {
-                    crate::lerror!("listen on {}: {}", addr, e);
-                }
-            }
-            Err(e) => {
-                let _ = tx.send(Err(format!("listen on {}: {}", addr, e)));
-            }
-        }
-    });
-
-    match rx.recv() {
-        Ok(Ok(())) => {}
-        _ => {
-            handle.abort();
-            return -3;
-        }
-    }
+    let handle = match spawn_bound_listener(rt, "MTProto", addr, move |listener| async move {
+        run_proxy(
+            pool_task,
+            host_task,
+            go_port,
+            map_task,
+            cancel_root,
+            cancel_sessions_task,
+            listener,
+        )
+        .await
+    }) {
+        Ok(h) => h,
+        Err(code) => return code,
+    };
 
     let cancel_balancer = cancel_tasks.clone();
     rt.spawn(async move {
@@ -301,42 +374,24 @@ pub unsafe extern "C" fn StartSocks5Proxy(
     let cancel_tasks = CancellationToken::new();
     let cancel_sessions = Arc::new(parking_lot::RwLock::new(cancel_tasks.child_token()));
 
-    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
-
+    let addr = format!("{}:{}", host, go_port);
     let host_task = host.clone();
     let cancel_root = cancel_tasks.clone();
     let cancel_sessions_task = cancel_sessions.clone();
 
-    let handle = rt.spawn(async move {
-        let addr = format!("{}:{}", host_task, go_port);
-        match bind_reuse_tcp(&addr) {
-            Ok(listener) => {
-                let _ = tx.send(Ok(()));
-                if let Err(e) = run_socks5_server(
-                    host_task,
-                    go_port,
-                    cancel_root,
-                    cancel_sessions_task,
-                    listener,
-                )
-                .await
-                {
-                    crate::lerror!("listen socks5 on {}: {}", addr, e);
-                }
-            }
-            Err(e) => {
-                let _ = tx.send(Err(format!("listen socks5 on {}: {}", addr, e)));
-            }
-        }
-    });
-
-    match rx.recv() {
-        Ok(Ok(())) => {}
-        _ => {
-            handle.abort();
-            return -3;
-        }
-    }
+    let handle = match spawn_bound_listener(rt, "SOCKS5", addr, move |listener| async move {
+        run_socks5_server(
+            host_task,
+            go_port,
+            cancel_root,
+            cancel_sessions_task,
+            listener,
+        )
+        .await
+    }) {
+        Ok(h) => h,
+        Err(code) => return code,
+    };
 
     *guard = Some(ProxyState {
         pool: None,
@@ -1377,8 +1432,76 @@ pub unsafe extern "C" fn ProbeTransportHealth(
 }
 
 #[no_mangle]
+pub extern "C" fn GetLastStartError() -> *mut c_char {
+    let msg = LAST_START_ERROR.read().clone().unwrap_or_default();
+    CString::new(msg).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn FreeString(p: *mut c_char) {
     if !p.is_null() {
         let _ = CString::from_raw(p);
+    }
+}
+
+#[cfg(test)]
+mod start_error_tests {
+    use super::*;
+
+    #[test]
+    fn start_error_classification_maps_io_kinds() {
+        let addr_in_use = std::io::Error::new(std::io::ErrorKind::AddrInUse, "port busy");
+        assert_eq!(classify_start_io_error(&addr_in_use), START_ERR_ADDR_IN_USE);
+
+        let perm_denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "blocked");
+        assert_eq!(classify_start_io_error(&perm_denied), START_ERR_PERMISSION_DENIED);
+
+        let invalid = std::io::Error::new(std::io::ErrorKind::InvalidInput, "bad addr");
+        assert_eq!(classify_start_io_error(&invalid), START_ERR_OTHER);
+    }
+
+    #[test]
+    fn record_start_error_populates_last_start_error_and_ffi_getter() {
+        clear_last_start_error();
+        let err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "eacces");
+        let code = record_start_error(
+            "SOCKS5",
+            BindStartFailure::Io {
+                addr: "127.0.0.1:10888".to_string(),
+                err,
+            },
+        );
+        assert_eq!(code, START_ERR_PERMISSION_DENIED);
+
+        unsafe {
+            let ptr = GetLastStartError();
+            assert!(!ptr.is_null());
+            let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            FreeString(ptr);
+            assert!(s.contains("SOCKS5 listen on 127.0.0.1:10888 failed"));
+        }
+
+        clear_last_start_error();
+        unsafe {
+            let ptr = GetLastStartError();
+            assert!(!ptr.is_null());
+            let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            FreeString(ptr);
+            assert!(s.is_empty());
+        }
+    }
+
+    #[test]
+    fn start_socks5_invalid_host_returns_other_error_with_detail() {
+        let bad_host = CString::new("not-an-ip-address").unwrap();
+        let code = unsafe { StartSocks5Proxy(bad_host.as_ptr(), 10888, 0) };
+        assert_eq!(code, START_ERR_OTHER);
+
+        unsafe {
+            let ptr = GetLastStartError();
+            let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            FreeString(ptr);
+            assert!(s.contains("SOCKS5 listen on not-an-ip-address:10888 failed"));
+        }
     }
 }

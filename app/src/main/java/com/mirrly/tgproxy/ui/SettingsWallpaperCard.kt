@@ -115,6 +115,7 @@ enum class WallpaperMediaType {
 @Composable
 fun SettingsWallpaperCard(
     accentColor: Color = MtprotoAccent,
+    autoExpand: Boolean = false,
     onInfoClick: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
@@ -122,7 +123,7 @@ fun SettingsWallpaperCard(
     val prefs = MirrlyApplication.instance.prefsManager
     val cardShape = LocalCardShape.current
 
-    var isWallpaperExpanded by rememberSaveable { mutableStateOf(false) }
+    var isWallpaperExpanded by rememberSaveable(autoExpand) { mutableStateOf(autoExpand) }
 
     val wallpaperUri by prefs.customBackgroundUriFlow.collectAsState()
     val wallpaperRevision by prefs.customBackgroundRevisionFlow.collectAsState()
@@ -1507,7 +1508,11 @@ fun SettingsWallpaperCard(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             allPresets.forEach { preset ->
-                                val isPresetActive = hasCustomWallpaper && activePresetId == preset.id
+                                val isPresetActive = if (preset.id == WallpaperPreset.PRESET_ID_DEFAULT_AMOLED) {
+                                    !hasCustomWallpaper
+                                } else {
+                                    hasCustomWallpaper && activePresetId == preset.id
+                                }
                                 WallpaperPresetCard(
                                     preset = preset,
                                     isActive = isPresetActive,
@@ -1592,8 +1597,9 @@ internal fun WallpaperPresetCard(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
+    val previewPath = remember(preset) { preset.resolveStaticPreviewPath() }
     val previewImage = rememberWallpaperImage(
-        path = preset.previewAssetPath ?: preset.previewFilePath ?: preset.filePath,
+        path = previewPath,
         revision = 0L
     )
 
@@ -1627,6 +1633,7 @@ internal fun WallpaperPresetCard(
                         videoPath = preset.filePath,
                         assetPath = preset.previewAssetPath?.takeIf { it.endsWith(".mp4") } ?: preset.assetPath,
                         previewImage = previewImage,
+                        startDelayMs = 150L,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if (previewImage != null) {

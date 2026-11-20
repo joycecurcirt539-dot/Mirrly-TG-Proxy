@@ -916,7 +916,10 @@ fun SettingsScreen(
     onOpenDiagnosticReport: () -> Unit = {},
     onOpenSecurityAdvisory: () -> Unit = {},
     onOpenAiChat: ((String?) -> Unit)? = null,
-    initialIsVpn: Boolean = false
+    initialIsVpn: Boolean = false,
+    initialCategory: SettingsCategory = SettingsCategory.ALL,
+    initialCategoryNonce: Int = 0,
+    expandWallpaperOnOpen: Boolean = false
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -932,6 +935,13 @@ fun SettingsScreen(
         }
     }
     var socks5PortText by remember { mutableStateOf(config.socks5Port.toString()) }
+    val portOverrideRevision by com.mirrly.tgproxy.service.PortConflictMonitor.portOverrideRevision.collectAsState()
+    LaunchedEffect(portOverrideRevision) {
+        if (portOverrideRevision > 0) {
+            portText = config.bindPort.toString()
+            socks5PortText = config.socks5Port.toString()
+        }
+    }
     val isSocks5PortError by remember {
         derivedStateOf {
             socks5PortText.toIntOrNull()?.let { it < 1 || it > 65535 } ?: socks5PortText.isNotEmpty()
@@ -1181,8 +1191,14 @@ fun SettingsScreen(
         )
     }
 
-    var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.ALL) }
+    var selectedCategory by rememberSaveable { mutableStateOf(initialCategory) }
     val scrollState = rememberScrollState()
+
+    LaunchedEffect(initialCategoryNonce) {
+        if (initialCategoryNonce > 0) {
+            selectedCategory = initialCategory
+        }
+    }
 
     LaunchedEffect(selectedCategory) {
         scrollState.animateScrollTo(0)
@@ -1509,7 +1525,8 @@ fun SettingsScreen(
             if (showMisc) {
                 SettingsCustomizationSection(
                     onInfoClick = { infoKey = it },
-                    onOpenAiChat = onOpenAiChat
+                    onOpenAiChat = onOpenAiChat,
+                    expandWallpaperOnOpen = expandWallpaperOnOpen
                 )
                 SettingsDivider()
                 SettingsAboutSection(
@@ -5372,6 +5389,7 @@ private fun SettingsSystemSection(
     val context = LocalContext.current
     val app = MirrlyApplication.instance
     var disableAnimations by remember { mutableStateOf(app.prefsManager.areAnimationsDisabled()) }
+    val disableVibration by app.prefsManager.vibrationDisabledFlow.collectAsState()
     val scheduleConfig = remember { app.prefsManager.loadScheduleConfig() }
 
     Column(
@@ -5554,9 +5572,9 @@ private fun SettingsSystemSection(
         var batteryGuardThreshold by remember { mutableStateOf(app.config.batteryGuardThreshold) }
         var batteryGuardStopOnPowerSave by remember { mutableStateOf(app.config.batteryGuardStopOnPowerSave) }
         var isAdaptiveQoSEnabled by remember { mutableStateOf(app.config.isAdaptiveQoSEnabled) }
-        var isAlarmClockWatchdogEnabled by remember { mutableStateOf(app.config.isAlarmClockWatchdogEnabled) }
-        var isCpuAntiFreezeEnabled by remember { mutableStateOf(app.config.isCpuAntiFreezeEnabled) }
-        var isTrafficPulseEnabled by remember { mutableStateOf(app.config.isTrafficPulseEnabled) }
+        val isAlarmClockWatchdogEnabled by app.prefsManager.isAlarmClockWatchdogEnabledFlow.collectAsState()
+        val isCpuAntiFreezeEnabled by app.prefsManager.isCpuAntiFreezeEnabledFlow.collectAsState()
+        val isTrafficPulseEnabled by app.prefsManager.isTrafficPulseEnabledFlow.collectAsState()
         val oemBrandName = remember { OemAutostartHelper.getOemBrandName() }
         val isOemAutostartSupported = remember { OemAutostartHelper.isOemAutostartSupported() }
 
@@ -5875,6 +5893,42 @@ private fun SettingsSystemSection(
 
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
+                // Блок 2.4b: Отключение всей вибрации в приложении
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_disable_vibration_title),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                            InfoButton { onInfoClick("disable_vibration") }
+                        }
+                        Text(
+                            text = stringResource(R.string.settings_disable_vibration_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    InertialSpringSwitch(
+                        checked = disableVibration,
+                        activeColor = LocalProtocolColors.current.primary,
+                        onCheckedChange = { newValue ->
+                            app.prefsManager.setVibrationDisabled(newValue)
+                        }
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
                 // Блок 2.5: Аппаратный сторож службы (AlarmClock Watchdog)
                 SurvivalToggleRow(
                     iconRes = R.drawable.ic_watchdog_clock,
@@ -5884,7 +5938,6 @@ private fun SettingsSystemSection(
                     checked = isAlarmClockWatchdogEnabled,
                     onInfoClick = { onInfoClick("watchdog_alarm") },
                     onCheckedChange = { checked ->
-                        isAlarmClockWatchdogEnabled = checked
                         app.config.isAlarmClockWatchdogEnabled = checked
                         app.saveConfig()
                         if (app.prefsManager.isProxyActive()) {
@@ -5904,7 +5957,6 @@ private fun SettingsSystemSection(
                     checked = isCpuAntiFreezeEnabled,
                     onInfoClick = { onInfoClick("cpu_antifreeze") },
                     onCheckedChange = { checked ->
-                        isCpuAntiFreezeEnabled = checked
                         app.config.isCpuAntiFreezeEnabled = checked
                         app.saveConfig()
                         ProxyForegroundService.applyCpuAntiFreezeDirectly(checked)
@@ -5922,7 +5974,6 @@ private fun SettingsSystemSection(
                     checked = isTrafficPulseEnabled,
                     onInfoClick = { onInfoClick("traffic_pulse") },
                     onCheckedChange = { checked ->
-                        isTrafficPulseEnabled = checked
                         app.config.isTrafficPulseEnabled = checked
                         app.saveConfig()
                         ProxyForegroundService.applyTrafficPulseDirectly(checked)
@@ -6332,7 +6383,8 @@ fun SettingsCollapseButton(
 @Composable
 private fun SettingsCustomizationSection(
     onInfoClick: (String) -> Unit,
-    onOpenAiChat: ((String?) -> Unit)? = null
+    onOpenAiChat: ((String?) -> Unit)? = null,
+    expandWallpaperOnOpen: Boolean = false
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -6369,6 +6421,7 @@ private fun SettingsCustomizationSection(
         // ── 1. КАСТОМИЗАЦИЯ ФОНА (Фото / Видео / AGSL Шейдеры) ──
         SettingsWallpaperCard(
             accentColor = accentColor,
+            autoExpand = expandWallpaperOnOpen,
             onInfoClick = onInfoClick
         )
 
@@ -6384,7 +6437,13 @@ private fun SettingsCustomizationSection(
             onOpenAiChat = onOpenAiChat
         )
 
-        // ── 4. ДИНАМИКА ЧАСТИЦ И АППАРАТНЫЙ ГИРО-ПАРАЛЛАКС ──
+        // ── 4. ИКОНКА ПРИЛОЖЕНИЯ (Launcher Adaptive Icons + Preview) ──
+        SettingsAppIconCard(
+            accentColor = accentColor,
+            onInfoClick = onInfoClick
+        )
+
+        // ── 5. ДИНАМИКА ЧАСТИЦ И АППАРАТНЫЙ ГИРО-ПАРАЛЛАКС ──
         SettingsParticleDynamicsCard(
             accentColor = accentColor,
             onInfoClick = onInfoClick
@@ -6837,6 +6896,7 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "preset", "wspool_info" -> R.string.info_wspool_title to R.string.info_wspool_body
         "tcp_nodelay", "tcp_nodelay_info" -> R.string.info_tcp_nodelay_title to R.string.info_tcp_nodelay_body
         "disable_animations", "powersaver_info" -> R.string.info_powersaver_title to R.string.info_powersaver_body
+        "disable_vibration" -> R.string.info_disable_vibration_title to R.string.info_disable_vibration_body
         "protocols_info" -> R.string.info_protocols_title to R.string.info_protocols_body
         "socks5_auth", "socks5_auth_info" -> R.string.info_socks5_auth_title to R.string.info_socks5_auth_body
         "battery_guard", "battery_guard_info" -> R.string.info_battery_guard_title to R.string.info_battery_guard_body
@@ -6859,6 +6919,7 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "theme_accent_info" -> R.string.settings_theme_accent_info_title to R.string.settings_theme_accent_info_desc
         "buttons_info" -> R.string.settings_customization_buttons_info_title to R.string.settings_customization_buttons_info_desc
         "buttons_guide" -> R.string.settings_customization_buttons_guide_title to R.string.settings_customization_buttons_guide_desc
+        "app_icon_info" -> R.string.settings_customization_app_icon_info_title to R.string.settings_customization_app_icon_info_desc
         "particle_dynamics_info" -> R.string.settings_customization_particles_info_title to R.string.settings_customization_particles_info_desc
         "dimensions_info" -> R.string.settings_customization_dimensions_info_title to R.string.settings_customization_dimensions_info_desc
         "haptic_profiles_info" -> R.string.settings_customization_haptic_info_title to R.string.settings_customization_haptic_info_desc

@@ -19,7 +19,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Release](https://img.shields.io/badge/Release-v2.1.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Release](https://img.shields.io/badge/Release-v2.1.3-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Language](https://img.shields.io/badge/Language-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-application-ui)
 [![Genesis](https://img.shields.io/badge/Genesis-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
@@ -491,6 +491,7 @@ Project started on **July 27, 2026** with the `v1.0.0` release. Key development 
 | **`v2.0.0.3`** | Redesign & Stability | Minimalist AMOLED redesign of Session History and Logs screens, transparent cards and buttons in Share tab, elimination of first-launch and language selection freeze on Samsung One UI and Huawei EMUI/HarmonyOS, cleanup of redundant Cloudflare DNS logs, and fast SOCKS5 port recycling (`SO_REUSEPORT`). |
 | **`v2.1.0`** | WARP Generator, AI Chat & Wallpapers | Rework notice banner for system VPN, built-in WireGuard and AmneziaWG profile generator with Keystore encryption, local diagnostic AI Chat, custom photo and video wallpapers under MirrlyUI outlines, removal of unused native libraries (-21 MB APK size reduction), and expansion of the Hall of Fame to 79 contributors. |
 | **`v2.1.2`** | Proxy Repair & AmneziaWG | Emergency proxy restoration (external TLS disabled by default, removal of loopback TCP MSS clamping, Anycast CDN pool warmup), 14 built-in AmneziaWG servers, background survival controls (Watchdog AlarmClock, OEM startup, CPU Anti-Freeze, Traffic Pulse), `MirrlyIcon` vector icons, and Cyber Snake arcade. |
+| **`v2.1.3`** | Customization & Diagnostics | App launcher icon picker (8 presets and Android 13+ monochrome), port conflict detector with app attribution, pure black AMOLED default background with wallpaper migration, expanded background protection onboarding, global vibration disable toggle, and reliable `SOCKS5` Quick Settings tile startup. |
 
 ---
 

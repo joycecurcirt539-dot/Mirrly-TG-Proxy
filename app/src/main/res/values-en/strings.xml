@@ -28,7 +28,19 @@
     <string name="onboarding_wallpaper_grass_desc">Photo wallpaper · Soft focus</string>
     <string name="onboarding_wallpaper_breeze_desc">Photo wallpaper · Deep turquoise</string>
     <string name="onboarding_wallpaper_amoled_title">Pure AMOLED</string>
-    <string name="onboarding_wallpaper_amoled_desc">True black background · Power saving</string>
+    <string name="onboarding_wallpaper_amoled_desc">True black background · Default</string>
+
+    <string name="onboarding_step_custom_title">APP CUSTOMIZATION</string>
+    <string name="onboarding_step_custom_desc">Appearance, colors, launch button, and effects are fully customizable. Open Settings, switch to Other or All, and find the Customization section.</string>
+    <string name="onboarding_custom_path_badge">Path · Settings → Other → Customization</string>
+    <string name="onboarding_custom_wallpaper_title">Wallpapers, video, and shaders</string>
+    <string name="onboarding_custom_wallpaper_desc">Pure black AMOLED is active by default. Choose built-in presets, upload your own photo or video, enable procedural AGSL shaders, adjust blur and dimming, and save custom presets.</string>
+    <string name="onboarding_custom_theme_title">Color profile and theme</string>
+    <string name="onboarding_custom_theme_desc">Accent color by active protocol, monochrome Stealth mode, curated neon presets, system Material You Monet colors, or any custom HEX hue with brightness, saturation, and alpha sliders.</string>
+    <string name="onboarding_custom_button_title">Central button and custom SVG</string>
+    <string name="onboarding_custom_button_desc">Pick separate launch icons for MTProto, SOCKS5, and VPN from built-in presets or paste your own SVG vector path, plus adjust button scale, stroke thickness, and glow intensity.</string>
+    <string name="onboarding_custom_fx_title">Particles, layout, and haptics</string>
+    <string name="onboarding_custom_fx_desc">Background particle style, density, and speed with gyro parallax, UI and text scale, card corner geometry, orbital rings, liquid glass, swipe gestures, and haptic vibration profiles.</string>
 
     <string name="onboarding_step_about_title">ABOUT MIRRLY TG PROXY</string>
     <string name="onboarding_step_about_desc">Local proxy client for bypassing restrictions and tunneling Telegram traffic.</string>
@@ -45,6 +57,39 @@
     <string name="onboarding_guide_2_desc">Power button on the home screen starts the local proxy.</string>
     <string name="onboarding_guide_3_title">Connect Telegram</string>
     <string name="onboarding_guide_3_desc">\'Connect Telegram\' exports proxy settings to the client.</string>
+
+    <string name="onboarding_step_background_title">BACKGROUND WORK &amp; BATTERY</string>
+    <string name="onboarding_step_background_desc">Without these system permissions, Android and the device firmware stop proxy and VPN services a few minutes after locking the screen.</string>
+    <string name="onboarding_bg_battery_title">Ignore battery optimization</string>
+    <string name="onboarding_bg_battery_desc">Allow the app to run in the background without Doze Mode limits. In the system dialog, tap Allow or Ignore.</string>
+    <string name="onboarding_bg_battery_btn">Disable optimization</string>
+    <string name="onboarding_bg_battery_done">Battery optimization disabled</string>
+    <string name="onboarding_bg_oem_title">Autostart &amp; background launch</string>
+    <string name="onboarding_bg_oem_btn">Open startup settings</string>
+    <string name="onboarding_bg_oem_btn_reopen">Open again</string>
+    <string name="onboarding_bg_oem_steps_honor">1. Tap Open startup settings below.\n2. Find Mirrly TG Proxy and switch management from automatic to manual.\n3. Enable all three toggles: Auto-launch, Secondary launch, and Run in background, then tap OK.</string>
+    <string name="onboarding_bg_oem_steps_xiaomi">1. Tap Open startup settings below.\n2. Enable Autostart for Mirrly TG Proxy.\n3. In Battery saver settings, select No restrictions.</string>
+    <string name="onboarding_bg_oem_steps_oppo">1. Tap Open startup settings below.\n2. Allow Auto-launch and unrestricted background activity.</string>
+    <string name="onboarding_bg_oem_steps_vivo">1. Tap Open startup settings below.\n2. Allow background launch and high background power usage.</string>
+    <string name="onboarding_bg_oem_steps_generic">No separate OEM startup menu is required for this firmware. Optionally verify Unrestricted battery mode in App info.</string>
+    <string name="onboarding_bg_oem_confirm_title">Manual mode and background run enabled</string>
+    <string name="onboarding_bg_oem_confirm_hint">Open startup settings first and enable the required toggles</string>
+    <string name="onboarding_bg_status_required">Required</string>
+    <string name="onboarding_bg_status_active">Active</string>
+    <string name="onboarding_bg_status_confirmed">Confirmed</string>
+    <string name="onboarding_bg_status_optional">Optional</string>
+    <string name="onboarding_bg_toggles_title">Firmware sleep protection</string>
+    <string name="onboarding_bg_toggles_summary">%1$d of %2$d active · choose background protections</string>
+    <string name="onboarding_bg_recommended_badge">Recommended for your firmware</string>
+    <string name="onboarding_bg_cpu_antifreeze_desc">Holds a lightweight wake lock so the firmware cannot freeze sockets when the screen turns off.</string>
+    <string name="onboarding_bg_watchdog_desc">Restarts the service via system alarm clock if killed by OS. Shows an alarm icon in the status bar.</string>
+    <string name="onboarding_bg_traffic_pulse_desc">Sends a lightweight pulse every 75 seconds while idle so carriers and the OS keep the socket open.</string>
+    <string name="onboarding_bg_warn_battery">Disable battery optimization for the app to continue.</string>
+    <string name="onboarding_bg_warn_oem_open">Open startup settings, enable manual background permissions, and confirm.</string>
+    <string name="onboarding_bg_warn_oem_confirm">Confirm that autostart and background execution are enabled in system settings.</string>
+    <string name="onboarding_bg_warn_both">Disable battery optimization and configure background startup before leaving the guide.</string>
+    <string name="onboarding_bg_warn_open_failed">Could not open system window automatically. Verify battery and startup settings manually and confirm below.</string>
+    <string name="onboarding_bg_btn_locked">Setup required</string>
 
     <string name="onboarding_btn_skip">Skip</string>
     <string name="onboarding_btn_next">Next</string>
@@ -343,6 +388,9 @@
     <string name="settings_doze_btn_configure">Configure</string>
     <string name="settings_power_saver_title">Power Saver Aesthetic</string>
     <string name="settings_power_saver_desc">Disable live particles and background animations to conserve battery</string>
+    <string name="settings_disable_vibration_title">Disable all vibration</string>
+    <string name="settings_disable_vibration_desc">Turns off UI haptic feedback, game vibration, and notification vibration</string>
+    <string name="settings_vibration_disabled_status">All vibration disabled</string>
 
     <!-- Hardware Service Watchdog (AlarmClock) -->
     <string name="settings_watchdog_alarm_title">Hardware Service Watchdog</string>
@@ -524,6 +572,11 @@ AVAILABLE PROFILES:
     <string name="info_powersaver_body">POWER SAVING OPTIMIZATIONS:
 • Disables particle canvas overlays and animations.
 • Minimizes Compose redraw phases, saving battery on 90-120Hz AMOLED displays.</string>
+    <string name="info_disable_vibration_title">Disable All Vibration</string>
+    <string name="info_disable_vibration_body">GLOBAL VIBRATION MUTE:
+• Suppresses all haptic feedback on buttons, switches, lists, and sheets across the app.
+• Disables hardware vibration in the mini-game and mode switch gestures.
+• Mutes vibration on app notifications while keeping your selected haptic profile saved for later.</string>
     <string name="info_protocols_title">Telegram Connection Protocols</string>
     <string name="info_protocols_body">PROTOCOL COMPARISON:
 • MTProto (port 1443): Telegram native protocol with Fake-TLS and Flowseal Anycast.
@@ -2225,6 +2278,10 @@ Download latest Mirrly TG Proxy build:
     <string name="settings_tls_padding_title">TLS Record Padding Randomization</string>
     <string name="settings_tls_padding_desc">Randomized padding and splitting of TLS records to break distinctive MTProto handshake packet size signatures against DPI statistical correlation.</string>
     <string name="socks5_no_worker_error">No worker selected. Please authorize.</string>
+    <string name="notif_socks5_tile_flowseal_no_auth_title">SOCKS5 started via Flowseal CDN</string>
+    <string name="notif_socks5_tile_flowseal_no_auth_body">No Cloudflare authorization or personal workers found. Anycast CDN Flowseal uplink enabled by default.</string>
+    <string name="notif_socks5_tile_flowseal_no_worker_title">Uplink switched to Flowseal CDN</string>
+    <string name="notif_socks5_tile_flowseal_no_worker_body">No personal worker selected. SOCKS5 started via Anycast CDN Flowseal.</string>
 
     <!-- Info & Connect Footnotes -->
     <string name="tg_connect_footnote_title">Which protocol to choose?</string>
@@ -2559,6 +2616,21 @@ Download latest Mirrly TG Proxy build:
     <string name="settings_customization_preset_custom_badge">Custom</string>
     <string name="settings_customization_preset_builtin_badge">Built-in</string>
 
+    <!-- Wallpaper Black Default One-Time Migration Notice -->
+    <string name="wallpaper_migrated_preset_name">Personal background</string>
+    <string name="wallpaper_migrated_badge">PROFILE SAVED</string>
+    <string name="wallpaper_migrated_title">Default background switched to black</string>
+    <string name="wallpaper_migrated_message">The app default background switched once to pure black AMOLED. Do not worry, your custom background was saved automatically as a personal profile and is not lost.</string>
+    <string name="wallpaper_migrated_media_photo">Photo</string>
+    <string name="wallpaper_migrated_media_video">Video background</string>
+    <string name="wallpaper_migrated_preset_meta">%1$s · Blur: %2$d · Dimming: %3$d%%</string>
+    <string name="wallpaper_migrated_path_label">Where your background is stored</string>
+    <string name="wallpaper_migrated_path_value">Settings → Other → Customization → Custom wallpaper → Wallpaper Presets</string>
+    <string name="wallpaper_migrated_preview_badge">SAVED BACKGROUND</string>
+    <string name="wallpaper_migrated_action_restore">Restore my background</string>
+    <string name="wallpaper_migrated_action_choose">Quick background selection</string>
+    <string name="wallpaper_migrated_action_keep_black">Keep black AMOLED</string>
+
     <!-- Phased Connection Pipeline (3-Phase) -->
     <string name="preflight_phase_1_server">[1/3] Starting local SOCKS5 listener (127.0.0.1:10808)</string>
     <string name="preflight_phase_2_warmup">[2/3] Warming up WSS stream pool via Cloudflare</string>
@@ -2819,6 +2891,47 @@ Download latest Mirrly TG Proxy build:
     <string name="settings_customization_haptic_info_title">Haptic Profiles</string>
     <string name="settings_customization_haptic_info_desc">MirrlyUI tactile feedback profiles using low-frequency haptic actuators and modern Android primitives. Choose between mechanical switch click, deep sub-bass pulse, cybernetic double-tick, or silent stealth mode.</string>
 
+    <!-- App Launcher Icon Customization -->
+    <string name="settings_customization_app_icon_title">App Icon</string>
+    <string name="settings_customization_app_icon_desc">Choose a launcher icon with live mask shape and Android 13+ monochrome preview</string>
+    <string name="settings_customization_app_icon_preview_label">Home Screen Preview</string>
+    <string name="settings_customization_app_icon_mask_circle">Circle</string>
+    <string name="settings_customization_app_icon_mask_squircle">Squircle</string>
+    <string name="settings_customization_app_icon_mask_rounded">Square</string>
+    <string name="settings_customization_app_icon_mask_teardrop">Teardrop</string>
+    <string name="settings_customization_app_icon_monochrome_toggle">Monochrome · Android 13+</string>
+    <string name="settings_customization_app_icon_state_active">Active</string>
+    <string name="settings_customization_app_icon_state_selected">Selected</string>
+    <string name="settings_customization_app_icon_pending_notice">Changing the icon refreshes your launcher within 1–3 seconds and may close or minimize the app window. Active proxy and VPN keep running.</string>
+    <string name="settings_customization_app_icon_btn_apply">Apply Icon</string>
+    <string name="settings_customization_app_icon_btn_reset">Reset</string>
+    <string name="settings_customization_app_icon_sheet_title">Change App Icon</string>
+    <string name="settings_customization_app_icon_sheet_desc">Android will switch the active launcher entry point to the selected icon. Your home screen may take 1–3 seconds to refresh and close the current window.</string>
+    <string name="settings_customization_app_icon_sheet_note_bg">Background proxy and VPN services keep running without interruption.</string>
+    <string name="settings_customization_app_icon_sheet_note_shortcut">On some launchers a pinned home screen shortcut may need to be re-added from the app drawer.</string>
+    <string name="settings_customization_app_icon_sheet_btn_confirm">Install Icon</string>
+    <string name="settings_customization_app_icon_sheet_btn_cancel">Cancel</string>
+    <string name="settings_customization_app_icon_toast_applied">Icon updated · launcher will refresh shortly</string>
+    <string name="settings_customization_app_icon_toast_failed">Device firmware blocked launcher icon switching</string>
+    <string name="settings_customization_app_icon_info_title">App Icon</string>
+    <string name="settings_customization_app_icon_info_desc">HOW IT WORKS:\n• Switching the icon toggles the active Android launcher entry component without reinstalling the app.\n• Android 8.0 and newer use adaptive layers to match your launcher icon mask.\n• Android 13 and newer also support Material You themed monochrome icons.\n\nANDROID BEHAVIOR:\n• After confirmation the system launcher may close or minimize the app window for 1–3 seconds while refreshing the home screen.\n• Background proxy and VPN tunnels remain active.</string>
+    <string name="app_icon_default_title">Current</string>
+    <string name="app_icon_default_sub">Default</string>
+    <string name="app_icon_legacy_title">Legacy</string>
+    <string name="app_icon_legacy_sub">3D Glass</string>
+    <string name="app_icon_outline_title">Outline</string>
+    <string name="app_icon_outline_sub">MirrlyUI</string>
+    <string name="app_icon_stealth_title">Monochrome</string>
+    <string name="app_icon_stealth_sub">Black &amp; White</string>
+    <string name="app_icon_ruby_title">Cyber Ruby</string>
+    <string name="app_icon_ruby_sub">Neon · Ruby</string>
+    <string name="app_icon_cobalt_title">Cobalt Blue</string>
+    <string name="app_icon_cobalt_sub">Neon · Cobalt</string>
+    <string name="app_icon_amber_title">Electric Amber</string>
+    <string name="app_icon_amber_sub">Neon · Amber</string>
+    <string name="app_icon_violet_title">Violet Surge</string>
+    <string name="app_icon_violet_sub">Neon · SOCKS5</string>
+
     <!-- Snake Game Strings -->
     <string name="snake_title">Snake</string>
     <string name="snake_mode_manual">MANUAL</string>
@@ -3051,4 +3164,44 @@ Download latest Mirrly TG Proxy build:
     <string name="vpn_server_tel_germany">TEL Germany</string>
     <string name="vpn_server_tel_poland">TEL Poland</string>
     <string name="vpn_server_tel_finland">TEL Finland</string>
+
+    <!-- Port Conflict Detection & Diagnostics -->
+    <string name="port_conflict_notif_title">Proxy port conflict</string>
+    <string name="port_conflict_notif_body_with_apps">Ports %1$s are in use. Disable proxy in %2$s or change the port in Mirrly.</string>
+    <string name="port_conflict_notif_body_generic">Ports %1$s are already used by another app. Tap to inspect.</string>
+    <string name="port_conflict_preflight_status">Port %1$d is in use by another app</string>
+    <string name="port_conflict_start_failed_generic">Failed to start local proxy</string>
+    <string name="port_conflict_system_owner">Android system service</string>
+    <string name="port_conflict_title_runtime">Port conflict on start</string>
+    <string name="port_conflict_title_startup">Busy proxy ports detected</string>
+    <string name="port_conflict_title_resolved">Ports are free</string>
+    <string name="port_conflict_subtitle_runtime">Proxy could not start because the configured port is already bound</string>
+    <string name="port_conflict_subtitle_startup">Configured Mirrly local ports are already occupied on this device</string>
+    <string name="port_conflict_subtitle_resolved">Conflict cleared · Ready to start proxy</string>
+    <string name="port_conflict_section_ports">OCCUPIED PORTS</string>
+    <string name="port_conflict_port_line">%1$s · Port %2$d</string>
+    <string name="port_conflict_owner_exact">Used by · %1$s</string>
+    <string name="port_conflict_listener_proto_socks5">External SOCKS5 listener detected</string>
+    <string name="port_conflict_listener_proto_http">External HTTP proxy detected</string>
+    <string name="port_conflict_listener_proto_tcp">Active local listener on %1$s</string>
+    <string name="port_conflict_listener_proto_unknown">Address already in use on %1$s</string>
+    <string name="port_conflict_section_apps">CONFLICTING APPS</string>
+    <string name="port_conflict_ask_disable_exact">Disable proxy in the detected app and return to Mirrly.</string>
+    <string name="port_conflict_ask_disable_candidates">Disable proxy or tunnel in the detected apps below, then return to Mirrly.</string>
+    <string name="port_conflict_no_apps_found">Android restricts viewing socket owners without root. Disable any external proxy or VPN app, or pick free ports below.</string>
+    <string name="port_conflict_active_vpn_note">An active system VPN is running on the device</string>
+    <string name="port_conflict_reason_exact">Confirmed socket owner</string>
+    <string name="port_conflict_reason_port_match">Port match · %1$s</string>
+    <string name="port_conflict_reason_installed">Installed proxy or VPN app</string>
+    <string name="port_conflict_btn_open_app">Open</string>
+    <string name="port_conflict_btn_app_settings">App info</string>
+    <string name="port_conflict_show_more_apps">Show more · %1$d</string>
+    <string name="port_conflict_show_less_apps">Show fewer</string>
+    <string name="port_conflict_btn_recheck">Check again</string>
+    <string name="port_conflict_btn_checking">Checking ports...</string>
+    <string name="port_conflict_btn_auto_ports">Switch to free ports</string>
+    <string name="port_conflict_btn_start_proxy">Start proxy</string>
+    <string name="port_conflict_resolved_ports_summary">Ports ready: MTProto %1$d · SOCKS5 %2$d</string>
+    <string name="port_conflict_toast_ports_updated">Ports updated: %1$s</string>
+    <string name="port_conflict_toast_no_free_port">Could not find a free port automatically</string>
 </resources>

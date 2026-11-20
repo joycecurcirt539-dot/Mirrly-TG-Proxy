@@ -561,4 +561,29 @@ class ProxyConfigTest {
         assertTrue(tlsOnConfig.isTlsEnabled)
         assertEquals("worker.example.dev", tlsOnConfig.getEffectiveCfDomain())
     }
+
+    @Test
+    fun testIsSocks5WorkerMissingRespectsFlowsealAndWorkers() {
+        val flowsealConfig = ProxyConfig(
+            proxyModeName = ProxyMode.SOCKS5.name,
+            socks5UplinkMode = ProxyConfig.SOCKS5_UPLINK_FLOWSEAL,
+            customCfDomain = ""
+        )
+        assertFalse(flowsealConfig.isSocks5WorkerMissing())
+
+        val workerMissingConfig = ProxyConfig(
+            proxyModeName = ProxyMode.SOCKS5.name,
+            socks5UplinkMode = ProxyConfig.SOCKS5_UPLINK_WORKER,
+            customCfDomain = ""
+        )
+        assertTrue(workerMissingConfig.isSocks5WorkerMissing())
+        assertFalse(workerMissingConfig.isSocks5WorkerMissing("fallback.example.workers.dev"))
+
+        val mtprotoConfig = ProxyConfig(
+            proxyModeName = ProxyMode.MTPROTO.name,
+            socks5UplinkMode = ProxyConfig.SOCKS5_UPLINK_WORKER,
+            customCfDomain = ""
+        )
+        assertFalse(mtprotoConfig.isSocks5WorkerMissing())
+    }
 }

@@ -138,7 +138,7 @@ object ProtocolSwitchManager {
                     delay(1000)
 
                     // PHASE 3: RECONNECTING / POWER UP ON NEW PROTOCOL
-                    if (newTarget == com.mirrly.tgproxy.core.ProxyMode.SOCKS5 && app.config.getEffectiveCfDomain().isBlank()) {
+                    if (newTarget == com.mirrly.tgproxy.core.ProxyMode.SOCKS5 && app.config.isSocks5WorkerMissing()) {
                         AppLogger.w(TAG, "Cannot start SOCKS5 after protocol switch: no user worker configured")
                         withContext(Dispatchers.Main) {
                             android.widget.Toast.makeText(context, context.getString(R.string.socks5_no_worker_error), android.widget.Toast.LENGTH_LONG).show()
@@ -160,9 +160,14 @@ object ProtocolSwitchManager {
                             AppLogger.e(TAG, "Failed to start proxy service: ${e.message}")
                         }
 
-                        // Wait until server is verified running
+                        // Wait until server is verified running or fails startup
                         val waitStart = System.currentTimeMillis()
                         while (!server.isRunning && (System.currentTimeMillis() - waitStart < 2500L)) {
+                            if (PreflightDiagnosticsEngine.preflightStage.value == PreflightStage.FAILED ||
+                                PortConflictMonitor.conflictReport.value != null
+                            ) {
+                                break
+                            }
                             delay(40)
                         }
                     }

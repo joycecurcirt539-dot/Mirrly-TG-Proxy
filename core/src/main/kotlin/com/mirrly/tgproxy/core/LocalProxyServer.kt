@@ -34,6 +34,23 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+enum class StartFailureKind {
+    NONE,
+    ADDR_IN_USE,
+    PERMISSION_DENIED,
+    OTHER
+}
+
+data class ProxyStartFailure(
+    val kind: StartFailureKind,
+    val mode: ProxyMode,
+    val host: String,
+    val port: Int,
+    val nativeCode: Int,
+    val detail: String,
+    val timestampMs: Long = System.currentTimeMillis()
+)
+
 class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     private val serverLock = Mutex()
     private var speedJob: Job? = null
@@ -54,6 +71,13 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     private val _adaptiveNetworkDecision = MutableStateFlow(adaptiveController.currentDecision)
     val adaptiveNetworkDecision: StateFlow<NetworkEvaluationDecision> = _adaptiveNetworkDecision.asStateFlow()
+
+    private val _lastStartFailure = MutableStateFlow<ProxyStartFailure?>(null)
+    val lastStartFailure: StateFlow<ProxyStartFailure?> = _lastStartFailure.asStateFlow()
+
+    fun clearStartFailure() {
+        _lastStartFailure.value = null
+    }
 
     fun setNagleMode(mode: NagleMode) {
         config.nagleMode = mode
@@ -264,7 +288,87 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         startForVpn(baseConfig, cacheDir)
     }
 
+    private fun classifyStartFailure(
+        code: Int,
+        mode: ProxyMode,
+        host: String,
+        port: Int
+    ): ProxyStartFailure {
+        val kind = when (code) {
+            NativeProxy.START_ERR_ADDR_IN_USE -> StartFailureKind.ADDR_IN_USE
+            NativeProxy.START_ERR_PERMISSION_DENIED -> StartFailureKind.PERMISSION_DENIED
+            else -> StartFailureKind.OTHER
+        }
+        val detail = NativeProxy.getLastStartError()
+            ?: "Native start failed with code $code on $host:$port"
+        return ProxyStartFailure(
+            kind = kind,
+            mode = mode,
+            host = host,
+            port = port,
+            nativeCode = code,
+            detail = detail
+        )
+    }
+
+    private fun isLoopbackListenerPresent(host: String, port: Int, timeoutMs: Int = 120): Boolean {
+        val connectHost = when (host.trim()) {
+            "", "0.0.0.0" -> "127.0.0.1"
+            "::" -> "::1"
+            else -> host.trim()
+        }
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(connectHost, port), timeoutMs)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private suspend fun startNativeWithRetry(
+        label: String,
+        host: String,
+        port: Int,
+        starter: () -> Int
+    ): Int {
+        var code = -1
+        val maxAttempts = 4
+        for (attempt in 1..maxAttempts) {
+            code = starter()
+            if (code == 0) return 0
+
+            if (code == NativeProxy.START_ERR_PERMISSION_DENIED || code == NativeProxy.START_ERR_OTHER) {
+                AppLogger.e("LocalProxyServer", "$label запуск на $host:$port отклонен (код $code)")
+                return code
+            }
+
+            if (code == NativeProxy.START_ERR_ADDR_IN_USE) {
+                if (isLoopbackListenerPresent(host, port)) {
+                    AppLogger.e("LocalProxyServer", "Порт $port уже занят другим активным слушателем (код $code)")
+                    return code
+                }
+                if (attempt >= 2) {
+                    AppLogger.e("LocalProxyServer", "Порт $port занят после повторной проверки (код $code)")
+                    return code
+                }
+                AppLogger.w("LocalProxyServer", "Порт $port занят при старте $label (попытка $attempt/2), ожидание...")
+                delay(80L)
+                continue
+            }
+
+            AppLogger.w("LocalProxyServer", "Порт $port освобождается (код $code, попытка $attempt/$maxAttempts), ожидание...")
+            if (code == -1) {
+                NativeProxy.stopProxy()
+            }
+            delay(attempt * 80L)
+        }
+        return code
+    }
+
     private suspend fun performStart(cacheDir: File?): Boolean {
+        _lastStartFailure.value = null
         stats.resetBaseline()
 
         // Engineering settings are part of the connection contract: commit them
@@ -332,28 +436,22 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             NativeProxy.setUplinkMode(UplinkMode.WORKER)
         }
 
-        var code: Int
-
         if (config.isSocks5Mode) {
             val workerDomain = config.getEffectiveCfDomain()
             val uplinkTag = if (config.socks5UplinkMode == 1) "Flowseal Anycast" else "Worker (${workerDomain.ifBlank { "default" }})"
             AppLogger.i("LocalProxyServer", "Запуск нативного SOCKS5 движка на порту ${config.socks5Port} (uplink=$uplinkTag, auth=${config.hasSocks5Auth}, optimistic=${config.socks5OptimisticResponse})...")
             NativeProxy.setSocks5Optimistic(config.socks5OptimisticResponse)
             NativeProxy.setSocks5UplinkMode(config.socks5UplinkMode)
-            var code = -1
-            val maxAttempts = 4
-            for (attempt in 1..maxAttempts) {
-                code = NativeProxy.startSocks5Proxy(
+            val code = startNativeWithRetry(
+                label = "SOCKS5",
+                host = config.bindHost,
+                port = config.socks5Port
+            ) {
+                NativeProxy.startSocks5Proxy(
                     host = config.bindHost,
                     port = config.socks5Port,
                     verbose = if (config.verboseLogs) 1 else 0
                 )
-                if (code == 0) break
-                AppLogger.w("LocalProxyServer", "Порт ${config.socks5Port} освобождается (код $code, попытка $attempt/$maxAttempts), ожидание...")
-                if (code == -1) {
-                    NativeProxy.stopProxy()
-                }
-                delay(attempt * 80L)
             }
 
             if (code == 0) {
@@ -367,7 +465,9 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 stats.activeEffectiveRoute = if (isSocks5Cdn) "Anycast CDN Flowseal" else workerDomain
                 AppLogger.i("LocalProxyServer", "Нативный SOCKS5 движок успешно запущен на ${config.bindHost}:${config.socks5Port}")
             } else {
-                AppLogger.e("LocalProxyServer", "Ошибка запуска нативного SOCKS5 движка после $maxAttempts попыток: код $code")
+                val failure = classifyStartFailure(code, ProxyMode.SOCKS5, config.bindHost, config.socks5Port)
+                _lastStartFailure.value = failure
+                AppLogger.e("LocalProxyServer", "Ошибка запуска нативного SOCKS5 движка: код $code (${failure.detail})")
                 isNativeRunning = false
                 isRunning = false
                 return false
@@ -376,22 +476,18 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             AppLogger.i("LocalProxyServer", "Запуск нативного MTProto движка на ${config.bindHost}:${config.bindPort}...")
             val secret = config.rawSecret32
             val defaultDcIps = "1:149.154.175.50,2:149.154.167.51,3:149.154.175.100,4:149.154.167.91,5:91.108.56.130,203:91.105.192.100"
-            var code = -1
-            val maxAttempts = 4
-            for (attempt in 1..maxAttempts) {
-                code = NativeProxy.startProxy(
+            val code = startNativeWithRetry(
+                label = "MTProto",
+                host = config.bindHost,
+                port = config.bindPort
+            ) {
+                NativeProxy.startProxy(
                     host = config.bindHost,
                     port = config.bindPort,
                     dcIps = defaultDcIps,
                     secret = secret,
                     verbose = if (config.verboseLogs) 1 else 0
                 )
-                if (code == 0) break
-                AppLogger.w("LocalProxyServer", "Порт ${config.bindPort} освобождается (код $code, попытка $attempt/$maxAttempts), ожидание...")
-                if (code == -1) {
-                    NativeProxy.stopProxy()
-                }
-                delay(attempt * 80L)
             }
 
             if (code == 0) {
@@ -402,9 +498,11 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 }
                 AppLogger.i("LocalProxyServer", "Нативный MTProto движок успешно запущен на ${config.bindHost}:${config.bindPort}")
             } else {
+                val failure = classifyStartFailure(code, ProxyMode.MTPROTO, config.bindHost, config.bindPort)
+                _lastStartFailure.value = failure
                 isNativeRunning = false
                 isRunning = false
-                AppLogger.e("LocalProxyServer", "Не удалось запустить нативный MTProto движок (код: $code)")
+                AppLogger.e("LocalProxyServer", "Не удалось запустить нативный MTProto движок (код: $code, ${failure.detail})")
                 return false
             }
         }

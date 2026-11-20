@@ -20,9 +20,11 @@ import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.ConnectionQuality
+import com.mirrly.tgproxy.core.LocalProxyServer
 import com.mirrly.tgproxy.core.ProxyDisplayLabels
 import com.mirrly.tgproxy.core.ProxyNotificationPolicy
 import com.mirrly.tgproxy.core.SpeedPreset
+import com.mirrly.tgproxy.core.StartFailureKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -239,11 +241,15 @@ class ProxyForegroundService : Service() {
                         delay(350)
                         val started = server.start(cacheDir)
                         if (started) {
+                            NotificationHelper.cancelPortConflictNotification(this@ProxyForegroundService)
+                            PortConflictMonitor.dismiss()
                             withContext(Dispatchers.Main) {
                                 ProxyTileService.requestSync(this@ProxyForegroundService)
                                 startNotificationUpdates()
                                 startWakeLockRefresh()
                             }
+                        } else {
+                            handleProxyStartFailure(app, server)
                         }
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Error while restarting proxy: ${e.message}")
@@ -343,9 +349,15 @@ class ProxyForegroundService : Service() {
                 }
                 AppLogger.d(TAG, "Smart Connect pre-flight completed: ${preflightResult?.selectedRouteSummary}")
 
-                // 2. Гарантия запуска локального сервера
-                val started = if (serverStarted || server.isRunning) true else server.start(cacheDir)
+                // 2. Гарантия запуска локального сервера (без повторного старта при уже зафиксированной ошибке)
+                val started = when {
+                    serverStarted || server.isRunning -> true
+                    server.lastStartFailure.value != null -> false
+                    else -> server.start(cacheDir)
+                }
                 if (started) {
+                    NotificationHelper.cancelPortConflictNotification(this@ProxyForegroundService)
+                    PortConflictMonitor.dismiss()
                     SessionHistoryManager.onSessionStarted(
                         presetName = getPresetShortName(app.config.speedPreset),
                         proxyMode = app.config.proxyMode.name
@@ -358,17 +370,19 @@ class ProxyForegroundService : Service() {
                         AppLogger.i(TAG, "Auto-stop on launch enabled: starting timer for $autoStopMin min")
                         SleepTimerManager.startTimer(this@ProxyForegroundService, autoStopMin)
                     }
-                }
 
-                kotlinx.coroutines.withContext(Dispatchers.Main) {
-                    ProxyTileService.requestSync(this@ProxyForegroundService)
-                    startNotificationUpdates()
-                    startWakeLockRefresh()
-                    startLivenessWatchdog()
-                    startTrafficPulse()
-                    WorkerFailoverManager.startRecoveryWatchdogIfNeeded()
-                    updateNotificationImmediately()
-                    ProxyResurrectionManager.startWatchdog(this@ProxyForegroundService)
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        ProxyTileService.requestSync(this@ProxyForegroundService)
+                        startNotificationUpdates()
+                        startWakeLockRefresh()
+                        startLivenessWatchdog()
+                        startTrafficPulse()
+                        WorkerFailoverManager.startRecoveryWatchdogIfNeeded()
+                        updateNotificationImmediately()
+                        ProxyResurrectionManager.startWatchdog(this@ProxyForegroundService)
+                    }
+                } else {
+                    handleProxyStartFailure(app, server)
                 }
             }
         } else {
@@ -381,6 +395,44 @@ class ProxyForegroundService : Service() {
             ProxyResurrectionManager.startWatchdog(this)
         }
         return START_REDELIVER_INTENT
+    }
+
+    private suspend fun handleProxyStartFailure(app: MirrlyApplication, server: LocalProxyServer) {
+        val failure = server.lastStartFailure.value
+        app.prefsManager.setProxyActive(false)
+        ProxyResurrectionManager.cancel(this)
+
+        if (failure?.kind == StartFailureKind.ADDR_IN_USE) {
+            val report = PortConflictMonitor.reportRuntimeConflict(
+                context = applicationContext,
+                failedMode = failure.mode,
+                failedHost = failure.host,
+                failedPort = failure.port,
+                nativeDetail = failure.detail
+            )
+            if (!PortConflictMonitor.isAppInForeground()) {
+                NotificationHelper.showPortConflictNotification(applicationContext, report)
+            }
+        } else {
+            val detail = failure?.detail?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.port_conflict_start_failed_generic)
+            showToastOnMainThread(detail)
+        }
+
+        withContext(Dispatchers.Main) {
+            releaseWakeLock()
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+            } catch (_: Exception) {}
+            NotificationHelper.cancelProxyNotifications(this@ProxyForegroundService)
+            ProxyTileService.requestSync(this@ProxyForegroundService)
+            stopSelf()
+        }
     }
 
     private fun cycleSpeedPreset() {

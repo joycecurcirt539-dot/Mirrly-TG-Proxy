@@ -19,7 +19,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v2.1.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Version](https://img.shields.io/badge/Релиз-v2.1.3-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Language](https://img.shields.io/badge/Язык-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-интерфейс-приложения)
 [![Genesis](https://img.shields.io/badge/Генезис-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
@@ -512,6 +512,7 @@ chmod +x tools/build/build_native.sh
 | **`v2.0.0.3`** | Редизайн и стабильность | Минималистичный AMOLED-редизайн экранов истории сессий и системных логов, прозрачный стиль элементов во вкладке «Поделиться», устранение зависания первого запуска и выбора языка на Samsung One UI и Huawei EMUI/HarmonyOS, удаление ложных DNS-логов Cloudflare и быстрое освобождение портов SOCKS5 (`SO_REUSEPORT`). |
 | **`v2.1.0`** | Генератор WARP, ИИ-чат и обои | Предупреждающая плашка о переработке системного VPN, встроенный генератор профилей WireGuard и AmneziaWG с шифрованием Keystore, локальный ИИ-чат диагностики сети, поддержка пользовательских фото- и видео-обоев под контурами MirrlyUI, удаление неиспользуемых нативных библиотек (снижение размера APK на 21 МБ) и расширение Зала Славы до 79 участников. |
 | **`v2.1.2`** | Ремонт прокси и AmneziaWG | Экстренное восстановление прокси (отключение проблемного внешнего TLS по умолчанию, снятие MSS-клемпинга на loopback, прогрев пула Anycast CDN), 14 встроенных серверов AmneziaWG, настройки выживания службы в фоне, векторные иконки `MirrlyIcon` и аркада Cyber Snake. |
+| **`v2.1.3`** | Персонализация и диагностика | Выбор иконки приложения (8 пресетов и Android 13+ monochrome), детектор конфликта портов с определением приложения, чёрный AMOLED-фон по умолчанию с миграцией обоев, обновлённый онбординг защиты фона, глобальное отключение вибрации и надёжный запуск `SOCKS5` с быстрой плитки. |
 
 ---
 

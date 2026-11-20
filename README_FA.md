@@ -19,7 +19,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Release](https://img.shields.io/badge/نسخه-v2.1.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Release](https://img.shields.io/badge/نسخه-v2.1.3-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Language](https://img.shields.io/badge/زبان-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-رابط-کاربری-برنامه)
 [![Genesis](https://img.shields.io/badge/آغاز-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
@@ -478,6 +478,7 @@ chmod +x tools/build/build_native.sh
 | **`v2.0.0.3`** | بازطراحی و پایداری | بازطراحی مینیمال AMOLED برای بخش‌های تاریخچه و لاگ‌ها، حالت شفاف المان‌های اشتراک‌گذاری ورکر، رفع مشکل توقف و فریز در اولین اجرا و انتخاب زبان در سامسونگ و هواوی، حذف لاگ‌های مکرر DNS و آزادسازی فوری پورت SOCKS5 (`SO_REUSEPORT`). |
 | **`v2.1.0`** | تولیدکننده WARP، چت هوش مصنوعی و والپیپر | بنر هشدار بازطراحی سرویس VPN، تولیدکننده داخلی پروفایل‌های WireGuard و AmneziaWG با رمزنگاری Keystore، چت هوش مصنوعی محلی برای عیب‌یابی شبکه، پشتیبانی از والپیپرهای اختصاصی عکس و ویدیو زیر خطوط MirrlyUI، حذف کتابخانه‌های بومی بی‌استفاده (کاهش ۲۱ مگابایتی حجم APK) و گسترش تالار مشاهیر به ۷۹ مشارکت‌کننده. |
 | **`v2.1.2`** | ترمیم پروکسی و AmneziaWG | بازیابی اضطراری اتصالات پروکسی (غیرفعال‌سازی پیش‌فرض TLS خارجی، حذف محدودیت MSS روی loopback، پیش‌گرمایش استخر Anycast CDN)، ۱۴ سرور داخلی AmneziaWG، کنترل‌های بقا در پس‌زمینه، آیکون‌های برداری `MirrlyIcon` و بازی آرکید Cyber Snake. |
+| **`v2.1.3`** | شخصی‌سازی و عیب‌یابی | انتخابگر آیکون برنامه (۸ طرح و حالت تک‌رنگ اندروید ۱۳+)، تشخیص تداخل پورت با شناسایی برنامه، پس‌زمینه مشکی AMOLED پیش‌فرض با انتقال والپیپرها، راهنمای ارتقایافته بقای پس‌زمینه، کلید سراسری قطع لرزش و اجرای پایدار `SOCKS5` از کاشی سریع. |
 
 ---
 

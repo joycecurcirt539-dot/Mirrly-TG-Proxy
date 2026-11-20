@@ -50,6 +50,7 @@ class MirrlyApplication : Application() {
         com.mirrly.tgproxy.service.crash.CrashReportManager.init(this)
         prefsManager = PreferencesManager(this)
         prefsManager.syncLogSettingsToAppLogger()
+        com.mirrly.tgproxy.service.AppIconManager.syncOnStartup(this, prefsManager)
         warpProfileManager = com.mirrly.tgproxy.service.WarpProfileManager.getInstance(this)
         com.mirrly.tgproxy.util.LocaleHelper.applyLocale(this, prefsManager.getAppLanguage())
         com.mirrly.tgproxy.service.SessionHistoryManager.init(this)
@@ -76,7 +77,8 @@ class MirrlyApplication : Application() {
             val snapshot = proxyServer.pingEngine.currentSnapshot
             val generation = proxyServer.currentProfileGeneration.get()
             val observedAtMs = System.nanoTime() / 1_000_000L
-            val isWorkerActive = proxyServer.config.isSocks5Mode ||
+            val isWorkerActive = (proxyServer.config.isSocks5Mode &&
+                proxyServer.config.socks5UplinkMode == com.mirrly.tgproxy.core.ProxyConfig.SOCKS5_UPLINK_WORKER) ||
                 (proxyServer.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO && proxyServer.config.useWorkerMtproto)
             if (isWorkerActive) {
                 applicationScope.launch {

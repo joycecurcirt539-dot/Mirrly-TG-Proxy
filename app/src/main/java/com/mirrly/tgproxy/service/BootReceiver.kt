@@ -34,7 +34,7 @@ class BootReceiver : BroadcastReceiver() {
                     MirrlyVpnService.start(context)
                 } else if (prefsManager.isVpnModeEnabled() && MirrlyVpnService.prepare(context) != null) {
                     AppLogger.w("BootReceiver", "Автозапуск VPN при загрузке пропущен: требуется подтверждение разрешений системы")
-                } else if (config.isSocks5Mode && config.getEffectiveCfDomain().isBlank()) {
+                } else if (config.isSocks5WorkerMissing(prefsManager.getActiveWorker(com.mirrly.tgproxy.core.ProxyMode.SOCKS5).domain)) {
                     AppLogger.w("BootReceiver", "Автозапуск при загрузке пропущен: в режиме SOCKS5 отсутствует персональный воркер")
                 } else {
                     AppLogger.i("BootReceiver", "Автозапуск при загрузке: запуск службы прокси...")

@@ -1015,3 +1015,59 @@ fun MirrlyVideoIcon(
     strokeWidth: Dp = 1.5.dp
 ) = MirrlyIconVideo(modifier = modifier, color = tint, strokeWidth = strokeWidth)
 
+// -------------------------------------------------------------------------------------------------
+// 10. ic_app_icon_picker
+// Контурный фрейм иконки приложения со стилизованным дельта-самолётиком внутри
+// -------------------------------------------------------------------------------------------------
+
+@Composable
+fun MirrlyIconAppIconPicker(
+    modifier: Modifier = Modifier.size(24.dp),
+    color: Color = LocalProtocolColors.current.primary,
+    strokeWidth: Dp = 1.5.dp
+) {
+    val density = LocalDensity.current
+    val strokeWidthPx = remember(density, strokeWidth) { with(density) { strokeWidth.toPx() } }
+    val stroke = remember(strokeWidthPx) {
+        Stroke(width = strokeWidthPx, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    }
+    val path = remember { Path() }
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        if (w <= 0f || h <= 0f) return@Canvas
+        val sx = w / 24f
+        val sy = h / 24f
+
+        path.reset()
+        path.addRoundRect(
+            androidx.compose.ui.geometry.RoundRect(
+                left = 3.5f * sx,
+                top = 3.5f * sy,
+                right = 20.5f * sx,
+                bottom = 20.5f * sy,
+                radiusX = 4.5f * sx,
+                radiusY = 4.5f * sy
+            )
+        )
+        // Оптически сбалансированный дельта-самолётик (смещение +0.4 к острию)
+        path.moveTo(16.6f * sx, 8.2f * sy)
+        path.lineTo(7.8f * sx, 11.7f * sy)
+        path.lineTo(11.3f * sx, 13.1f * sy)
+        path.lineTo(12.7f * sx, 16.4f * sy)
+        path.close()
+        path.moveTo(11.3f * sx, 13.1f * sy)
+        path.lineTo(16.6f * sx, 8.2f * sy)
+
+        drawPath(path = path, color = color, style = stroke)
+    }
+}
+
+@Composable
+fun MirrlyAppIconPickerIcon(
+    modifier: Modifier = Modifier.size(24.dp),
+    tint: Color = LocalProtocolColors.current.primary,
+    strokeWidth: Dp = 1.5.dp
+) = MirrlyIconAppIconPicker(modifier = modifier, color = tint, strokeWidth = strokeWidth)
+

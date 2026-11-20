@@ -97,6 +97,7 @@ fun MirrlyIcon(
         R.drawable.ic_stat_timer -> MirrlyStatTimerIcon(modifier = modifier, tint = tint)
         R.drawable.ic_stat_update -> MirrlyStatUpdateIcon(modifier = modifier, tint = tint)
         R.drawable.ic_notif_stop -> MirrlyNotifStopIcon(modifier = modifier, tint = tint)
+        R.drawable.ic_port_conflict -> MirrlyPortConflictIcon(modifier = modifier, tint = tint)
 
         // --- Раздел 6. Мультимедиа и аркада ---
         R.drawable.ic_wallpaper -> MirrlyIconWallpaper(modifier = modifier, color = tint)
@@ -108,6 +109,7 @@ fun MirrlyIcon(
         R.drawable.ic_gamepad -> MirrlyIconGamepad(modifier = modifier, color = tint)
         R.drawable.ic_crown -> MirrlyIconCrown(modifier = modifier, color = tint)
         R.drawable.ic_video -> MirrlyVideoIcon(modifier = modifier, tint = tint)
+        R.drawable.ic_app_icon_picker -> MirrlyAppIconPickerIcon(modifier = modifier, tint = tint)
 
         // --- Раздел 7. ИИ и документация ---
         R.drawable.ic_ai_chat -> MirrlyAiChatIcon(modifier = modifier, tint = tint)

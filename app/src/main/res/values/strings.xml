@@ -28,7 +28,19 @@
     <string name="onboarding_wallpaper_grass_desc">Фото-обои · Мягкий фокус</string>
     <string name="onboarding_wallpaper_breeze_desc">Фото-обои · Бирюзовая глубина</string>
     <string name="onboarding_wallpaper_amoled_title">Чистый AMOLED</string>
-    <string name="onboarding_wallpaper_amoled_desc">Глубокий черный фон · Энергосбережение</string>
+    <string name="onboarding_wallpaper_amoled_desc">Глубокий черный фон · По умолчанию</string>
+
+    <string name="onboarding_step_custom_title">КАСТОМИЗАЦИЯ ПРИЛОЖЕНИЯ</string>
+    <string name="onboarding_step_custom_desc">Внешний вид, цвета, кнопка запуска и эффекты настраиваются гибко. Все параметры находятся в Настройках во вкладке «Прочее» или «Все», раздел «Кастомизация».</string>
+    <string name="onboarding_custom_path_badge">Путь · Настройки → Прочее → Кастомизация</string>
+    <string name="onboarding_custom_wallpaper_title">Обои, видео и шейдеры</string>
+    <string name="onboarding_custom_wallpaper_desc">По умолчанию включен черный фон AMOLED. Можно выбрать встроенные фоны, загрузить свое фото или видео из галереи, включить процедурные AGSL-шейдеры, настроить размытие, затемнение и сохранить пресеты.</string>
+    <string name="onboarding_custom_theme_title">Цветовой профиль и тема</string>
+    <string name="onboarding_custom_theme_desc">Светящийся акцент по протоколу, строгий монохромный режим Stealth, готовые неоновые палитры, системная палитра Material You Monet или любой оттенок по HEX-коду с настройкой яркости, насыщенности и прозрачности.</string>
+    <string name="onboarding_custom_button_title">Центральная кнопка и свой SVG</string>
+    <string name="onboarding_custom_button_desc">Независимый выбор иконок запуска для MTProto, SOCKS5 и VPN из каталога пресетов или через вставку своего векторного кода SVG, плюс настройка масштаба, толщины контура и свечения.</string>
+    <string name="onboarding_custom_fx_title">Частицы, геометрия и отклик</string>
+    <string name="onboarding_custom_fx_desc">Стиль, плотность и скорость фоновых частиц с гироскопическим параллаксом, масштаб интерфейса и текста, форма углов карточек, орбитальные кольца, жидкое стекло, жесты свайпов и профили вибрации.</string>
 
     <string name="onboarding_step_about_title">О ПРОЕКТЕ MIRRLY TG PROXY</string>
     <string name="onboarding_step_about_desc">Локальный прокси-клиент для обхода блокировок и туннелирования трафика Telegram.</string>
@@ -45,6 +57,39 @@
     <string name="onboarding_guide_2_desc">Центральная кнопка питания на главном экране запускает локальный прокси.</string>
     <string name="onboarding_guide_3_title">Подключение Telegram</string>
     <string name="onboarding_guide_3_desc">Кнопка «Подключить Telegram» передает параметры прокси в клиент.</string>
+
+    <string name="onboarding_step_background_title">РАБОТА В ФОНЕ И БАТАРЕЯ</string>
+    <string name="onboarding_step_background_desc">Без этих разрешений система и оболочка останавливают прокси и VPN через несколько минут после блокировки экрана.</string>
+    <string name="onboarding_bg_battery_title">Игнорировать оптимизацию батареи</string>
+    <string name="onboarding_bg_battery_desc">Разрешите приложению продолжать работу в фоновом режиме без ограничений Doze Mode. В системном окне нажмите «Разрешить» или «Пропустить».</string>
+    <string name="onboarding_bg_battery_btn">Отключить оптимизацию</string>
+    <string name="onboarding_bg_battery_done">Оптимизация батареи отключена</string>
+    <string name="onboarding_bg_oem_title">Автозапуск и работа в фоне</string>
+    <string name="onboarding_bg_oem_btn">Открыть настройки запуска</string>
+    <string name="onboarding_bg_oem_btn_reopen">Открыть еще раз</string>
+    <string name="onboarding_bg_oem_steps_honor">1. Нажмите «Открыть настройки запуска» ниже.\n2. Найдите Mirrly TG Proxy в списке и переведите управление в ручной режим.\n3. Включите все три тумблера: Автозапуск, Косвенный запуск и Работа в фоновом режиме, затем нажмите ОК.</string>
+    <string name="onboarding_bg_oem_steps_xiaomi">1. Нажмите «Открыть настройки запуска» ниже.\n2. Включите Автозапуск для Mirrly TG Proxy.\n3. В разделе «Контроль активности» выберите «Нет ограничений».</string>
+    <string name="onboarding_bg_oem_steps_oppo">1. Нажмите «Открыть настройки запуска» ниже.\n2. Разрешите Автозапуск и работу в фоновом режиме без ограничений.</string>
+    <string name="onboarding_bg_oem_steps_vivo">1. Нажмите «Открыть настройки запуска» ниже.\n2. Разрешите фоновый запуск и работу с высоким энергопотреблением в фоне.</string>
+    <string name="onboarding_bg_oem_steps_generic">Отдельное меню автозапуска для вашей оболочки не требуется. При необходимости выберите режим «Без ограничений» в настройках батареи приложения.</string>
+    <string name="onboarding_bg_oem_confirm_title">Ручной режим и фоновая работа включены</string>
+    <string name="onboarding_bg_oem_confirm_hint">Сначала откройте настройки запуска и включите нужные тумблеры</string>
+    <string name="onboarding_bg_status_required">Обязательно</string>
+    <string name="onboarding_bg_status_active">Активно</string>
+    <string name="onboarding_bg_status_confirmed">Подтверждено</string>
+    <string name="onboarding_bg_status_optional">Необязательно</string>
+    <string name="onboarding_bg_toggles_title">Защита от засыпания в прошивке</string>
+    <string name="onboarding_bg_toggles_summary">%1$d из %2$d активно · выберите нужные механизмы</string>
+    <string name="onboarding_bg_recommended_badge">Рекомендуется для вашей оболочки</string>
+    <string name="onboarding_bg_cpu_antifreeze_desc">Удерживает легкую блокировку сна, чтобы оболочка не замораживала сокеты при выключенном экране.</string>
+    <string name="onboarding_bg_watchdog_desc">Перезапускает службу системным будильником при выгрузке из памяти. В строке состояния виден значок будильника.</string>
+    <string name="onboarding_bg_traffic_pulse_desc">Отправляет легкий сигнал раз в 75 секунд при простое, чтобы оператор и система не закрывали сокет.</string>
+    <string name="onboarding_bg_warn_battery">Отключите оптимизацию батареи для приложения, чтобы продолжить.</string>
+    <string name="onboarding_bg_warn_oem_open">Откройте настройки запуска приложений, включите ручной режим и подтвердите настройку.</string>
+    <string name="onboarding_bg_warn_oem_confirm">Подтвердите, что включили автозапуск и работу в фоне в настройках устройства.</string>
+    <string name="onboarding_bg_warn_both">Активируйте исключение батареи и настройте работу в фоне перед выходом из руководства.</string>
+    <string name="onboarding_bg_warn_open_failed">Системное окно не открылось. Проверьте настройки батареи и запуска вручную и подтвердите ниже.</string>
+    <string name="onboarding_bg_btn_locked">Требуется настройка</string>
 
     <string name="onboarding_btn_skip">Пропустить</string>
     <string name="onboarding_btn_next">Далее</string>
@@ -343,6 +388,9 @@
     <string name="settings_doze_btn_configure">Настроить</string>
     <string name="settings_power_saver_title">Режим энергосбережения</string>
     <string name="settings_power_saver_desc">Отключение фоновых анимаций и частиц для экономии заряда батареи</string>
+    <string name="settings_disable_vibration_title">Отключить всю вибрацию</string>
+    <string name="settings_disable_vibration_desc">Убирает тактильный отклик интерфейса, вибрацию в игре и уведомлениях</string>
+    <string name="settings_vibration_disabled_status">Вся вибрация отключена</string>
 
     <!-- Аппаратный сторож (Watchdog AlarmClock) -->
     <string name="settings_watchdog_alarm_title">Аппаратный сторож службы</string>
@@ -525,6 +573,11 @@
 • Полное отключение отрисовки частиц фонового Canvas-оверлея (CyberParticlesOverlay).
 • Минимизация количества фаз перерисовки Compose-интерфейса.
 • Снижение энергопотребления на экранах 90–120 Гц и продление времени автономной работы устройства.</string>
+    <string name="info_disable_vibration_title">Отключение всей вибрации</string>
+    <string name="info_disable_vibration_body">ПОЛНОЕ ОТКЛЮЧЕНИЕ ВИБРООТКЛИКА:
+• Подавляет тактильный отклик кнопок, переключателей, списков и диалогов во всём приложении.
+• Отключает аппаратную вибрацию в мини-игре и жестах переключения режимов.
+• Убирает вибрацию при показе уведомлений приложения, сохраняя выбранный профиль отклика на будущее.</string>
     <string name="info_protocols_title">Протоколы подключения Telegram</string>
     <string name="info_protocols_body">СРАВНЕНИЕ РЕЖИМОВ РАБОТЫ:
 • MTProto (порт 1443): нативный протокол Telegram с Fake-TLS и Anycast Flowseal CDN.
@@ -2226,6 +2279,10 @@
     <string name="settings_tls_padding_title">Рандомизация TLS Record Padding</string>
     <string name="settings_tls_padding_desc">Случайное заполнение и разбиение TLS-записей для маскировки характерных размеров пакетов MTProto-рукопожатия от статистического анализа DPI.</string>
     <string name="socks5_no_worker_error">У вас не выбран воркер. Авторизуйтесь.</string>
+    <string name="notif_socks5_tile_flowseal_no_auth_title">SOCKS5 запущен через Flowseal CDN</string>
+    <string name="notif_socks5_tile_flowseal_no_auth_body">Нет авторизации Cloudflare и личных воркеров. По умолчанию включен аплинк Anycast CDN Flowseal.</string>
+    <string name="notif_socks5_tile_flowseal_no_worker_title">Аплинк переключен на Flowseal CDN</string>
+    <string name="notif_socks5_tile_flowseal_no_worker_body">Личный воркер не выбран. SOCKS5 запущен через Anycast CDN Flowseal.</string>
 
     <!-- Info & Connect Footnotes -->
     <string name="tg_connect_footnote_title">Какой протокол выбрать?</string>
@@ -2561,6 +2618,21 @@
     <string name="settings_customization_preset_custom_badge">Свой</string>
     <string name="settings_customization_preset_builtin_badge">Базовый</string>
 
+    <!-- Wallpaper Black Default One-Time Migration Notice -->
+    <string name="wallpaper_migrated_preset_name">Личный фон</string>
+    <string name="wallpaper_migrated_badge">ПРОФИЛЬ СОХРАНЁН</string>
+    <string name="wallpaper_migrated_title">Фон по умолчанию сменился на чёрный</string>
+    <string name="wallpaper_migrated_message">Стандартный фон приложения один раз переключён на чистый чёрный AMOLED. Не бойтесь, ваш собственный фон автоматически сохранён как личный профиль, вы его не потеряли.</string>
+    <string name="wallpaper_migrated_media_photo">Фотография</string>
+    <string name="wallpaper_migrated_media_video">Видеофон</string>
+    <string name="wallpaper_migrated_preset_meta">%1$s · Размытие: %2$d · Затемнение: %3$d%%</string>
+    <string name="wallpaper_migrated_path_label">Где находится ваш фон</string>
+    <string name="wallpaper_migrated_path_value">Настройки → Прочее → Кастомизация → Пользовательские обои → Пресеты оформления</string>
+    <string name="wallpaper_migrated_preview_badge">СОХРАНЁННЫЙ ФОН</string>
+    <string name="wallpaper_migrated_action_restore">Вернуть мой фон</string>
+    <string name="wallpaper_migrated_action_choose">Быстрый выбор фона</string>
+    <string name="wallpaper_migrated_action_keep_black">Оставить чёрный AMOLED</string>
+
     <!-- Phased Connection Pipeline (3-Phase) -->
     <string name="preflight_phase_1_server">[1/3] Запуск локального слушателя SOCKS5 (127.0.0.1:10808)</string>
     <string name="preflight_phase_2_warmup">[2/3] Прогрев пула WSS-потоков через шлюз Cloudflare</string>
@@ -2821,6 +2893,47 @@
     <string name="settings_customization_haptic_info_title">Профили виброотклика</string>
     <string name="settings_customization_haptic_info_desc">Профили тактильной отдачи на базе примитивов вибрации Android: механический щелчок, саб-басовый импульс, двойной клик или бесшумный режим.</string>
 
+    <!-- App Launcher Icon Customization -->
+    <string name="settings_customization_app_icon_title">Иконка приложения</string>
+    <string name="settings_customization_app_icon_desc">Выбор ярлыка рабочего стола с живым предпросмотром формы и монохромного режима Android 13+</string>
+    <string name="settings_customization_app_icon_preview_label">Предпросмотр рабочего стола</string>
+    <string name="settings_customization_app_icon_mask_circle">Круг</string>
+    <string name="settings_customization_app_icon_mask_squircle">Сквиркл</string>
+    <string name="settings_customization_app_icon_mask_rounded">Квадрат</string>
+    <string name="settings_customization_app_icon_mask_teardrop">Капля</string>
+    <string name="settings_customization_app_icon_monochrome_toggle">Монохром · Android 13+</string>
+    <string name="settings_customization_app_icon_state_active">Установлена</string>
+    <string name="settings_customization_app_icon_state_selected">Выбрана</string>
+    <string name="settings_customization_app_icon_pending_notice">После смены иконки лаунчер обновится в течение 1–3 секунд, а окно приложения может закрыться или свернуться. Активный прокси и VPN продолжат работу.</string>
+    <string name="settings_customization_app_icon_btn_apply">Применить иконку</string>
+    <string name="settings_customization_app_icon_btn_reset">Сбросить выбор</string>
+    <string name="settings_customization_app_icon_sheet_title">Смена иконки приложения</string>
+    <string name="settings_customization_app_icon_sheet_desc">Android переключит точку входа лаунчера на выбранную иконку. Рабочий стол может перезагрузить ярлык за 1–3 секунды, а текущее окно закроется.</string>
+    <string name="settings_customization_app_icon_sheet_note_bg">Сервисы прокси и VPN в фоне не прерываются.</string>
+    <string name="settings_customization_app_icon_sheet_note_shortcut">На некоторых оболочках закрепленный ярлык на рабочем столе нужно перенести заново из меню приложений.</string>
+    <string name="settings_customization_app_icon_sheet_btn_confirm">Установить</string>
+    <string name="settings_customization_app_icon_sheet_btn_cancel">Отмена</string>
+    <string name="settings_customization_app_icon_toast_applied">Иконка обновлена · лаунчер обновит ярлык</string>
+    <string name="settings_customization_app_icon_toast_failed">Оболочка устройства заблокировала смену иконки</string>
+    <string name="settings_customization_app_icon_info_title">Иконка приложения</string>
+    <string name="settings_customization_app_icon_info_desc">ПРИНЦИП РАБОТЫ:\n• Смена иконки переключает активный компонент запуска Android без переустановки приложения.\n• Для Android 8.0 и новее используются адаптивные слои с сохранением формы лаунчера.\n• На Android 13 и новее поддерживается системный монохромный оттенок Material You.\n\nОСОБЕННОСТИ ANDROID:\n• После подтверждения системный лаунчер может закрыть или свернуть окно приложения на 1–3 секунды для перерисовки рабочего стола.\n• Фоновый прокси и VPN при этом не останавливаются.</string>
+    <string name="app_icon_default_title">Текущая</string>
+    <string name="app_icon_default_sub">По умолчанию</string>
+    <string name="app_icon_legacy_title">Legacy</string>
+    <string name="app_icon_legacy_sub">3D стекло</string>
+    <string name="app_icon_outline_title">Контурная</string>
+    <string name="app_icon_outline_sub">MirrlyUI</string>
+    <string name="app_icon_stealth_title">Монохром</string>
+    <string name="app_icon_stealth_sub">Чёрно-белая</string>
+    <string name="app_icon_ruby_title">Cyber Ruby</string>
+    <string name="app_icon_ruby_sub">Неон · Рубин</string>
+    <string name="app_icon_cobalt_title">Cobalt Blue</string>
+    <string name="app_icon_cobalt_sub">Неон · Кобальт</string>
+    <string name="app_icon_amber_title">Electric Amber</string>
+    <string name="app_icon_amber_sub">Неон · Янтарь</string>
+    <string name="app_icon_violet_title">Violet Surge</string>
+    <string name="app_icon_violet_sub">Неон · SOCKS5</string>
+
     <!-- Snake Game Strings -->
     <string name="snake_title">Змейка</string>
     <string name="snake_mode_manual">РУЧНОЙ</string>
@@ -3053,4 +3166,44 @@
     <string name="vpn_server_tel_germany">TEL Германия</string>
     <string name="vpn_server_tel_poland">TEL Польша</string>
     <string name="vpn_server_tel_finland">TEL Финляндия</string>
+
+    <!-- Port Conflict Detection & Diagnostics -->
+    <string name="port_conflict_notif_title">Конфликт портов прокси</string>
+    <string name="port_conflict_notif_body_with_apps">Порты %1$s заняты. Отключите прокси в %2$s или смените порт в Mirrly.</string>
+    <string name="port_conflict_notif_body_generic">Порты %1$s уже используются другим приложением. Нажмите для диагностики.</string>
+    <string name="port_conflict_preflight_status">Порт %1$d занят другим приложением</string>
+    <string name="port_conflict_start_failed_generic">Не удалось запустить локальный прокси</string>
+    <string name="port_conflict_system_owner">Системная служба Android</string>
+    <string name="port_conflict_title_runtime">Конфликт портов при запуске</string>
+    <string name="port_conflict_title_startup">Обнаружены занятые порты</string>
+    <string name="port_conflict_title_resolved">Порты свободны</string>
+    <string name="port_conflict_subtitle_runtime">Прокси не запустился, так как выбранный порт уже используется</string>
+    <string name="port_conflict_subtitle_startup">Локальные порты Mirrly уже заняты на устройстве</string>
+    <string name="port_conflict_subtitle_resolved">Конфликт устранен · Можно запускать прокси</string>
+    <string name="port_conflict_section_ports">ЗАНЯТЫЕ ПОРТЫ</string>
+    <string name="port_conflict_port_line">%1$s · Порт %2$d</string>
+    <string name="port_conflict_owner_exact">Занят приложением · %1$s</string>
+    <string name="port_conflict_listener_proto_socks5">Обнаружен сторонний SOCKS5-сервер</string>
+    <string name="port_conflict_listener_proto_http">Обнаружен сторонний HTTP-прокси</string>
+    <string name="port_conflict_listener_proto_tcp">Порт активно прослушивается на %1$s</string>
+    <string name="port_conflict_listener_proto_unknown">Адрес уже занят на %1$s</string>
+    <string name="port_conflict_section_apps">ПРИЛОЖЕНИЯ С ПРОКСИ</string>
+    <string name="port_conflict_ask_disable_exact">Отключите прокси в найденном приложении и вернитесь в Mirrly.</string>
+    <string name="port_conflict_ask_disable_candidates">Отключите прокси или туннель в одном из найденных приложений, затем вернитесь в Mirrly.</string>
+    <string name="port_conflict_no_apps_found">Android ограничивает просмотр владельца сокетов без root. Отключите сторонний прокси или VPN на устройстве либо подберите свободные порты.</string>
+    <string name="port_conflict_active_vpn_note">На устройстве активен системный VPN</string>
+    <string name="port_conflict_reason_exact">Подтвержденный владелец сокета</string>
+    <string name="port_conflict_reason_port_match">Совпадение по портам · %1$s</string>
+    <string name="port_conflict_reason_installed">Установлен прокси или VPN-клиент</string>
+    <string name="port_conflict_btn_open_app">Открыть</string>
+    <string name="port_conflict_btn_app_settings">Настройки</string>
+    <string name="port_conflict_show_more_apps">Показать еще · %1$d</string>
+    <string name="port_conflict_show_less_apps">Свернуть список</string>
+    <string name="port_conflict_btn_recheck">Проверить снова</string>
+    <string name="port_conflict_btn_checking">Проверка портов...</string>
+    <string name="port_conflict_btn_auto_ports">Подобрать свободные порты</string>
+    <string name="port_conflict_btn_start_proxy">Запустить прокси</string>
+    <string name="port_conflict_resolved_ports_summary">Свободны порты: MTProto %1$d · SOCKS5 %2$d</string>
+    <string name="port_conflict_toast_ports_updated">Порты обновлены: %1$s</string>
+    <string name="port_conflict_toast_no_free_port">Не удалось подобрать свободный порт автоматически</string>
 </resources>

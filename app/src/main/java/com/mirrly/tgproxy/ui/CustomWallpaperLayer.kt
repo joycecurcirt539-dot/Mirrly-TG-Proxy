@@ -45,7 +45,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -72,11 +74,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.service.PreferencesManager
+import com.mirrly.tgproxy.service.WallpaperPreset
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -231,13 +237,22 @@ internal object CustomWallpaperBitmapStore {
     private const val OPAQUE = -0x1000000 // 0xFF000000
 }
 
+/** Resolves a static image preview path for a wallpaper preset, skipping video files. */
+internal fun WallpaperPreset.resolveStaticPreviewPath(): String? {
+    if (id == WallpaperPreset.PRESET_ID_SPACE_TOILET) return "wallpapers/space_toilet_preview.jpg"
+    return previewAssetPath?.takeUnless { it.endsWith(".mp4", ignoreCase = true) }
+        ?: previewFilePath?.takeUnless { it.endsWith(".mp4", ignoreCase = true) }
+        ?: filePath?.takeUnless { it.endsWith(".mp4", ignoreCase = true) }
+}
+
 /** Loads the sandboxed wallpaper; keeps the previous image on screen while a new revision decodes. */
 @Composable
 internal fun rememberWallpaperImage(path: String?, revision: Long): WallpaperImage? {
     val context = LocalContext.current.applicationContext
-    val key = path?.let { "$it#$revision" }
+    val safePath = path?.takeUnless { it.endsWith(".mp4", ignoreCase = true) }
+    val key = safePath?.let { "$it#$revision" }
     return produceState(initialValue = key?.let { CustomWallpaperBitmapStore.peek(it) }, key) {
-        value = if (path == null) null else CustomWallpaperBitmapStore.load(context, path, revision)
+        value = if (safePath == null) null else CustomWallpaperBitmapStore.load(context, safePath, revision)
     }.value
 }
 
@@ -254,6 +269,7 @@ internal fun CustomWallpaperBackground(
     dim: Float,
     powerSaveEnabled: Boolean = true,
     shaderSpeed: Float = 1.0f,
+    pauseVideo: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val edgeScrim = remember {
@@ -277,13 +293,23 @@ internal fun CustomWallpaperBackground(
                 modifier = Modifier.fillMaxSize()
             )
         } else if (wallpaperType == PreferencesManager.WALLPAPER_TYPE_VIDEO && !wallpaperPath.isNullOrBlank()) {
-            WallpaperVideoPlayer(
-                videoPath = wallpaperPath,
-                previewImage = image,
-                blurDp = blurDp,
-                powerSaveEnabled = powerSaveEnabled,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (pauseVideo) {
+                if (image != null) {
+                    WallpaperBlurredImage(
+                        image = image,
+                        blurDp = blurDp,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            } else {
+                WallpaperVideoPlayer(
+                    videoPath = wallpaperPath,
+                    previewImage = image,
+                    blurDp = blurDp,
+                    powerSaveEnabled = powerSaveEnabled,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         } else if (image != null) {
             WallpaperBlurredImage(
                 image = image,
@@ -334,6 +360,269 @@ internal fun WallpaperBlurredImage(
     )
 }
 
+private class VideoPlayerSession(
+    val player: MediaPlayer,
+    val surface: Surface
+) {
+    @Volatile var isPrepared: Boolean = false
+    @Volatile var isDisposed: Boolean = false
+    @Volatile var videoWidth: Int = 0
+    @Volatile var videoHeight: Int = 0
+
+    fun release() {
+        if (isDisposed) return
+        isDisposed = true
+        try { player.setOnPreparedListener(null) } catch (_: Throwable) {}
+        try { player.setOnErrorListener(null) } catch (_: Throwable) {}
+        try { player.setOnInfoListener(null) } catch (_: Throwable) {}
+        try {
+            if (isPrepared && player.isPlaying) {
+                player.stop()
+            }
+        } catch (_: Throwable) {}
+        try { player.reset() } catch (_: Throwable) {}
+        try { player.release() } catch (_: Throwable) {}
+        try { surface.release() } catch (_: Throwable) {}
+    }
+}
+
+private fun applyCenterCropTransform(
+    textureView: TextureView,
+    videoWidth: Int,
+    videoHeight: Int,
+    viewWidth: Int,
+    viewHeight: Int
+) {
+    if (videoWidth <= 0 || videoHeight <= 0 || viewWidth <= 0 || viewHeight <= 0) return
+    val vw = videoWidth.toFloat()
+    val vh = videoHeight.toFloat()
+    val viewRatio = viewWidth.toFloat() / viewHeight
+    val videoRatio = vw / vh
+    var sx = 1f
+    var sy = 1f
+    if (viewRatio > videoRatio) {
+        sy = (viewWidth.toFloat() / vw) / (viewHeight.toFloat() / vh)
+    } else {
+        sx = (viewHeight.toFloat() / vh) / (viewWidth.toFloat() / vw)
+    }
+    val matrix = Matrix()
+    matrix.setScale(sx, sy, viewWidth / 2f, viewHeight / 2f)
+    textureView.setTransform(matrix)
+}
+
+/**
+ * Shared lifecycle-safe [TextureView] + [MediaPlayer] host.
+ * Defers MediaPlayer preparation until window/transition settle, releases the native [Surface]
+ * on teardown, and gates playback strictly on [Lifecycle.State.RESUMED] and [isActive] so
+ * Android 16/17 RemoteAnimation and TaskSnapshot never race with background video frames.
+ */
+@Composable
+private fun ManagedVideoTextureView(
+    videoPath: String?,
+    assetPath: String?,
+    fixedBufferSize: Pair<Int, Int>?,
+    scaleBufferTo1080: Boolean,
+    startDelayMs: Long,
+    isPlaybackEnabled: Boolean,
+    onReadyChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val sessionRef = remember { AtomicReference<VideoPlayerSession?>(null) }
+
+    var isLifecycleResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    var attachedTexture by remember { mutableStateOf<SurfaceTexture?>(null) }
+    var textureSize by remember { mutableStateOf(0 to 0) }
+    var textureViewRef by remember { mutableStateOf<TextureView?>(null) }
+
+    val canPlay = isLifecycleResumed && isPlaybackEnabled
+    val latestCanPlay by rememberUpdatedState(canPlay)
+    val latestOnReadyChanged by rememberUpdatedState(onReadyChanged)
+
+    DisposableEffect(lifecycleOwner) {
+        isLifecycleResumed = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> isLifecycleResumed = true
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    isLifecycleResumed = false
+                    val session = sessionRef.get()
+                    if (session != null && !session.isDisposed && session.isPrepared) {
+                        try {
+                            if (session.player.isPlaying) session.player.pause()
+                        } catch (_: Throwable) {}
+                    }
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            sessionRef.getAndSet(null)?.release()
+            latestOnReadyChanged(false)
+        }
+    }
+
+    // Release previous session immediately if source changes.
+    DisposableEffect(videoPath, assetPath) {
+        onDispose {
+            sessionRef.getAndSet(null)?.release()
+            latestOnReadyChanged(false)
+        }
+    }
+
+    LaunchedEffect(canPlay, attachedTexture, videoPath, assetPath) {
+        val surfaceTexture = attachedTexture
+        val tv = textureViewRef
+        if (!canPlay) {
+            val existing = sessionRef.get()
+            if (existing != null && !existing.isDisposed && existing.isPrepared) {
+                try {
+                    if (existing.player.isPlaying) existing.player.pause()
+                } catch (_: Throwable) {}
+            }
+            return@LaunchedEffect
+        }
+        if (surfaceTexture == null || tv == null) return@LaunchedEffect
+        if (assetPath.isNullOrBlank() && videoPath.isNullOrBlank()) return@LaunchedEffect
+
+        val existing = sessionRef.get()
+        if (existing != null && !existing.isDisposed) {
+            if (existing.isPrepared) {
+                applyCenterCropTransform(tv, existing.videoWidth, existing.videoHeight, tv.width, tv.height)
+                try {
+                    if (!existing.player.isPlaying) existing.player.start()
+                } catch (_: Throwable) {}
+                latestOnReadyChanged(true)
+            }
+            return@LaunchedEffect
+        }
+
+        // Wait for the current frame commit and optional transition settle window before starting MediaCodec.
+        withFrameNanos { }
+        if (startDelayMs > 0L) {
+            delay(startDelayMs)
+        }
+        if (!isActive || !latestCanPlay || attachedTexture !== surfaceTexture || textureViewRef !== tv) {
+            return@LaunchedEffect
+        }
+
+        val (width, height) = textureSize
+        if (fixedBufferSize != null) {
+            surfaceTexture.setDefaultBufferSize(fixedBufferSize.first, fixedBufferSize.second)
+        } else if (scaleBufferTo1080 && width > 0 && height > 0) {
+            val scale = min(1f, 1080f / max(width, height).toFloat())
+            surfaceTexture.setDefaultBufferSize(
+                (width * scale).toInt().coerceAtLeast(360),
+                (height * scale).toInt().coerceAtLeast(640)
+            )
+        }
+
+        val surfaceObj = Surface(surfaceTexture)
+        val mp = MediaPlayer()
+        val session = VideoPlayerSession(mp, surfaceObj)
+        sessionRef.getAndSet(session)?.release()
+
+        try {
+            if (!assetPath.isNullOrBlank()) {
+                context.assets.openFd(assetPath).use { afd ->
+                    mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                }
+            } else if (!videoPath.isNullOrBlank()) {
+                mp.setDataSource(videoPath)
+            } else {
+                sessionRef.compareAndSet(session, null)
+                session.release()
+                return@LaunchedEffect
+            }
+            mp.setSurface(surfaceObj)
+            mp.isLooping = true
+            mp.setVolume(0f, 0f)
+            mp.setOnPreparedListener { player ->
+                if (session.isDisposed || sessionRef.get() !== session) return@setOnPreparedListener
+                session.isPrepared = true
+                session.videoWidth = player.videoWidth
+                session.videoHeight = player.videoHeight
+                applyCenterCropTransform(tv, player.videoWidth, player.videoHeight, tv.width, tv.height)
+                if (latestCanPlay) {
+                    try {
+                        player.start()
+                    } catch (_: Throwable) {}
+                    latestOnReadyChanged(true)
+                }
+            }
+            mp.setOnInfoListener { _, what, _ ->
+                if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START &&
+                    !session.isDisposed &&
+                    sessionRef.get() === session &&
+                    latestCanPlay
+                ) {
+                    latestOnReadyChanged(true)
+                }
+                false
+            }
+            mp.setOnErrorListener { _, _, _ ->
+                if (sessionRef.get() === session) {
+                    latestOnReadyChanged(false)
+                }
+                true
+            }
+            mp.prepareAsync()
+        } catch (e: Throwable) {
+            AppLogger.w("Wallpaper", "Video player init error: ${e.message}")
+            sessionRef.compareAndSet(session, null)
+            session.release()
+            latestOnReadyChanged(false)
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            TextureView(ctx).apply {
+                // Opaque surface avoids alpha-blended hole composition during TaskSnapshot / RemoteAnimation.
+                isOpaque = true
+                textureViewRef = this
+                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                        textureSize = width to height
+                        attachedTexture = surface
+                    }
+
+                    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+                        textureSize = width to height
+                        val session = sessionRef.get()
+                        if (session != null && !session.isDisposed && session.isPrepared) {
+                            applyCenterCropTransform(this@apply, session.videoWidth, session.videoHeight, width, height)
+                        }
+                    }
+
+                    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                        if (attachedTexture === surface) {
+                            attachedTexture = null
+                            textureSize = 0 to 0
+                        }
+                        sessionRef.getAndSet(null)?.release()
+                        latestOnReadyChanged(false)
+                        return true
+                    }
+
+                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
+                        val session = sessionRef.get()
+                        if (session != null && !session.isDisposed && session.isPrepared && latestCanPlay) {
+                            latestOnReadyChanged(true)
+                        }
+                    }
+                }
+            }
+        },
+        modifier = modifier
+    )
+}
+
 /**
  * Background video wallpaper player using hardware-accelerated [TextureView] and [MediaPlayer].
  * Automatically loops, is strictly muted, respects Android lifecycle (pauses in background),
@@ -348,7 +637,6 @@ internal fun WallpaperVideoPlayer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
     val isSystemPowerSave = remember { powerManager?.isPowerSaveMode == true }
 
@@ -362,8 +650,7 @@ internal fun WallpaperVideoPlayer(
         return
     }
 
-    var isPlayerReady by remember { mutableStateOf(false) }
-    val mediaPlayerRef = remember { java.util.concurrent.atomic.AtomicReference<MediaPlayer?>(null) }
+    var isPlayerReady by remember(videoPath) { mutableStateOf(false) }
     val density = LocalDensity.current
 
     val blurEffect = remember(blurDp, density) {
@@ -377,107 +664,15 @@ internal fun WallpaperVideoPlayer(
         } else null
     }
 
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            val player = mediaPlayerRef.get() ?: return@LifecycleEventObserver
-            when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    try {
-                        if (player.isPlaying) player.pause()
-                    } catch (_: Throwable) {}
-                }
-                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> {
-                    try {
-                        player.start()
-                    } catch (_: Throwable) {}
-                }
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
     Box(modifier = modifier) {
-        // While video player prepares surface, render first-frame preview
-        if (!isPlayerReady && previewImage != null) {
-            WallpaperBlurredImage(
-                image = previewImage,
-                blurDp = blurDp,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        AndroidView(
-            factory = { ctx ->
-                TextureView(ctx).apply {
-                    isOpaque = false
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                            try {
-                                if (powerSaveEnabled) {
-                                    val scale = min(1f, 1080f / max(width, height).toFloat())
-                                    surface.setDefaultBufferSize(
-                                        (width * scale).toInt().coerceAtLeast(360),
-                                        (height * scale).toInt().coerceAtLeast(640)
-                                    )
-                                }
-                                val mp = MediaPlayer().apply {
-                                    setDataSource(videoPath)
-                                    setSurface(Surface(surface))
-                                    isLooping = true
-                                    setVolume(0f, 0f)
-                                    setOnPreparedListener { player ->
-                                        val vw = player.videoWidth.toFloat()
-                                        val vh = player.videoHeight.toFloat()
-                                        if (vw > 0 && vh > 0 && width > 0 && height > 0) {
-                                            val matrix = Matrix()
-                                            val viewRatio = width.toFloat() / height
-                                            val videoRatio = vw / vh
-                                            var sx = 1f
-                                            var sy = 1f
-                                            if (viewRatio > videoRatio) {
-                                                sy = (width.toFloat() / vw) / (height.toFloat() / vh)
-                                            } else {
-                                                sx = (height.toFloat() / vh) / (width.toFloat() / vw)
-                                            }
-                                            matrix.setScale(sx, sy, width / 2f, height / 2f)
-                                            setTransform(matrix)
-                                        }
-                                        player.start()
-                                        isPlayerReady = true
-                                    }
-                                    setOnErrorListener { _, _, _ ->
-                                        isPlayerReady = false
-                                        true
-                                    }
-                                    prepareAsync()
-                                }
-                                mediaPlayerRef.set(mp)
-                            } catch (e: Throwable) {
-                                AppLogger.w("Wallpaper", "Video player init error: ${e.message}")
-                            }
-                        }
-
-                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
-
-                        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                            val mp = mediaPlayerRef.getAndSet(null)
-                            try {
-                                mp?.stop()
-                                mp?.reset()
-                                mp?.release()
-                            } catch (_: Throwable) {}
-                            isPlayerReady = false
-                            return true
-                        }
-
-                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                    }
-                }
-            },
+        ManagedVideoTextureView(
+            videoPath = videoPath,
+            assetPath = null,
+            fixedBufferSize = null,
+            scaleBufferTo1080 = powerSaveEnabled,
+            startDelayMs = 150L,
+            isPlaybackEnabled = true,
+            onReadyChanged = { ready -> isPlayerReady = ready },
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -487,6 +682,15 @@ internal fun WallpaperVideoPlayer(
                     }
                 }
         )
+
+        // Render static preview above the opaque TextureView until the first video frame arrives.
+        if (!isPlayerReady && previewImage != null) {
+            WallpaperBlurredImage(
+                image = previewImage,
+                blurDp = blurDp,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 }
 
@@ -552,39 +756,24 @@ internal fun PresetVideoPreview(
     videoPath: String? = null,
     assetPath: String? = null,
     previewImage: WallpaperImage? = null,
+    startDelayMs: Long = 0L,
+    isActive: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val mediaPlayerRef = remember { java.util.concurrent.atomic.AtomicReference<MediaPlayer?>(null) }
-    var isReady by remember { mutableStateOf(false) }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            val mp = mediaPlayerRef.get() ?: return@LifecycleEventObserver
-            when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    try { if (mp.isPlaying) mp.pause() } catch (_: Throwable) {}
-                }
-                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> {
-                    try { mp.start() } catch (_: Throwable) {}
-                }
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            val mp = mediaPlayerRef.getAndSet(null)
-            try {
-                mp?.stop()
-                mp?.reset()
-                mp?.release()
-            } catch (_: Throwable) {}
-        }
-    }
+    var isReady by remember(videoPath, assetPath) { mutableStateOf(false) }
 
     Box(modifier = modifier) {
+        ManagedVideoTextureView(
+            videoPath = videoPath,
+            assetPath = assetPath,
+            fixedBufferSize = 240 to 426,
+            scaleBufferTo1080 = false,
+            startDelayMs = startDelayMs,
+            isPlaybackEnabled = isActive,
+            onReadyChanged = { ready -> isReady = ready },
+            modifier = Modifier.fillMaxSize()
+        )
+
         if (!isReady && previewImage != null) {
             Image(
                 bitmap = previewImage.bitmap,
@@ -593,76 +782,6 @@ internal fun PresetVideoPreview(
                 modifier = Modifier.fillMaxSize()
             )
         }
-
-        AndroidView(
-            factory = { ctx ->
-                TextureView(ctx).apply {
-                    isOpaque = false
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                            try {
-                                surface.setDefaultBufferSize(240, 426)
-                                val mp = MediaPlayer().apply {
-                                    if (!assetPath.isNullOrBlank()) {
-                                        val afd = ctx.assets.openFd(assetPath)
-                                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                                        afd.close()
-                                    } else if (!videoPath.isNullOrBlank()) {
-                                        setDataSource(videoPath)
-                                    } else {
-                                        return
-                                    }
-                                    setSurface(Surface(surface))
-                                    isLooping = true
-                                    setVolume(0f, 0f)
-                                    setOnPreparedListener { player ->
-                                        val vw = player.videoWidth.toFloat()
-                                        val vh = player.videoHeight.toFloat()
-                                        if (vw > 0 && vh > 0 && width > 0 && height > 0) {
-                                            val matrix = Matrix()
-                                            val viewRatio = width.toFloat() / height
-                                            val videoRatio = vw / vh
-                                            var sx = 1f
-                                            var sy = 1f
-                                            if (viewRatio > videoRatio) {
-                                                sy = (width.toFloat() / vw) / (height.toFloat() / vh)
-                                            } else {
-                                                sx = (height.toFloat() / vh) / (width.toFloat() / vw)
-                                            }
-                                            matrix.setScale(sx, sy, width / 2f, height / 2f)
-                                            setTransform(matrix)
-                                        }
-                                        player.start()
-                                        isReady = true
-                                    }
-                                    setOnErrorListener { _, _, _ ->
-                                        isReady = false
-                                        true
-                                    }
-                                    prepareAsync()
-                                }
-                                mediaPlayerRef.set(mp)
-                            } catch (e: Throwable) {
-                                isReady = false
-                            }
-                        }
-
-                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
-                        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                            val mp = mediaPlayerRef.getAndSet(null)
-                            try {
-                                mp?.stop()
-                                mp?.reset()
-                                mp?.release()
-                            } catch (_: Throwable) {}
-                            return true
-                        }
-                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
     }
 }
 

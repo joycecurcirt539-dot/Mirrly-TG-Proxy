@@ -38,6 +38,39 @@
     <string name="onboarding_guide_3_title">اتصال به تلگرام</string>
     <string name="onboarding_guide_3_desc">دکمه «اتصال تلگرام» را لمس کنید تا تنظیمات پروکسی خودکار وارد تلگرام شود.</string>
 
+    <string name="onboarding_step_background_title">فعالیت پس‌زمینه و باتری</string>
+    <string name="onboarding_step_background_desc">بدون این مجوزهای سیستمی، اندروید و رابط کاربری گوشی سرویس پروکسی و VPN را چند دقیقه پس از قفل شدن صفحه متوقف می‌کنند.</string>
+    <string name="onboarding_bg_battery_title">نادیده‌گرفتن بهینه‌سازی باتری</string>
+    <string name="onboarding_bg_battery_desc">اجازه دهید برنامه بدون محدودیت Doze در پس‌زمینه اجرا شود. در پنجره سیستمی گزینه مجاز یا نادیده‌گرفتن را بزنید.</string>
+    <string name="onboarding_bg_battery_btn">غیرفعال‌سازی بهینه‌سازی</string>
+    <string name="onboarding_bg_battery_done">بهینه‌سازی باتری غیرفعال شد</string>
+    <string name="onboarding_bg_oem_title">شروع خودکار و اجرای پس‌زمینه</string>
+    <string name="onboarding_bg_oem_btn">باز کردن تنظیمات اجرا</string>
+    <string name="onboarding_bg_oem_btn_reopen">باز کردن مجدد</string>
+    <string name="onboarding_bg_oem_steps_honor">۱. دکمه باز کردن تنظیمات اجرا را بزنید.\n۲. برنامه Mirrly TG Proxy را پیدا کرده و مدیریت آن را روی حالت دستی بگذارید.\n۳. هر سه گزینه شروع خودکار، اجرای غیرمستقیم و اجرا در پس‌زمینه را روشن کرده و تأیید کنید.</string>
+    <string name="onboarding_bg_oem_steps_xiaomi">۱. دکمه باز کردن تنظیمات اجرا را بزنید.\n۲. شروع خودکار را برای Mirrly TG Proxy فعال کنید.\n۳. در بخش صرفه‌جویی باتری، گزینه بدون محدودیت را انتخاب کنید.</string>
+    <string name="onboarding_bg_oem_steps_oppo">۱. دکمه باز کردن تنظیمات اجرا را بزنید.\n۲. شروع خودکار و اجرای نامحدود در پس‌زمینه را مجاز کنید.</string>
+    <string name="onboarding_bg_oem_steps_vivo">۱. دکمه باز کردن تنظیمات اجرا را بزنید.\n۲. اجرای پس‌زمینه و مصرف انرژی بالا در پس‌زمینه را مجاز کنید.</string>
+    <string name="onboarding_bg_oem_steps_generic">برای این رابط کاربری منوی جداگانه‌ای لازم نیست. در صورت نیاز حالت باتری بدون محدودیت را بررسی کنید.</string>
+    <string name="onboarding_bg_oem_confirm_title">حالت دستی و اجرای پس‌زمینه فعال شد</string>
+    <string name="onboarding_bg_oem_confirm_hint">ابتدا تنظیمات اجرا را باز کرده و کلیدها را فعال کنید</string>
+    <string name="onboarding_bg_status_required">الزامی</string>
+    <string name="onboarding_bg_status_active">فعال</string>
+    <string name="onboarding_bg_status_confirmed">تأیید شد</string>
+    <string name="onboarding_bg_status_optional">اختیاری</string>
+    <string name="onboarding_bg_toggles_title">محافظت در برابر خواب سیستم</string>
+    <string name="onboarding_bg_toggles_summary">%1$d از %2$d فعال · انتخاب محافظت‌های پس‌زمینه</string>
+    <string name="onboarding_bg_recommended_badge">توصیه‌شده برای رابط کاربری شما</string>
+    <string name="onboarding_bg_cpu_antifreeze_desc">از خواب عمیق پردازنده جلوگیری می‌کند تا رابط کاربری هنگام خاموشی صفحه سوکت‌ها را منجمد نکند.</string>
+    <string name="onboarding_bg_watchdog_desc">در صورت بسته شدن توسط سیستم، سرویس را با آلارم سیستم مجدداً راه‌اندازی می‌کند. آیکون ساعت در نوار وضعیت نمایش داده می‌شود.</string>
+    <string name="onboarding_bg_traffic_pulse_desc">هر ۷۵ ثانیه در حالت بیکاری سیگنال سبکی ارسال می‌کند تا اپراتور و سیستم سوکت را باز نگه دارند.</string>
+    <string name="onboarding_bg_warn_battery">برای ادامه، بهینه‌سازی باتری را برای برنامه غیرفعال کنید.</string>
+    <string name="onboarding_bg_warn_oem_open">تنظیمات اجرا را باز کنید، مجوزهای پس‌زمینه را فعال کرده و تأیید کنید.</string>
+    <string name="onboarding_bg_warn_oem_confirm">تأیید کنید که شروع خودکار و اجرای پس‌زمینه در تنظیمات سیستم فعال شده است.</string>
+    <string name="onboarding_bg_warn_both">پیش از خروج از راهنما، بهینه‌سازی باتری را غیرفعال و اجرای پس‌زمینه را تنظیم کنید.</string>
+    <string name="onboarding_bg_warn_open_failed">پنجره سیستم به‌طور خودکار باز نشد. تنظیمات باتری و اجرا را دستی بررسی کرده و تأیید کنید.</string>
+    <string name="onboarding_bg_btn_locked">نیاز به تنظیم</string>
+
     <string name="onboarding_btn_skip">رد شدن</string>
     <string name="onboarding_btn_next">بعدی</string>
     <string name="onboarding_btn_start">شروع کار</string>
@@ -335,6 +368,9 @@
     <string name="settings_doze_btn_configure">پیکربندی</string>
     <string name="settings_power_saver_title">طراحی بهینه مصرف باتری</string>
     <string name="settings_power_saver_desc">غیرفعال‌سازی ذرات متحرک و انیمیشن‌های پس‌زمینه برای کاهش مصرف باتری</string>
+    <string name="settings_disable_vibration_title">غیرفعال کردن تمام لرزش‌ها</string>
+    <string name="settings_disable_vibration_desc">لرزش رابط کاربری، بازی و اعلان‌ها را به‌طور کامل خاموش می‌کند</string>
+    <string name="settings_vibration_disabled_status">تمام لرزش‌ها غیرفعال است</string>
     <string name="settings_help_title">راهنما و مستندات</string>
     <!-- Hardware Service Watchdog (AlarmClock) -->
     <string name="settings_watchdog_alarm_title">نگهبان سخت‌افزاری سرویس</string>
@@ -459,6 +495,11 @@
 • غیرفعال (خطرناک): حالت TCP_NODELAY را فعال می‌کند که در شبکه‌های همراه باعث قطعی و افت سرعت می‌شود.</string>
     <string name="info_powersaver_title">Power Saver Aesthetic Mode</string>
     <string name="info_powersaver_body">POWER SAVING OPTIMIZATIONS: • Disables particle canvas overlays and animations. • Minimizes Compose redraw phases, saving battery on 90-120Hz AMOLED displays.</string>
+    <string name="info_disable_vibration_title">غیرفعال‌سازی کامل لرزش</string>
+    <string name="info_disable_vibration_body">قطع کامل بازخورد لرزشی:
+• تمام لرزش‌های دکمه‌ها، کلیدها، فهرست‌ها و برگه‌های برنامه را متوقف می‌کند.
+• لرزش سخت‌افزاری در مینی‌بازی و ژست‌های تغییر حالت را غیرفعال می‌کند.
+• لرزش اعلان‌های برنامه را قطع می‌کند و پروفایل انتخابی شما را برای استفاده بعدی نگه می‌دارد.</string>
     <string name="info_protocols_title">تلگرام Connection Protocols</string>
     <string name="info_protocols_body">PROTOCOL COMPARISON: • MTProto (port 1080): تلگرام native protocol with Fake-TLS and Flowseal Anycast. • SOCKS5 (port 10808): Transparent TCP Relay (RFC 1928), end-to-end encryption, seamless voice/video calls, supports all upstreams (ورکر, Anycast CDN Flowseal).</string>
     <string name="info_socks5_auth_title">SOCKS5 Authentication (RFC 1929)</string>
@@ -2204,6 +2245,10 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_tls_padding_title">رندوم‌سازی پر کردن رکوردهای TLS</string>
     <string name="settings_tls_padding_desc">پر کردن و تقسیم تصادفی رکوردهای TLS برای پنهان کردن اندازه بسته‌های دست‌دهی MTProto از تحلیل آماری فیلترینگ DPI.</string>
     <string name="socks5_no_worker_error">هیچ ورکری انتخاب نشده است. لطفاً وارد شوید.</string>
+    <string name="notif_socks5_tile_flowseal_no_auth_title">SOCKS5 با شبکه Flowseal CDN فعال شد</string>
+    <string name="notif_socks5_tile_flowseal_no_auth_body">حساب کلودفلر متصل نیست و ورکر شخصی وجود ندارد. آپلینک Anycast CDN Flowseal به‌طور پیش‌فرض فعال شد.</string>
+    <string name="notif_socks5_tile_flowseal_no_worker_title">آپلینک به Flowseal CDN تغییر یافت</string>
+    <string name="notif_socks5_tile_flowseal_no_worker_body">ورکر شخصی انتخاب نشده است. SOCKS5 از طریق Anycast CDN Flowseal راه‌اندازی شد.</string>
 
     <!-- Info & Connect Footnotes -->
     <string name="tg_connect_footnote_title">کدام پروتکل را انتخاب کنیم؟</string>
@@ -2678,7 +2723,19 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="onboarding_wallpaper_grass_desc">Photo wallpaper · Soft focus</string>
     <string name="onboarding_wallpaper_breeze_desc">Photo wallpaper · Deep turquoise</string>
     <string name="onboarding_wallpaper_amoled_title">Pure AMOLED</string>
-    <string name="onboarding_wallpaper_amoled_desc">True black background · Power saving</string>
+    <string name="onboarding_wallpaper_amoled_desc">پس‌زمینه مشکی خالص · پیش‌فرض</string>
+
+    <string name="onboarding_step_custom_title">شخصی‌سازی برنامه</string>
+    <string name="onboarding_step_custom_desc">ظاهر، رنگ‌ها، دکمه مرکزی و افکت‌ها قابل تنظیم هستند. در بخش تنظیمات، تب سایر یا همه و بخش شخصی‌سازی را باز کنید.</string>
+    <string name="onboarding_custom_path_badge">مسیر · تنظیمات ← سایر ← شخصی‌سازی</string>
+    <string name="onboarding_custom_wallpaper_title">تصویر زمینه، ویدیو و شیدرها</string>
+    <string name="onboarding_custom_wallpaper_desc">حالت پیش‌فرض پس‌زمینه مشکی AMOLED است. می‌توانید پیش‌تنظیم‌های آماده، عکس یا ویدیوی شخصی، شیدرهای AGSL، تاری و تیرگی را تنظیم و ذخیره کنید.</string>
+    <string name="onboarding_custom_theme_title">پروفایل رنگی و تم</string>
+    <string name="onboarding_custom_theme_desc">رنگ‌بندی بر اساس پروتکل فعال، حالت تک‌رنگ Stealth، پالت‌های نئونی آماده، رنگ سیستمی Material You Monet یا هر کد HEX دلخواه با تنظیم روشنایی، غلظت و شفافیت.</string>
+    <string name="onboarding_custom_button_title">دکمه مرکزی و SVG شخصی</string>
+    <string name="onboarding_custom_button_desc">انتخاب آیکون جداگانه برای MTProto، SOCKS5 و VPN از پیش‌تنظیم‌ها یا وارد کردن کد SVG شخصی، همراه با تنظیم اندازه، ضخامت خط و درخشش.</string>
+    <string name="onboarding_custom_fx_title">ذرات، هندسه رابط و بازخورد لمسی</string>
+    <string name="onboarding_custom_fx_desc">سبک، تراکم و سرعت ذرات پس‌زمینه همراه با پارالاکس ژیروسکوپ، مقیاس رابط و متن، هندسه گوشه کارت‌ها، حلقه‌های مداری، شیشه مایع، ژست‌های سوایپ و پروفایل‌های لرزش.</string>
     <string name="tg_action_support_project">Support Project</string>
     <string name="settings_customization_wallpaper_particles_style">Particle style</string>
     <string name="settings_customization_wallpaper_particles_style_bokeh">Bokeh</string>
@@ -2691,6 +2748,22 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_customization_home_rings">Orbital rings</string>
     <string name="settings_customization_home_rings_desc">Animated kinetic rotating rings around the central power button</string>
     <string name="settings_customization_preset_default_amoled">Default AMOLED</string>
+
+    <!-- Wallpaper Black Default One-Time Migration Notice -->
+    <string name="wallpaper_migrated_preset_name">پس‌زمینه شخصی</string>
+    <string name="wallpaper_migrated_badge">پروفایل ذخیره شد</string>
+    <string name="wallpaper_migrated_title">پس‌زمینه پیش‌فرض به مشکی تغییر کرد</string>
+    <string name="wallpaper_migrated_message">پس‌زمینه پیش‌فرض برنامه یک‌بار به مشکی خالص AMOLED تغییر کرد. نگران نباشید، پس‌زمینه شخصی شما به‌صورت خودکار به‌عنوان پروفایل شخصی ذخیره شد و از بین نرفته است.</string>
+    <string name="wallpaper_migrated_media_photo">تصویر</string>
+    <string name="wallpaper_migrated_media_video">پس‌زمینه ویدیویی</string>
+    <string name="wallpaper_migrated_preset_meta">%1$s · تارشدگی: %2$d · تیرگی: %3$d%%</string>
+    <string name="wallpaper_migrated_path_label">مسیر پس‌زمینه ذخیره‌شده</string>
+    <string name="wallpaper_migrated_path_value">تنظیمات ← سایر ← سفارشی‌سازی ← پس‌زمینه دلخواه ← پیش‌تنظیم‌های پس‌زمینه</string>
+    <string name="wallpaper_migrated_preview_badge">پس‌زمینه ذخیره‌شده</string>
+    <string name="wallpaper_migrated_action_restore">بازگرداندن پس‌زمینه من</string>
+    <string name="wallpaper_migrated_action_choose">انتخاب سریع پس‌زمینه</string>
+    <string name="wallpaper_migrated_action_keep_black">نگه داشتن مشکی AMOLED</string>
+
     <string name="settings_theme_accent_title">Color Profile</string>
     <string name="settings_theme_accent_desc">Select accent lighting style, Stealth monochrome, or custom neon color</string>
     <string name="settings_theme_mode_protocol">Protocol</string>
@@ -2800,6 +2873,47 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_customization_haptic_test">آزمایش لرزش</string>
     <string name="settings_customization_haptic_info_title">پروفایل‌های بازخورد لمسی</string>
     <string name="settings_customization_haptic_info_desc">پروفایل‌های بازخورد لمسی MirrlyUI با استفاده از محرک‌های لرزشی فرکانس پایین و موتورهای پیشرفته اندروید. امکان انتخاب بین کلیک مکانیکی، پالس بم عمیق، دابل‌تیک سایبرنتیک یا حالت بی‌صدا.</string>
+
+    <!-- App Launcher Icon Customization -->
+    <string name="settings_customization_app_icon_title">آیکون برنامه</string>
+    <string name="settings_customization_app_icon_desc">انتخاب آیکون صفحه اصلی همراه با پیش‌نمایش زنده شکل و حالت تک‌رنگ اندروید ۱۳+</string>
+    <string name="settings_customization_app_icon_preview_label">پیش‌نمایش صفحه اصلی</string>
+    <string name="settings_customization_app_icon_mask_circle">دایره</string>
+    <string name="settings_customization_app_icon_mask_squircle">اسکویرکل</string>
+    <string name="settings_customization_app_icon_mask_rounded">مربع گرد</string>
+    <string name="settings_customization_app_icon_mask_teardrop">قطره</string>
+    <string name="settings_customization_app_icon_monochrome_toggle">تک‌رنگ · اندروید ۱۳+</string>
+    <string name="settings_customization_app_icon_state_active">فعال</string>
+    <string name="settings_customization_app_icon_state_selected">انتخاب شده</string>
+    <string name="settings_customization_app_icon_pending_notice">تغییر آیکون طی ۱ تا ۳ ثانیه صفحه اصلی را به‌روزرسانی می‌کند و ممکن است پنجره برنامه بسته یا کوچک شود. پروکسی و VPN فعال باقی می‌مانند.</string>
+    <string name="settings_customization_app_icon_btn_apply">اعمال آیکون</string>
+    <string name="settings_customization_app_icon_btn_reset">بازنشانی</string>
+    <string name="settings_customization_app_icon_sheet_title">تغییر آیکون برنامه</string>
+    <string name="settings_customization_app_icon_sheet_desc">اندروید نقطه ورود لانچر را به آیکون انتخاب‌شده تغییر می‌دهد. صفحه اصلی ممکن است طی ۱ تا ۳ ثانیه به‌روزرسانی شده و پنجره فعلی بسته شود.</string>
+    <string name="settings_customization_app_icon_sheet_note_bg">سرویس‌های پروکسی و VPN در پس‌زمینه بدون وقفه به کار خود ادامه می‌دهند.</string>
+    <string name="settings_customization_app_icon_sheet_note_shortcut">در برخی لانچرها لازم است میانبر سنجاق‌شده در صفحه اصلی را دوباره از لیست برنامه‌ها اضافه کنید.</string>
+    <string name="settings_customization_app_icon_sheet_btn_confirm">تایید و نصب</string>
+    <string name="settings_customization_app_icon_sheet_btn_cancel">انصراف</string>
+    <string name="settings_customization_app_icon_toast_applied">آیکون به‌روزرسانی شد · لانچر به‌زودی تغییر را نمایش می‌دهد</string>
+    <string name="settings_customization_app_icon_toast_failed">سیستم‌عامل تغییر آیکون لانچر را مسدود کرد</string>
+    <string name="settings_customization_app_icon_info_title">آیکون برنامه</string>
+    <string name="settings_customization_app_icon_info_desc">نحوه عملکرد:\n• تغییر آیکون بدون نیاز به نصب مجدد، نقطه ورود لانچر اندروید را تغییر می‌دهد.\n• در اندروید ۸.۰ و بالاتر از لایه‌های تطبیق‌پذیر متناسب با شکل لانچر استفاده می‌شود.\n• در اندروید ۱۳ و بالاتر از آیکون تک‌رنگ Material You پشتیبانی می‌شود.\n\nرفتار سیستم‌عامل:\n• پس از تایید، لانچر ممکن است برای ۱ تا ۳ ثانیه پنجره برنامه را ببندد تا آیکون صفحه اصلی را بازسازی کند.\n• اتصال پروکسی و VPN در پس‌زمینه قطع نمی‌شود.</string>
+    <string name="app_icon_default_title">فعلی</string>
+    <string name="app_icon_default_sub">پیش‌فرض</string>
+    <string name="app_icon_legacy_title">Legacy</string>
+    <string name="app_icon_legacy_sub">شیشه‌ای سه‌بعدی</string>
+    <string name="app_icon_outline_title">خطی</string>
+    <string name="app_icon_outline_sub">MirrlyUI</string>
+    <string name="app_icon_stealth_title">تک‌رنگ</string>
+    <string name="app_icon_stealth_sub">سیاه و سفید</string>
+    <string name="app_icon_ruby_title">Cyber Ruby</string>
+    <string name="app_icon_ruby_sub">نئون · یاقوتی</string>
+    <string name="app_icon_cobalt_title">Cobalt Blue</string>
+    <string name="app_icon_cobalt_sub">نئون · کبالت</string>
+    <string name="app_icon_amber_title">Electric Amber</string>
+    <string name="app_icon_amber_sub">نئون · کهربایی</string>
+    <string name="app_icon_violet_title">Violet Surge</string>
+    <string name="app_icon_violet_sub">نئون · SOCKS5</string>
 
     <!-- Snake Game Strings -->
     <string name="snake_title">مار</string>
@@ -3033,4 +3147,44 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="vpn_server_tel_germany">TEL آلمان</string>
     <string name="vpn_server_tel_poland">TEL لهستان</string>
     <string name="vpn_server_tel_finland">TEL فنلاند</string>
+
+    <!-- Port Conflict Detection & Diagnostics -->
+    <string name="port_conflict_notif_title">تداخل پورت‌های پروکسی</string>
+    <string name="port_conflict_notif_body_with_apps">پورت‌های %1$s اشغال هستند. پروکسی را در %2$s غیرفعال کنید یا پورت را در Mirrly تغییر دهید.</string>
+    <string name="port_conflict_notif_body_generic">پورت‌های %1$s توسط برنامه دیگری استفاده می‌شوند. برای بررسی ضربه بزنید.</string>
+    <string name="port_conflict_preflight_status">پورت %1$d توسط برنامه دیگری اشغال شده است</string>
+    <string name="port_conflict_start_failed_generic">راه‌اندازی پروکسی محلی ناموفق بود</string>
+    <string name="port_conflict_system_owner">سرویس سیستمی اندروید</string>
+    <string name="port_conflict_title_runtime">تداخل پورت هنگام راه‌اندازی</string>
+    <string name="port_conflict_title_startup">پورت‌های اشغال‌شده شناسایی شد</string>
+    <string name="port_conflict_title_resolved">پورت‌ها آزاد هستند</string>
+    <string name="port_conflict_subtitle_runtime">پروکسی راه‌اندازی نشد زیرا پورت انتخاب‌شده در حال استفاده است</string>
+    <string name="port_conflict_subtitle_startup">پورت‌های محلی Mirrly هم‌اکنون در دستگاه اشغال هستند</string>
+    <string name="port_conflict_subtitle_resolved">تداخل برطرف شد · آماده راه‌اندازی پروکسی</string>
+    <string name="port_conflict_section_ports">پورت‌های اشغال‌شده</string>
+    <string name="port_conflict_port_line">%1$s · پورت %2$d</string>
+    <string name="port_conflict_owner_exact">اشغال‌شده توسط · %1$s</string>
+    <string name="port_conflict_listener_proto_socks5">سرور SOCKS5 خارجی شناسایی شد</string>
+    <string name="port_conflict_listener_proto_http">پروکسی HTTP خارجی شناسایی شد</string>
+    <string name="port_conflict_listener_proto_tcp">شنونده محلی فعال روی %1$s</string>
+    <string name="port_conflict_listener_proto_unknown">نشانی روی %1$s در حال استفاده است</string>
+    <string name="port_conflict_section_apps">برنامه‌های پروکسی</string>
+    <string name="port_conflict_ask_disable_exact">پروکسی را در برنامه شناسایی‌شده غیرفعال کرده و به Mirrly بازگردید.</string>
+    <string name="port_conflict_ask_disable_candidates">پروکسی یا تونل را در برنامه‌های زیر غیرفعال کنید و سپس به Mirrly بازگردید.</string>
+    <string name="port_conflict_no_apps_found">اندروید مشاهده مالک سوکت را بدون روت محدود می‌کند. پروکسی یا VPN دیگر را غیرفعال کنید یا پورت آزاد انتخاب نمایید.</string>
+    <string name="port_conflict_active_vpn_note">یک VPN سیستمی هم‌اکنون در دستگاه فعال است</string>
+    <string name="port_conflict_reason_exact">مالک تاییدشده سوکت</string>
+    <string name="port_conflict_reason_port_match">تطابق پورت · %1$s</string>
+    <string name="port_conflict_reason_installed">برنامه پروکسی یا VPN نصب‌شده</string>
+    <string name="port_conflict_btn_open_app">باز کردن</string>
+    <string name="port_conflict_btn_app_settings">تنظیمات</string>
+    <string name="port_conflict_show_more_apps">نمایش بیشتر · %1$d</string>
+    <string name="port_conflict_show_less_apps">جمع کردن فهرست</string>
+    <string name="port_conflict_btn_recheck">بررسی مجدد</string>
+    <string name="port_conflict_btn_checking">در حال بررسی پورت‌ها...</string>
+    <string name="port_conflict_btn_auto_ports">انتخاب پورت‌های آزاد</string>
+    <string name="port_conflict_btn_start_proxy">شروع پروکسی</string>
+    <string name="port_conflict_resolved_ports_summary">پورت‌های آماده: MTProto %1$d · SOCKS5 %2$d</string>
+    <string name="port_conflict_toast_ports_updated">پورت‌ها به‌روزرسانی شد: %1$s</string>
+    <string name="port_conflict_toast_no_free_port">یافتن خودکار پورت آزاد ممکن نشد</string>
 </resources>

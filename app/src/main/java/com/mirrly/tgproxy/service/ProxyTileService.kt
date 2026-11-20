@@ -11,6 +11,8 @@ import androidx.annotation.RequiresApi
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.core.ProxyConfig
+import com.mirrly.tgproxy.core.ProxyMode
 
 /**
  * Плитка быстрых настроек Android для управления исключительно локальным прокси (MTProto / SOCKS5).
@@ -26,14 +28,45 @@ class ProxyTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val server = MirrlyApplication.instance.proxyServer
+        val app = MirrlyApplication.instance
+        val server = app.proxyServer
         val serviceIntent = Intent(this, ProxyForegroundService::class.java)
 
         val willBeRunning = !server.isRunning
-        if (willBeRunning && MirrlyApplication.instance.config.isSocks5Mode && MirrlyApplication.instance.config.getEffectiveCfDomain().isBlank()) {
-            android.widget.Toast.makeText(this, getString(R.string.socks5_no_worker_error), android.widget.Toast.LENGTH_LONG).show()
-            updateTileState(false)
-            return
+        var tileFlowsealNotice = Socks5UplinkPolicy.QuickTileNotice.NONE
+        if (willBeRunning) {
+            val prefs = app.prefsManager
+            val activeSocks5Worker = prefs.getActiveWorker(ProxyMode.SOCKS5)
+            val activeSocks5Domain = ProxyConfig.sanitizeDomain(activeSocks5Worker.domain)
+            val hasCustomWorkers = prefs.getCustomWorkers().any { ProxyConfig.sanitizeDomain(it.domain).isNotBlank() }
+            val hasUsableWorker = app.config.getEffectiveCfDomain().isNotBlank() ||
+                activeSocks5Domain.isNotBlank() ||
+                hasCustomWorkers
+
+            val decision = Socks5UplinkPolicy.resolveQuickTileStart(
+                isSocks5Mode = app.config.isSocks5Mode,
+                configUplinkMode = app.config.socks5UplinkMode,
+                persistedUplinkMode = prefs.getSocks5UplinkMode(),
+                isCloudflareAuthorized = prefs.isCloudflareAuthorized(),
+                hasUsableWorker = hasUsableWorker
+            )
+            tileFlowsealNotice = decision.notice
+
+            if (decision.shouldPersistUplinkMode) {
+                prefs.setSocks5UplinkMode(decision.targetUplinkMode)
+                app.config.socks5UplinkMode = decision.targetUplinkMode
+                if (decision.targetUplinkMode == ProxyConfig.SOCKS5_UPLINK_FLOWSEAL && !hasUsableWorker) {
+                    app.config.customCfDomain = ""
+                }
+                app.saveConfig()
+            } else if (app.config.isSocks5Mode &&
+                decision.targetUplinkMode == ProxyConfig.SOCKS5_UPLINK_WORKER &&
+                app.config.getEffectiveCfDomain().isBlank() &&
+                activeSocks5Domain.isNotBlank()
+            ) {
+                app.config.customCfDomain = activeSocks5Domain
+                app.saveConfig()
+            }
         }
 
         try {
@@ -46,6 +79,9 @@ class ProxyTileService : TileService() {
                     startForegroundService(serviceIntent)
                 } else {
                     startService(serviceIntent)
+                }
+                if (tileFlowsealNotice != Socks5UplinkPolicy.QuickTileNotice.NONE) {
+                    NotificationHelper.showSocks5FlowsealFallbackNotification(this, tileFlowsealNotice)
                 }
             }
             updateTileState(willBeRunning)

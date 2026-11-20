@@ -578,6 +578,18 @@ data class ProxyConfig(
         return sanitizeDomain(customCfDomain)
     }
 
+    /**
+     * Проверяет, требуется ли персональный воркер для запуска SOCKS5 (`socks5UplinkMode != 1`)
+     * при отсутствии настроенного домена. В режиме Anycast CDN Flowseal (`socks5UplinkMode == 1`)
+     * персональный воркер не требуется.
+     */
+    fun isSocks5WorkerMissing(fallbackWorkerDomain: String = ""): Boolean {
+        if (!isSocks5Mode || socks5UplinkMode == SOCKS5_UPLINK_FLOWSEAL) {
+            return false
+        }
+        return getEffectiveCfDomain().isBlank() && sanitizeDomain(fallbackWorkerDomain).isBlank()
+    }
+
     val rawSecret32: String
         get() {
             var clean = secretHex.trim().lowercase()
@@ -599,6 +611,8 @@ data class ProxyConfig(
         get() = hexToBytes(rawSecret32)
 
     companion object {
+        const val SOCKS5_UPLINK_WORKER = 0
+        const val SOCKS5_UPLINK_FLOWSEAL = 1
         const val DEFAULT_CF_PEER_KEY = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
         const val DEFAULT_QUIC_I1 = "<b 0xc000000001><rc 8><rc 8><b 0x00><r 128>"
 

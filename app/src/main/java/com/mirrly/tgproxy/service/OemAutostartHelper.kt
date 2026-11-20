@@ -38,8 +38,29 @@ import com.mirrly.tgproxy.core.AppLogger
  * - OriginOS / Funtouch OS (Vivo / iQOO)
  * - One UI (Samsung)
  */
+enum class OemFamily {
+    HONOR_HUAWEI,
+    XIAOMI,
+    OPPO_REALME_ONEPLUS,
+    VIVO,
+    SAMSUNG,
+    OTHER
+}
+
 object OemAutostartHelper {
     private const val TAG = "OemAutostartHelper"
+
+    fun getOemFamily(): OemFamily {
+        val m = Build.MANUFACTURER.lowercase()
+        return when {
+            m.contains("honor") || m.contains("huawei") -> OemFamily.HONOR_HUAWEI
+            m.contains("xiaomi") || m.contains("redmi") || m.contains("poco") -> OemFamily.XIAOMI
+            m.contains("oppo") || m.contains("realme") || m.contains("oneplus") -> OemFamily.OPPO_REALME_ONEPLUS
+            m.contains("vivo") || m.contains("iqoo") -> OemFamily.VIVO
+            m.contains("samsung") -> OemFamily.SAMSUNG
+            else -> OemFamily.OTHER
+        }
+    }
 
     fun getOemBrandName(): String {
         val m = Build.MANUFACTURER.lowercase()
@@ -55,10 +76,14 @@ object OemAutostartHelper {
     }
 
     fun isOemAutostartSupported(): Boolean {
-        val m = Build.MANUFACTURER.lowercase()
-        return m.contains("honor") || m.contains("huawei") || m.contains("xiaomi") ||
-            m.contains("redmi") || m.contains("poco") || m.contains("oppo") ||
-            m.contains("realme") || m.contains("oneplus") || m.contains("vivo")
+        return when (getOemFamily()) {
+            OemFamily.HONOR_HUAWEI,
+            OemFamily.XIAOMI,
+            OemFamily.OPPO_REALME_ONEPLUS,
+            OemFamily.VIVO -> true
+            OemFamily.SAMSUNG,
+            OemFamily.OTHER -> false
+        }
     }
 
     fun isIgnoringBatteryOptimizations(context: Context): Boolean {
@@ -97,22 +122,26 @@ object OemAutostartHelper {
 
         if (m.contains("honor")) {
             candidates.add(Intent().setComponent(ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity")))
+            candidates.add(Intent().setComponent(ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity")))
             candidates.add(Intent().setComponent(ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.process.ProtectActivity")))
             candidates.add(Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")))
+            candidates.add(Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")))
             candidates.add(Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")))
         }
         if (m.contains("huawei")) {
             candidates.add(Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")))
-            candidates.add(Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")))
             candidates.add(Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")))
+            candidates.add(Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")))
         }
         if (m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")) {
             candidates.add(Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")))
+            candidates.add(Intent().setComponent(ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsContainerManagementActivity")))
             candidates.add(Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity")))
         }
         if (m.contains("oppo") || m.contains("realme") || m.contains("oneplus")) {
             candidates.add(Intent().setComponent(ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")))
             candidates.add(Intent().setComponent(ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity")))
+            candidates.add(Intent().setComponent(ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity")))
             candidates.add(Intent().setComponent(ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity")))
         }
         if (m.contains("vivo") || m.contains("iqoo")) {

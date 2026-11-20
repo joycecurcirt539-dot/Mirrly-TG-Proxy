@@ -50,6 +50,14 @@ object HapticHelper {
         }
     }
 
+    private fun isVibrationDisabled(): Boolean {
+        return try {
+            MirrlyApplication.instance.prefsManager.isVibrationDisabled()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     private fun getActiveProfile(): HapticProfile {
         return try {
             MirrlyApplication.instance.prefsManager.getHapticProfile()
@@ -64,7 +72,7 @@ object HapticHelper {
      */
     fun performTapClick(context: Context, overrideProfile: HapticProfile? = null) {
         val profile = overrideProfile ?: getActiveProfile()
-        if (profile == HapticProfile.STEALTH) return
+        if (HapticProfile.isVibrationMuted(isVibrationDisabled(), profile)) return
 
         try {
             val vibrator = getVibrator(context) ?: return
@@ -128,10 +136,10 @@ object HapticHelper {
 
     /**
      * Rich, elongated, silky-smooth waveform haptic texture for tactile swipe gestures.
-     * Silent in [HapticProfile.STEALTH].
+     * Silent when vibration is disabled or in [HapticProfile.STEALTH].
      */
     fun performSwipeGlide(context: Context) {
-        if (getActiveProfile() == HapticProfile.STEALTH) return
+        if (HapticProfile.isVibrationMuted(isVibrationDisabled(), getActiveProfile())) return
 
         try {
             val vibrator = getVibrator(context) ?: return
@@ -163,10 +171,10 @@ object HapticHelper {
 
     /**
      * Subtle micro tick for drag boundary contact.
-     * Silent in [HapticProfile.STEALTH].
+     * Silent when vibration is disabled or in [HapticProfile.STEALTH].
      */
     fun performSoftTick(context: Context) {
-        if (getActiveProfile() == HapticProfile.STEALTH) return
+        if (HapticProfile.isVibrationMuted(isVibrationDisabled(), getActiveProfile())) return
 
         try {
             val vibrator = getVibrator(context) ?: return

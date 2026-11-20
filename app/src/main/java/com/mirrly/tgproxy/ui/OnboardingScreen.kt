@@ -36,16 +36,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.mirrly.tgproxy.ui.icon.MirrlyIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -53,11 +57,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.service.OemAutostartHelper
+import com.mirrly.tgproxy.service.OemFamily
 import com.mirrly.tgproxy.service.PreferencesManager
+import com.mirrly.tgproxy.service.ProxyForegroundService
+import com.mirrly.tgproxy.service.ProxyResurrectionManager
 import com.mirrly.tgproxy.service.WallpaperPreset
 import com.mirrly.tgproxy.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -74,30 +87,161 @@ import kotlin.math.roundToInt
  * - Кинематографичные бесшовные переходы между шагами (AnimatedContent с горизонтальным слайдом)
  *   и плавное растворение оверлея при переходе к главному экрану приложения.
  */
+const val ONBOARDING_STEP_BACKGROUND = 5
+
+enum class BackgroundGateMissing {
+    NONE,
+    BATTERY_AND_OEM,
+    BATTERY_ONLY,
+    OEM_NOT_OPENED,
+    OEM_NOT_CONFIRMED
+}
+
+data class OnboardingBackgroundGateState(
+    val isIgnoringBattery: Boolean,
+    val isOemSupported: Boolean,
+    val hasOpenedOemSettings: Boolean,
+    val isOemConfirmed: Boolean
+) {
+    val isOemRequirementMet: Boolean
+        get() = !isOemSupported || isOemConfirmed
+
+    val isComplete: Boolean
+        get() = isIgnoringBattery && isOemRequirementMet
+
+    val missingRequirement: BackgroundGateMissing
+        get() = when {
+            isComplete -> BackgroundGateMissing.NONE
+            !isIgnoringBattery && !isOemRequirementMet -> BackgroundGateMissing.BATTERY_AND_OEM
+            !isIgnoringBattery -> BackgroundGateMissing.BATTERY_ONLY
+            !hasOpenedOemSettings -> BackgroundGateMissing.OEM_NOT_OPENED
+            else -> BackgroundGateMissing.OEM_NOT_CONFIRMED
+        }
+
+    fun canNavigateToStep(targetStep: Int): Boolean {
+        return targetStep <= ONBOARDING_STEP_BACKGROUND || isComplete
+    }
+
+    fun canExit(): Boolean = isComplete
+}
+
 @Composable
 fun OnboardingScreen(
     initialLanguage: String = "ru",
     prefsManager: PreferencesManager? = null,
+    initialStep: Int = 0,
     onLanguageSelected: (String) -> Unit,
     onComplete: () -> Unit
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
+    val totalSteps = 7
     var currentLang by remember(initialLanguage) { mutableStateOf(initialLanguage) }
-    var currentStep by remember { mutableIntStateOf(0) } // 0: Язык, 1: Выбор фона, 2: Прокси Telegram, 3: VPN и аплинки, 4: Быстрый старт
-    val totalSteps = 5
+    var currentStep by rememberSaveable(initialStep) { mutableIntStateOf(initialStep.coerceIn(0, totalSteps - 1)) } // 0: Язык, 1: Выбор фона, 2: Кастомизация, 3: Прокси Telegram, 4: VPN и аплинки, 5: Работа в фоне, 6: Быстрый старт
+
+    // Мониторинг исключения из оптимизации батареи (Doze Mode) и OEM-автозапуска
+    var isAppResumed by remember { mutableStateOf(true) }
+    var isIgnoringBattery by remember {
+        mutableStateOf(OemAutostartHelper.isIgnoringBatteryOptimizations(context))
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    isAppResumed = true
+                    isIgnoringBattery = OemAutostartHelper.isIgnoringBatteryOptimizations(context)
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    isAppResumed = false
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(currentStep, isAppResumed, isIgnoringBattery) {
+        if (currentStep == ONBOARDING_STEP_BACKGROUND && isAppResumed && !isIgnoringBattery) {
+            while (isActive && !isIgnoringBattery) {
+                delay(400L)
+                val updated = OemAutostartHelper.isIgnoringBatteryOptimizations(context)
+                if (updated) {
+                    isIgnoringBattery = true
+                    HapticHelper.performTapClick(context)
+                    break
+                }
+            }
+        }
+    }
+
+    val isOemSupported = remember { OemAutostartHelper.isOemAutostartSupported() }
+    var hasOpenedOemSettings by rememberSaveable {
+        mutableStateOf(prefsManager?.hasConfirmedOemAutostart() == true)
+    }
+    var isOemConfirmed by rememberSaveable {
+        mutableStateOf(prefsManager?.hasConfirmedOemAutostart() == true)
+    }
+
+    val gateState = OnboardingBackgroundGateState(
+        isIgnoringBattery = isIgnoringBattery,
+        isOemSupported = isOemSupported,
+        hasOpenedOemSettings = hasOpenedOemSettings,
+        isOemConfirmed = isOemConfirmed
+    )
+    val isBackgroundSetupComplete = gateState.isComplete
+
+    var validationMessage by remember { mutableStateOf<String?>(null) }
+    var validationMessageKey by remember { mutableIntStateOf(0) }
+
+    fun missingRequirementMessage(): String {
+        return when (gateState.missingRequirement) {
+            BackgroundGateMissing.BATTERY_AND_OEM -> context.getString(R.string.onboarding_bg_warn_both)
+            BackgroundGateMissing.BATTERY_ONLY -> context.getString(R.string.onboarding_bg_warn_battery)
+            BackgroundGateMissing.OEM_NOT_OPENED -> context.getString(R.string.onboarding_bg_warn_oem_open)
+            BackgroundGateMissing.OEM_NOT_CONFIRMED -> context.getString(R.string.onboarding_bg_warn_oem_confirm)
+            BackgroundGateMissing.NONE -> ""
+        }
+    }
+
+    fun showValidationWarning(message: String) {
+        validationMessage = message
+        validationMessageKey += 1
+        HapticHelper.performTapClick(context)
+    }
+
+    LaunchedEffect(validationMessageKey) {
+        if (validationMessage != null) {
+            delay(3600L)
+            validationMessage = null
+        }
+    }
+
+    LaunchedEffect(isBackgroundSetupComplete) {
+        if (isBackgroundSetupComplete) {
+            validationMessage = null
+        }
+    }
 
     // Анимационный контроллер плавного выхода на главный экран
     val exitProgress = remember { Animatable(0f) }
     var isExiting by remember { mutableStateOf(false) }
 
     fun executeExit() {
+        if (!gateState.canExit()) {
+            currentStep = ONBOARDING_STEP_BACKGROUND
+            showValidationWarning(missingRequirementMessage())
+            return
+        }
         if (isExiting) {
             onComplete()
             return
         }
         isExiting = true
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        HapticHelper.performTapClick(context)
         coroutineScope.launch {
             try {
                 exitProgress.animateTo(
@@ -114,8 +258,11 @@ fun OnboardingScreen(
         if (currentStep > 0) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             currentStep -= 1
-        } else {
+        } else if (isBackgroundSetupComplete) {
             executeExit()
+        } else {
+            currentStep = ONBOARDING_STEP_BACKGROUND
+            showValidationWarning(missingRequirementMessage())
         }
     }
 
@@ -220,8 +367,13 @@ fun OnboardingScreen(
                                     indication = null
                                 ) {
                                     if (i != currentStep && !isExiting) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        currentStep = i
+                                        if (!gateState.canNavigateToStep(i)) {
+                                            currentStep = ONBOARDING_STEP_BACKGROUND
+                                            showValidationWarning(missingRequirementMessage())
+                                        } else {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            currentStep = i
+                                        }
                                     }
                                 }
                         )
@@ -286,16 +438,51 @@ fun OnboardingScreen(
                             }
                             1 -> {
                                 StepWallpaperSelection(
-                                    prefsManager = prefsManager
+                                    prefsManager = prefsManager,
+                                    isPreviewActive = (currentStep == 1)
                                 )
                             }
                             2 -> {
-                                StepTelegramProxy()
+                                StepCustomizationGuide()
                             }
                             3 -> {
-                                StepVpnMode()
+                                StepTelegramProxy()
                             }
                             4 -> {
+                                StepVpnMode()
+                            }
+                            5 -> {
+                                StepBackgroundProtection(
+                                    prefsManager = prefsManager,
+                                    isIgnoringBattery = isIgnoringBattery,
+                                    isOemSupported = isOemSupported,
+                                    hasOpenedOemSettings = hasOpenedOemSettings,
+                                    isOemConfirmed = isOemConfirmed,
+                                    onRequestBatteryExemption = {
+                                        val launched = OemAutostartHelper.requestIgnoreBatteryOptimizations(context)
+                                        if (!launched) {
+                                            showValidationWarning(context.getString(R.string.onboarding_bg_warn_open_failed))
+                                        }
+                                    },
+                                    onOpenOemSettings = {
+                                        val launched = OemAutostartHelper.openAutostartSettings(context)
+                                        hasOpenedOemSettings = true
+                                        if (!launched) {
+                                            showValidationWarning(context.getString(R.string.onboarding_bg_warn_open_failed))
+                                        }
+                                    },
+                                    onToggleOemConfirmed = { checked ->
+                                        if (!hasOpenedOemSettings) {
+                                            showValidationWarning(context.getString(R.string.onboarding_bg_warn_oem_open))
+                                        } else {
+                                            isOemConfirmed = checked
+                                            prefsManager?.setHasConfirmedOemAutostart(checked)
+                                            HapticHelper.performTapClick(context)
+                                        }
+                                    }
+                                )
+                            }
+                            6 -> {
                                 StepQuickStartGuide()
                             }
                         }
@@ -304,97 +491,163 @@ fun OnboardingScreen(
             }
 
             // ── 3. НИЖНЯЯ ПАНЕЛЬ ДЕЙСТВИЙ (Увеличенный отступ от экранных кнопок) ──
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = safeBottomMargin, top = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(bottom = safeBottomMargin, top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Вторичная кнопка («Назад» или «Пропустить»)
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, AmoledBorder),
-                    modifier = Modifier
-                        .height(52.dp)
-                        .springPress(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (currentStep > 0) {
-                                    currentStep -= 1
-                                } else {
-                                    executeExit()
-                                }
-                            }
-                        )
+                AnimatedVisibility(
+                    visible = validationMessage != null,
+                    enter = fadeIn(animationSpec = tween(200)) + expandVertically(),
+                    exit = fadeOut(animationSpec = tween(180)) + shrinkVertically()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(horizontal = 24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (currentStep > 0) {
-                                stringResource(R.string.onboarding_btn_back)
-                            } else {
-                                stringResource(R.string.onboarding_btn_skip)
-                            },
-                            color = Color(0xFFD4D4E0),
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                    validationMessage?.let { msg ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = BloodRed.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, BloodRed.copy(alpha = 0.72f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(BloodRed)
+                                )
+                                Text(
+                                    text = msg,
+                                    color = TextWhite,
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 15.5.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                     }
                 }
 
-                // Первичная кнопка («Далее» или «Начать работу») с неоновым свечением
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.5.dp, ActiveGreenLed.copy(alpha = 0.75f)),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp)
-                        .lightSweep(isEnabled = true, shape = RoundedCornerShape(16.dp))
-                        .springPress(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (currentStep < totalSteps - 1) {
-                                    currentStep += 1
-                                } else {
-                                    executeExit()
+                val isStepBlocked = (currentStep == ONBOARDING_STEP_BACKGROUND && !isBackgroundSetupComplete) ||
+                    (currentStep == totalSteps - 1 && !isBackgroundSetupComplete)
+                val primaryBorderColor by animateColorAsState(
+                    targetValue = if (isStepBlocked) AmoledBorder else ActiveGreenLed.copy(alpha = 0.75f),
+                    animationSpec = tween(220),
+                    label = "onboardingPrimaryBorder"
+                )
+                val primaryContentColor by animateColorAsState(
+                    targetValue = if (isStepBlocked) TextMuted else ActiveGreenLed,
+                    animationSpec = tween(220),
+                    label = "onboardingPrimaryContent"
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Вторичная кнопка («Назад»; «Пропустить» доступна только при уже выполненных обязательных настройках)
+                    if (currentStep > 0 || isBackgroundSetupComplete) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, AmoledBorder),
+                            modifier = Modifier
+                                .height(52.dp)
+                                .springPress(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        if (currentStep > 0) {
+                                            currentStep -= 1
+                                        } else {
+                                            executeExit()
+                                        }
+                                    }
+                                )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .padding(horizontal = 24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (currentStep > 0) {
+                                        stringResource(R.string.onboarding_btn_back)
+                                    } else {
+                                        stringResource(R.string.onboarding_btn_skip)
+                                    },
+                                    color = Color(0xFFD4D4E0),
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+
+                    // Первичная кнопка («Далее» / «Требуется настройка» / «Начать работу») с неоновым свечением
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.5.dp, primaryBorderColor),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp)
+                            .lightSweep(isEnabled = !isStepBlocked, shape = RoundedCornerShape(16.dp))
+                            .springPress(
+                                onClick = {
+                                    if (isStepBlocked) {
+                                        if (currentStep != ONBOARDING_STEP_BACKGROUND) {
+                                            currentStep = ONBOARDING_STEP_BACKGROUND
+                                        }
+                                        showValidationWarning(missingRequirementMessage())
+                                        return@springPress
+                                    }
+                                    HapticHelper.performTapClick(context)
+                                    if (currentStep < totalSteps - 1) {
+                                        currentStep += 1
+                                    } else {
+                                        executeExit()
+                                    }
+                                }
+                            )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = when {
+                                        isStepBlocked -> stringResource(R.string.onboarding_bg_btn_locked)
+                                        currentStep == totalSteps - 1 -> stringResource(R.string.onboarding_btn_start)
+                                        else -> stringResource(R.string.onboarding_btn_next)
+                                    },
+                                    color = primaryContentColor,
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.4.sp
+                                )
+                                if (!isStepBlocked) {
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_chevron_right,
+                                        contentDescription = null,
+                                        tint = primaryContentColor,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                 }
                             }
-                        )
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 20.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = if (currentStep == totalSteps - 1) {
-                                    stringResource(R.string.onboarding_btn_start)
-                                } else {
-                                    stringResource(R.string.onboarding_btn_next)
-                                },
-                                color = ActiveGreenLed,
-                                fontSize = 14.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.4.sp
-                            )
-                            MirrlyIcon(
-                                id = R.drawable.ic_chevron_right,
-                                contentDescription = null,
-                                tint = ActiveGreenLed,
-                                modifier = Modifier.size(16.dp)
-                            )
                         }
                     }
                 }
@@ -589,7 +842,8 @@ private fun LanguageCardItem(
  */
 @Composable
 private fun StepWallpaperSelection(
-    prefsManager: PreferencesManager?
+    prefsManager: PreferencesManager?,
+    isPreviewActive: Boolean = true
 ) {
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
@@ -602,7 +856,9 @@ private fun StepWallpaperSelection(
     val isSpaceToiletActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_SPACE_TOILET
     val isGrassActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_GRASS
     val isBreezeActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_BREEZE
-    val isAmoledActive = !hasCustomWallpaper || activePresetId == null
+    val isAmoledActive = !hasCustomWallpaper ||
+        activePresetId == null ||
+        activePresetId == WallpaperPreset.PRESET_ID_DEFAULT_AMOLED
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         // Заголовок и вводный текст шага
@@ -625,7 +881,42 @@ private fun StepWallpaperSelection(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        // 1. Space Toilet (Default dynamic video preset with 70% dimming)
+        // 1. Чистый AMOLED (Default pure black AMOLED with cyber particles)
+        val defaultAmoledPreset = remember {
+            WallpaperPreset.BUILTIN_PRESETS.firstOrNull { it.id == WallpaperPreset.PRESET_ID_DEFAULT_AMOLED }
+        }
+        WallpaperSelectionCardItem(
+            title = stringResource(R.string.onboarding_wallpaper_amoled_title),
+            subtitle = stringResource(R.string.onboarding_wallpaper_amoled_desc),
+            isSelected = isAmoledActive,
+            previewContent = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    MirrlyIcon(
+                        id = R.drawable.ic_wallpaper,
+                        contentDescription = null,
+                        tint = if (isAmoledActive) ActiveGreenLed else Color.White.copy(alpha = 0.50f),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            },
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                if (defaultAmoledPreset != null) {
+                    coroutineScope.launch {
+                        prefsManager?.applyPreset(defaultAmoledPreset)
+                    }
+                } else {
+                    prefsManager?.clearCustomWallpaper()
+                }
+            }
+        )
+
+        // 2. Space Toilet (Dynamic video preset with 70% dimming)
         val spaceToiletPreset = remember {
             WallpaperPreset.BUILTIN_PRESETS.firstOrNull { it.id == WallpaperPreset.PRESET_ID_SPACE_TOILET }
         }
@@ -638,6 +929,8 @@ private fun StepWallpaperSelection(
                 PresetVideoPreview(
                     assetPath = "wallpapers/space_toilet_thumb.mp4",
                     previewImage = spaceToiletThumb,
+                    startDelayMs = 380L,
+                    isActive = isPreviewActive,
                     modifier = Modifier.fillMaxSize()
                 )
             },
@@ -651,7 +944,7 @@ private fun StepWallpaperSelection(
             }
         )
 
-        // 2. Утренняя роса (Photo wallpaper)
+        // 3. Утренняя роса (Photo wallpaper)
         val grassPreset = remember {
             WallpaperPreset.BUILTIN_PRESETS.firstOrNull { it.id == WallpaperPreset.PRESET_ID_GRASS }
         }
@@ -680,7 +973,7 @@ private fun StepWallpaperSelection(
             }
         )
 
-        // 3. Морской бриз (Photo wallpaper)
+        // 4. Морской бриз (Photo wallpaper)
         val breezePreset = remember {
             WallpaperPreset.BUILTIN_PRESETS.firstOrNull { it.id == WallpaperPreset.PRESET_ID_BREEZE }
         }
@@ -709,37 +1002,11 @@ private fun StepWallpaperSelection(
             }
         )
 
-        // 4. Чистый AMOLED (Pure AMOLED with cyber particles)
-        WallpaperSelectionCardItem(
-            title = stringResource(R.string.onboarding_wallpaper_amoled_title),
-            subtitle = stringResource(R.string.onboarding_wallpaper_amoled_desc),
-            isSelected = isAmoledActive,
-            previewContent = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MirrlyIcon(
-                        id = R.drawable.ic_wallpaper,
-                        contentDescription = null,
-                        tint = if (isAmoledActive) ActiveGreenLed else Color.White.copy(alpha = 0.50f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            },
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                prefsManager?.clearCustomWallpaper()
-            }
-        )
-
         // 5. User Custom Presets (if any)
         userPresets.forEach { userPreset ->
             val isUserPresetActive = hasCustomWallpaper && activePresetId == userPreset.id
             val userPreviewImage = rememberWallpaperImage(
-                path = userPreset.previewAssetPath ?: userPreset.previewFilePath ?: userPreset.filePath,
+                path = userPreset.resolveStaticPreviewPath(),
                 revision = 0L
             )
             WallpaperSelectionCardItem(
@@ -752,6 +1019,8 @@ private fun StepWallpaperSelection(
                             videoPath = userPreset.filePath,
                             assetPath = userPreset.previewAssetPath?.takeIf { it.endsWith(".mp4") } ?: userPreset.assetPath,
                             previewImage = userPreviewImage,
+                            startDelayMs = 380L,
+                            isActive = isPreviewActive,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else if (userPreviewImage != null) {
@@ -888,7 +1157,105 @@ private fun WallpaperSelectionCardItem(
 }
 
 /**
- * Шаг 3: Прокси для Telegram (MTProto и SOCKS5).
+ * Шаг 3: Обзор раздела кастомизации интерфейса.
+ */
+@Composable
+private fun StepCustomizationGuide() {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(R.string.onboarding_step_custom_title),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.3.sp,
+                color = ActiveGreenLed.copy(alpha = 0.90f)
+            )
+            Text(
+                text = stringResource(R.string.onboarding_step_custom_desc),
+                fontSize = 13.5.sp,
+                color = TextWhite,
+                lineHeight = 19.5.sp
+            )
+        }
+
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.45f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MirrlyIcon(
+                    id = R.drawable.ic_settings,
+                    contentDescription = null,
+                    tint = ActiveGreenLed,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = stringResource(R.string.onboarding_custom_path_badge),
+                    color = ActiveGreenLed,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                FeatureRowItem(
+                    iconRes = R.drawable.ic_wallpaper,
+                    title = stringResource(R.string.onboarding_custom_wallpaper_title),
+                    detail = stringResource(R.string.onboarding_custom_wallpaper_desc)
+                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.6f)))
+
+                FeatureRowItem(
+                    iconRes = R.drawable.ic_flash_on,
+                    title = stringResource(R.string.onboarding_custom_theme_title),
+                    detail = stringResource(R.string.onboarding_custom_theme_desc)
+                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.6f)))
+
+                FeatureRowItem(
+                    iconRes = R.drawable.ic_power,
+                    title = stringResource(R.string.onboarding_custom_button_title),
+                    detail = stringResource(R.string.onboarding_custom_button_desc)
+                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.6f)))
+
+                FeatureRowItem(
+                    iconRes = R.drawable.ic_auto_select,
+                    title = stringResource(R.string.onboarding_custom_fx_title),
+                    detail = stringResource(R.string.onboarding_custom_fx_desc)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Шаг 4: Прокси для Telegram (MTProto и SOCKS5).
  */
 @Composable
 private fun StepTelegramProxy() {
@@ -960,7 +1327,7 @@ private fun StepTelegramProxy() {
 }
 
 /**
- * Шаг 4: Системный режим VPN и протоколы аплинка.
+ * Шаг 5: Системный режим VPN и протоколы аплинка.
  */
 @Composable
 private fun StepVpnMode() {
@@ -1071,7 +1438,590 @@ private fun FeatureRowItem(
 }
 
 /**
- * Шаг 5: Быстрый старт (Три простых шага для настройки защищенного соединения).
+ * Шаг 6: Обязательная настройка работы в фоне, оптимизации батареи и защиты от засыпания.
+ */
+@Composable
+private fun StepBackgroundProtection(
+    prefsManager: PreferencesManager?,
+    isIgnoringBattery: Boolean,
+    isOemSupported: Boolean,
+    hasOpenedOemSettings: Boolean,
+    isOemConfirmed: Boolean,
+    onRequestBatteryExemption: () -> Unit,
+    onOpenOemSettings: () -> Unit,
+    onToggleOemConfirmed: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val oemFamily = remember { OemAutostartHelper.getOemFamily() }
+    val oemBrandName = remember { OemAutostartHelper.getOemBrandName() }
+
+    val appInstance = remember { runCatching { MirrlyApplication.instance }.getOrNull() }
+    val isCpuAntiFreeze by (prefsManager?.isCpuAntiFreezeEnabledFlow
+        ?: remember { MutableStateFlow(appInstance?.config?.isCpuAntiFreezeEnabled ?: false) }).collectAsState()
+    val isAlarmClockWatchdog by (prefsManager?.isAlarmClockWatchdogEnabledFlow
+        ?: remember { MutableStateFlow(appInstance?.config?.isAlarmClockWatchdogEnabled ?: true) }).collectAsState()
+    val isTrafficPulse by (prefsManager?.isTrafficPulseEnabledFlow
+        ?: remember { MutableStateFlow(appInstance?.config?.isTrafficPulseEnabled ?: true) }).collectAsState()
+
+    var isSurvivalExpanded by rememberSaveable { mutableStateOf(true) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isSurvivalExpanded) 180f else 0f,
+        animationSpec = tween(220),
+        label = "bgSurvivalChevron"
+    )
+    val enabledCount = (if (isCpuAntiFreeze) 1 else 0) +
+        (if (isAlarmClockWatchdog) 1 else 0) +
+        (if (isTrafficPulse) 1 else 0)
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(R.string.onboarding_step_background_title),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.3.sp,
+                color = ActiveGreenLed.copy(alpha = 0.90f)
+            )
+            Text(
+                text = stringResource(R.string.onboarding_step_background_desc),
+                fontSize = 13.5.sp,
+                color = TextWhite,
+                lineHeight = 19.sp
+            )
+        }
+
+        // Карточка 1: Исключение из оптимизации батареи (Doze Mode)
+        val batteryBorderColor by animateColorAsState(
+            targetValue = if (isIgnoringBattery) ActiveGreenLed.copy(alpha = 0.65f) else BloodRed.copy(alpha = 0.55f),
+            animationSpec = tween(240),
+            label = "bgBatteryBorder"
+        )
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color.Transparent,
+            border = BorderStroke(if (isIgnoringBattery) 1.5.dp else 1.dp, batteryBorderColor),
+            modifier = Modifier
+                .fillMaxWidth()
+                .lightSweep(isEnabled = isIgnoringBattery, shape = RoundedCornerShape(20.dp), borderWidth = 1.5.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .border(
+                                    1.dp,
+                                    if (isIgnoringBattery) ActiveGreenLed.copy(alpha = 0.55f) else AmoledBorder,
+                                    RoundedCornerShape(11.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            MirrlyIcon(
+                                id = R.drawable.ic_shield,
+                                contentDescription = null,
+                                tint = if (isIgnoringBattery) ActiveGreenLed else TextWhite,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.onboarding_bg_battery_title),
+                            color = TextWhite,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    OnboardingStatusBadge(
+                        text = if (isIgnoringBattery) {
+                            stringResource(R.string.onboarding_bg_status_active)
+                        } else {
+                            stringResource(R.string.onboarding_bg_status_required)
+                        },
+                        isSatisfied = isIgnoringBattery
+                    )
+                }
+
+                Text(
+                    text = stringResource(R.string.onboarding_bg_battery_desc),
+                    color = Color(0xFFD4D4E0),
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(13.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(
+                        1.dp,
+                        if (isIgnoringBattery) ActiveGreenLed.copy(alpha = 0.55f) else ActiveGreenLed.copy(alpha = 0.75f)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .springPress(onClick = {
+                            HapticHelper.performTapClick(context)
+                            onRequestBatteryExemption()
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isIgnoringBattery) {
+                            MirrlyIcon(
+                                id = R.drawable.ic_check_circle,
+                                contentDescription = null,
+                                tint = ActiveGreenLed,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = if (isIgnoringBattery) {
+                                stringResource(R.string.onboarding_bg_battery_done)
+                            } else {
+                                stringResource(R.string.onboarding_bg_battery_btn)
+                            },
+                            color = ActiveGreenLed,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        // Карточка 2: Автозапуск и ручной режим в OEM-оболочке
+        val oemSatisfied = !isOemSupported || isOemConfirmed
+        val oemBorderColor by animateColorAsState(
+            targetValue = when {
+                !isOemSupported -> AmoledBorder
+                isOemConfirmed -> ActiveGreenLed.copy(alpha = 0.65f)
+                else -> BloodRed.copy(alpha = 0.55f)
+            },
+            animationSpec = tween(240),
+            label = "bgOemBorder"
+        )
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color.Transparent,
+            border = BorderStroke(if (isOemSupported && isOemConfirmed) 1.5.dp else 1.dp, oemBorderColor),
+            modifier = Modifier
+                .fillMaxWidth()
+                .lightSweep(
+                    isEnabled = isOemSupported && isOemConfirmed,
+                    shape = RoundedCornerShape(20.dp),
+                    borderWidth = 1.5.dp
+                )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .border(
+                                    1.dp,
+                                    if (isOemSupported && isOemConfirmed) ActiveGreenLed.copy(alpha = 0.55f) else AmoledBorder,
+                                    RoundedCornerShape(11.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            MirrlyIcon(
+                                id = R.drawable.ic_oem_startup,
+                                contentDescription = null,
+                                tint = if (isOemSupported && isOemConfirmed) ActiveGreenLed else TextWhite,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = stringResource(R.string.onboarding_bg_oem_title),
+                                color = TextWhite,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = oemBrandName,
+                                color = if (isOemSupported) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    OnboardingStatusBadge(
+                        text = when {
+                            !isOemSupported -> stringResource(R.string.onboarding_bg_status_optional)
+                            isOemConfirmed -> stringResource(R.string.onboarding_bg_status_confirmed)
+                            else -> stringResource(R.string.onboarding_bg_status_required)
+                        },
+                        isSatisfied = oemSatisfied,
+                        isNeutral = !isOemSupported
+                    )
+                }
+
+                val oemStepsText = when (oemFamily) {
+                    OemFamily.HONOR_HUAWEI -> stringResource(R.string.onboarding_bg_oem_steps_honor)
+                    OemFamily.XIAOMI -> stringResource(R.string.onboarding_bg_oem_steps_xiaomi)
+                    OemFamily.OPPO_REALME_ONEPLUS -> stringResource(R.string.onboarding_bg_oem_steps_oppo)
+                    OemFamily.VIVO -> stringResource(R.string.onboarding_bg_oem_steps_vivo)
+                    OemFamily.SAMSUNG,
+                    OemFamily.OTHER -> stringResource(R.string.onboarding_bg_oem_steps_generic)
+                }
+
+                Text(
+                    text = oemStepsText,
+                    color = Color(0xFFD4D4E0),
+                    fontSize = 12.sp,
+                    lineHeight = 17.5.sp
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(13.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(
+                        1.dp,
+                        if (isOemSupported) ActiveGreenLed.copy(alpha = 0.70f) else AmoledBorder
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .springPress(onClick = {
+                            HapticHelper.performTapClick(context)
+                            onOpenOemSettings()
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        MirrlyIcon(
+                            id = R.drawable.ic_oem_startup,
+                            contentDescription = null,
+                            tint = if (isOemSupported) ActiveGreenLed else TextWhite,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (hasOpenedOemSettings) {
+                                stringResource(R.string.onboarding_bg_oem_btn_reopen)
+                            } else {
+                                stringResource(R.string.onboarding_bg_oem_btn)
+                            },
+                            color = if (isOemSupported) ActiveGreenLed else TextWhite,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                if (isOemSupported) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(AmoledBorder.copy(alpha = 0.55f))
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                onToggleOemConfirmed(!isOemConfirmed)
+                            }
+                            .padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f).padding(end = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.onboarding_bg_oem_confirm_title),
+                                color = if (hasOpenedOemSettings) TextWhite else TextMuted,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (!hasOpenedOemSettings) {
+                                Text(
+                                    text = stringResource(R.string.onboarding_bg_oem_confirm_hint),
+                                    color = TextMuted,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.5.sp
+                                )
+                            }
+                        }
+                        InertialSpringSwitch(
+                            checked = isOemConfirmed,
+                            enabled = hasOpenedOemSettings,
+                            onCheckedChange = { checked ->
+                                onToggleOemConfirmed(checked)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Карточка 3: Выбор механизмов защиты от засыпания в прошивке (сворачиваемый аккордеон)
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            isSurvivalExpanded = !isSurvivalExpanded
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.onboarding_bg_toggles_title),
+                            color = TextWhite,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = stringResource(R.string.onboarding_bg_toggles_summary, enabledCount, 3),
+                            color = ActiveGreenLed.copy(alpha = 0.85f),
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    MirrlyIcon(
+                        id = R.drawable.ic_arrow_down,
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .rotate(chevronRotation)
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = isSurvivalExpanded,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(AmoledBorder.copy(alpha = 0.55f))
+                        )
+
+                        OnboardingSurvivalToggleRow(
+                            iconRes = R.drawable.ic_cpu_antifreeze,
+                            title = stringResource(R.string.settings_cpu_antifreeze_title),
+                            description = stringResource(R.string.onboarding_bg_cpu_antifreeze_desc),
+                            recommendation = if (isOemSupported) stringResource(R.string.onboarding_bg_recommended_badge) else null,
+                            checked = isCpuAntiFreeze,
+                            onCheckedChange = { checked ->
+                                appInstance?.let { app ->
+                                    app.config.isCpuAntiFreezeEnabled = checked
+                                    app.saveConfig()
+                                    ProxyForegroundService.applyCpuAntiFreezeDirectly(checked)
+                                }
+                            }
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(AmoledBorder.copy(alpha = 0.45f))
+                        )
+
+                        OnboardingSurvivalToggleRow(
+                            iconRes = R.drawable.ic_watchdog_clock,
+                            title = stringResource(R.string.settings_watchdog_alarm_title),
+                            description = stringResource(R.string.onboarding_bg_watchdog_desc),
+                            recommendation = null,
+                            checked = isAlarmClockWatchdog,
+                            onCheckedChange = { checked ->
+                                appInstance?.let { app ->
+                                    app.config.isAlarmClockWatchdogEnabled = checked
+                                    app.saveConfig()
+                                    if (app.prefsManager.isProxyActive()) {
+                                        ProxyResurrectionManager.startWatchdog(context)
+                                    }
+                                }
+                            }
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(AmoledBorder.copy(alpha = 0.45f))
+                        )
+
+                        OnboardingSurvivalToggleRow(
+                            iconRes = R.drawable.ic_traffic_pulse,
+                            title = stringResource(R.string.settings_traffic_pulse_title),
+                            description = stringResource(R.string.onboarding_bg_traffic_pulse_desc),
+                            recommendation = null,
+                            checked = isTrafficPulse,
+                            onCheckedChange = { checked ->
+                                appInstance?.let { app ->
+                                    app.config.isTrafficPulseEnabled = checked
+                                    app.saveConfig()
+                                    ProxyForegroundService.applyTrafficPulseDirectly(checked)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingStatusBadge(
+    text: String,
+    isSatisfied: Boolean,
+    isNeutral: Boolean = false
+) {
+    val accent = when {
+        isNeutral -> TextMuted
+        isSatisfied -> ActiveGreenLed
+        else -> BloodRed
+    }
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, accent.copy(alpha = if (isNeutral) 0.40f else 0.65f))
+    ) {
+        Text(
+            text = text,
+            color = accent,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun OnboardingSurvivalToggleRow(
+    iconRes: Int,
+    title: String,
+    description: String,
+    recommendation: String?,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f).padding(end = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                MirrlyIcon(
+                    id = iconRes,
+                    contentDescription = null,
+                    tint = if (checked) ActiveGreenLed else TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = title,
+                    color = TextWhite,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Text(
+                text = description,
+                color = TextMuted,
+                fontSize = 11.5.sp,
+                lineHeight = 15.5.sp
+            )
+            if (recommendation != null) {
+                Text(
+                    text = recommendation,
+                    color = ActiveGreenLed.copy(alpha = 0.85f),
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        InertialSpringSwitch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+/**
+ * Шаг 7: Быстрый старт (Три простых шага для настройки защищенного соединения).
  */
 @Composable
 private fun StepQuickStartGuide() {

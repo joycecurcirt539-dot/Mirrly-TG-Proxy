@@ -25,7 +25,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -222,28 +225,56 @@ private val AmoledDarkColorScheme = darkColorScheme(
     onSurfaceVariant = TextMuted
 )
 
+private object NoOpHapticFeedback : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
+}
+
 @Composable
 fun MirrlyTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val view = LocalView.current
+    val prefsManager = remember {
+        try {
+            com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager
+        } catch (_: Throwable) {
+            null
+        }
+    }
+    val isVibrationDisabled by (prefsManager?.vibrationDisabledFlow?.collectAsState()
+        ?: remember { mutableStateOf(false) })
+    val hapticProfile by (prefsManager?.hapticProfileFlow?.collectAsState()
+        ?: remember { mutableStateOf(com.mirrly.tgproxy.service.HapticProfile.MECHANICAL_CLICK) })
+    val isUiHapticMuted = com.mirrly.tgproxy.service.HapticProfile.isVibrationMuted(
+        isGlobalDisabled = isVibrationDisabled,
+        profile = hapticProfile
+    )
+    val platformHaptic = LocalHapticFeedback.current
+    val effectiveHaptic = if (isUiHapticMuted) NoOpHapticFeedback else platformHaptic
+
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context.findActivity())?.window ?: return@SideEffect
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            val insetsController = WindowCompat.getInsetsController(window, view)
-            insetsController.isAppearanceLightStatusBars = false
-            insetsController.isAppearanceLightNavigationBars = false
-            // On API 35+ edge-to-edge transparency is enforced by the system.
-            // On API 26–34 we must set it explicitly, otherwise the system places
-            // an opaque black scrim behind the status bar and nav bar.
-            if (android.os.Build.VERSION.SDK_INT < 35) {
-                @Suppress("DEPRECATION")
-                window.statusBarColor = android.graphics.Color.TRANSPARENT
-                @Suppress("DEPRECATION")
-                window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            view.isHapticFeedbackEnabled = !isUiHapticMuted
+        }
+        DisposableEffect(view) {
+            val window = (view.context.findActivity())?.window
+            if (window != null) {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                val insetsController = WindowCompat.getInsetsController(window, view)
+                insetsController.isAppearanceLightStatusBars = false
+                insetsController.isAppearanceLightNavigationBars = false
+                // On API 35+ edge-to-edge transparency is enforced by the system.
+                // On API 26–34 we must set it explicitly, otherwise the system places
+                // an opaque black scrim behind the status bar and nav bar.
+                if (android.os.Build.VERSION.SDK_INT < 35) {
+                    @Suppress("DEPRECATION")
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+                    @Suppress("DEPRECATION")
+                    window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                }
             }
+            onDispose {}
         }
     }
 
@@ -264,7 +295,8 @@ fun MirrlyTheme(
 
     androidx.compose.runtime.CompositionLocalProvider(
         LocalProtocolColors provides protoColors,
-        LocalCardShape provides cardShape
+        LocalCardShape provides cardShape,
+        LocalHapticFeedback provides effectiveHaptic
     ) {
         ProvideAdaptiveMetrics {
             MaterialTheme(

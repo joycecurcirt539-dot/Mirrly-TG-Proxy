@@ -40,5 +40,9 @@ enum class HapticProfile(val id: String) {
                 it.name.equals(value, ignoreCase = true) || it.id.equals(value, ignoreCase = true)
             } ?: MECHANICAL_CLICK
         }
+
+        fun isVibrationMuted(isGlobalDisabled: Boolean, profile: HapticProfile): Boolean {
+            return isGlobalDisabled || profile == STEALTH
+        }
     }
 }

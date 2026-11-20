@@ -892,6 +892,7 @@ class MirrlyVpnService : VpnService() {
         monitorJob = serviceScope.launch {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
             var lastNotifText = ""
+            var lastNotifiedAtMs = 0L
 
             while (isActive && isRunning) {
                 // Посекундный тик: 1000 мс при включенном экране для плавного счетчика времени,
@@ -925,11 +926,14 @@ class MirrlyVpnService : VpnService() {
                     uptimeMs = uptime
                 )
 
-                // IPC Throttler: Only dispatch NotificationManager Binder IPC when screen is on AND text has changed
-                if (isScreenOn) {
+                // IPC Throttler: Dispatch NotificationManager Binder IPC only when screen is on,
+                // text changed, and at least 2 seconds have elapsed to avoid SystemUI layout churn.
+                val nowMs = System.currentTimeMillis()
+                if (isScreenOn && (nowMs - lastNotifiedAtMs >= 2000L)) {
                     val notifText = "↓ ${formatBytes(bytesIn)} • ↑ ${formatBytes(bytesOut)}"
                     if (notifText != lastNotifText) {
                         lastNotifText = notifText
+                        lastNotifiedAtMs = nowMs
                         val notif = buildVpnNotification(notifText)
                         try {
                             nm.notify(NotificationHelper.VPN_NOTIFICATION_ID, notif)
@@ -1085,19 +1089,29 @@ class MirrlyVpnService : VpnService() {
             else -> getString(R.string.vpn_tunnel_title)
         }
 
-        return NotificationCompat.Builder(this, NotificationHelper.VPN_CHANNEL_ID)
+        val isVibrationDisabled = try {
+            MirrlyApplication.instance.prefsManager.isVibrationDisabled()
+        } catch (_: Throwable) {
+            false
+        }
+
+        val builder = NotificationCompat.Builder(this, NotificationHelper.VPN_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_vpn)
             .setContentTitle(title)
             .setContentText(statusText)
             .setContentIntent(openPendingIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 getString(R.string.action_disconnect),
                 stopPendingIntent
             )
-            .build()
+        if (isVibrationDisabled) {
+            builder.setSilent(true).setVibrate(longArrayOf(0L))
+        }
+        return builder.build()
     }
 
     private fun formatBytes(bytes: Long): String {

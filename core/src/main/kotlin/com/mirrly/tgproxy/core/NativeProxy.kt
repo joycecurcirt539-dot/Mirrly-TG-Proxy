@@ -95,6 +95,7 @@ interface ProxyLibrary : Library {
     fun PingHost(host: String, port: Int, timeoutMs: Int): Pointer?
     fun PingWorker(domain: String, timeoutMs: Int): Pointer?
     fun ProbeTransportHealth(mode: Int, domain: String, timeoutMs: Int): Pointer?
+    fun GetLastStartError(): Pointer?
     fun GetEngineSecurityState(): Int
     fun GetSecurityPostureReportJson(): Pointer?
 }
@@ -104,6 +105,11 @@ fun interface ProtectCallback : com.sun.jna.Callback {
 }
 
 object NativeProxy {
+    const val START_OK = 0
+    const val START_ERR_ADDR_IN_USE = -3
+    const val START_ERR_PERMISSION_DENIED = -4
+    const val START_ERR_OTHER = -5
+
     @Volatile
     var isStarted: Boolean = false
         private set
@@ -290,6 +296,20 @@ object NativeProxy {
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [startSocks5Proxy]: ${t.message}", t)
             -1
+        }
+    }
+
+    fun getLastStartError(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetLastStartError() ?: return null
+            try {
+                ptr.getString(0, "UTF-8").trim().takeIf { it.isNotEmpty() }
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetLastStartError] error: ${t.message}")
+            null
         }
     }
 

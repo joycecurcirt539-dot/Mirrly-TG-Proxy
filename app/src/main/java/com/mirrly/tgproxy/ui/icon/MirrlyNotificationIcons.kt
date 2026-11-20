@@ -81,6 +81,12 @@ object MirrlyNotificationIcons {
         "M8,2.5 H16 L21.5,8 V16 L16,21.5 H8 L2.5,16 V8 Z M8.5,8.5 H15.5 V15.5 H8.5 Z"
 
     /**
+     * ic_port_conflict: Два встречных контурных узла портов с центральным разрядом конфликта.
+     */
+    const val PATH_PORT_CONFLICT =
+        "M2.5,12 H8 M4.5,8 H7.5 L9.5,10 M4.5,16 H7.5 L9.5,14 M21.5,12 H16 M19.5,8 H16.5 L14.5,10 M19.5,16 H16.5 L14.5,14 M13.5,4.5 L10.5,11.5 L13.5,12.5 L10.5,19.5"
+
+    /**
      * ic_qs_proxy: Монументальный векторный самолет-глайдер с орбитальным кольцом (главный значок шторки быстрых настроек).
      */
     const val PATH_QS_PROXY =
@@ -481,6 +487,66 @@ fun MirrlyQsProxyIcon(
         path.close()
 
         drawPath(path = path, color = tint, style = stroke)
+    }
+}
+
+/**
+ * ic_port_conflict: Два встречных контурных узла портов с центральным разрядом конфликта.
+ * Силуэт: левый и правый штекеры локальных портов, разделенные импульсом коллизии.
+ */
+@Composable
+fun MirrlyPortConflictIcon(
+    modifier: Modifier = Modifier.size(24.dp),
+    tint: Color = LocalProtocolColors.current.primary,
+    strokeWidth: Dp = 1.5.dp
+) {
+    val density = LocalDensity.current
+    val strokeWidthPx = with(density) { strokeWidth.toPx() }
+    val stroke = remember(strokeWidthPx) {
+        Stroke(
+            width = strokeWidthPx,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round
+        )
+    }
+    val nodesPath = remember { Path() }
+    val sparkPath = remember { Path() }
+
+    Canvas(modifier = modifier) {
+        val sx = size.width / 24f
+        val sy = size.height / 24f
+
+        nodesPath.reset()
+        // Левый порт-узел
+        nodesPath.moveTo(2.5f * sx, 12f * sy)
+        nodesPath.lineTo(8f * sx, 12f * sy)
+        nodesPath.moveTo(4.5f * sx, 8f * sy)
+        nodesPath.lineTo(7.5f * sx, 8f * sy)
+        nodesPath.lineTo(9.5f * sx, 10f * sy)
+        nodesPath.moveTo(4.5f * sx, 16f * sy)
+        nodesPath.lineTo(7.5f * sx, 16f * sy)
+        nodesPath.lineTo(9.5f * sx, 14f * sy)
+
+        // Правый порт-узел
+        nodesPath.moveTo(21.5f * sx, 12f * sy)
+        nodesPath.lineTo(16f * sx, 12f * sy)
+        nodesPath.moveTo(19.5f * sx, 8f * sy)
+        nodesPath.lineTo(16.5f * sx, 8f * sy)
+        nodesPath.lineTo(14.5f * sx, 10f * sy)
+        nodesPath.moveTo(19.5f * sx, 16f * sy)
+        nodesPath.lineTo(16.5f * sx, 16f * sy)
+        nodesPath.lineTo(14.5f * sx, 14f * sy)
+
+        drawPath(path = nodesPath, color = tint.copy(alpha = 0.85f), style = stroke)
+
+        sparkPath.reset()
+        // Центральный контур разряда коллизии
+        sparkPath.moveTo(13.5f * sx, 4.5f * sy)
+        sparkPath.lineTo(10.5f * sx, 11.5f * sy)
+        sparkPath.lineTo(13.5f * sx, 12.5f * sy)
+        sparkPath.lineTo(10.5f * sx, 19.5f * sy)
+
+        drawPath(path = sparkPath, color = tint, style = stroke)
     }
 }
 

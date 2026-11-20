@@ -47,6 +47,19 @@ class SnakeAcousticEngine(private val context: Context) {
     var isSoundEnabled: Boolean = true
     var isHapticEnabled: Boolean = true
 
+    private fun canVibrate(): Boolean {
+        if (!isHapticEnabled || vibrator?.hasVibrator() != true) return false
+        return try {
+            val prefs = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager
+            !com.mirrly.tgproxy.service.HapticProfile.isVibrationMuted(
+                isGlobalDisabled = prefs.isVibrationDisabled(),
+                profile = prefs.getHapticProfile()
+            )
+        } catch (_: Throwable) {
+            true
+        }
+    }
+
     init {
         try {
             initAudioTracks()
@@ -157,18 +170,19 @@ class SnakeAcousticEngine(private val context: Context) {
             } catch (_: Throwable) {}
         }
 
-        if (isHapticEnabled && vibrator?.hasVibrator() == true) {
+        if (canVibrate()) {
+            val activeVibrator = vibrator ?: return
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                    vibrator.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_TICK)
+                    activeVibrator.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_TICK)
                 ) {
-                    vibrator.vibrate(
+                    activeVibrator.vibrate(
                         VibrationEffect.startComposition()
                             .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 0.6f)
                             .compose()
                     )
                 } else {
-                    vibrator.vibrate(VibrationEffect.createOneShot(8, 70))
+                    activeVibrator.vibrate(VibrationEffect.createOneShot(8, 70))
                 }
             } catch (_: Throwable) {}
         }
@@ -183,22 +197,23 @@ class SnakeAcousticEngine(private val context: Context) {
             } catch (_: Throwable) {}
         }
 
-        if (isHapticEnabled && vibrator?.hasVibrator() == true) {
+        if (canVibrate()) {
+            val activeVibrator = vibrator ?: return
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                    vibrator.areAllPrimitivesSupported(
+                    activeVibrator.areAllPrimitivesSupported(
                         VibrationEffect.Composition.PRIMITIVE_QUICK_RISE,
                         VibrationEffect.Composition.PRIMITIVE_CLICK
                     )
                 ) {
-                    vibrator.vibrate(
+                    activeVibrator.vibrate(
                         VibrationEffect.startComposition()
                             .addPrimitive(VibrationEffect.Composition.PRIMITIVE_QUICK_RISE, 0.5f)
                             .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.85f, 20)
                             .compose()
                     )
                 } else {
-                    vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 15, 30, 20), intArrayOf(0, 120, 0, 220), -1))
+                    activeVibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 15, 30, 20), intArrayOf(0, 120, 0, 220), -1))
                 }
             } catch (_: Throwable) {}
         }
@@ -213,18 +228,19 @@ class SnakeAcousticEngine(private val context: Context) {
             } catch (_: Throwable) {}
         }
 
-        if (isHapticEnabled && vibrator?.hasVibrator() == true) {
+        if (canVibrate()) {
+            val activeVibrator = vibrator ?: return
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                    vibrator.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_CLICK)
+                    activeVibrator.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_CLICK)
                 ) {
-                    vibrator.vibrate(
+                    activeVibrator.vibrate(
                         VibrationEffect.startComposition()
                             .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 1.0f)
                             .compose()
                     )
                 } else {
-                    vibrator.vibrate(VibrationEffect.createOneShot(35, 200))
+                    activeVibrator.vibrate(VibrationEffect.createOneShot(35, 200))
                 }
             } catch (_: Throwable) {}
         }

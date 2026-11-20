@@ -34,12 +34,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,6 +64,7 @@ import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.service.HapticProfile
 import com.mirrly.tgproxy.ui.theme.AmoledBorder
 import com.mirrly.tgproxy.ui.theme.LocalCardShape
+import com.mirrly.tgproxy.ui.theme.LocalProtocolColors
 import com.mirrly.tgproxy.ui.theme.MtprotoAccent
 import com.mirrly.tgproxy.ui.theme.TextMuted
 import com.mirrly.tgproxy.ui.theme.TextWhite
@@ -79,6 +81,10 @@ fun SettingsHapticCard(
     val context = LocalContext.current
     val prefs = MirrlyApplication.instance.prefsManager
     val activeProfile by prefs.hapticProfileFlow.collectAsState()
+    val isVibrationDisabled by prefs.vibrationDisabledFlow.collectAsState()
+    val dynamicAccent = LocalProtocolColors.current.primary
+    val effectiveAccent = if (accentColor == MtprotoAccent) dynamicAccent else accentColor
+    val isHapticActive = !HapticProfile.isVibrationMuted(isVibrationDisabled, activeProfile)
     val cardShape = LocalCardShape.current
 
     var isExpanded by rememberSaveable { mutableStateOf(false) }
@@ -126,9 +132,9 @@ fun SettingsHapticCard(
                     contentAlignment = Alignment.Center
                 ) {
                     MirrlyIcon(
-                        id = R.drawable.ic_fingerprint_badge,
+                        id = if (isHapticActive) R.drawable.ic_vibrate else R.drawable.ic_vibrate_off,
                         contentDescription = null,
-                        tint = if (activeProfile != HapticProfile.STEALTH) accentColor else TextMuted,
+                        tint = if (isHapticActive) effectiveAccent else TextMuted,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -166,9 +172,13 @@ fun SettingsHapticCard(
 
                     if (!isExpanded) {
                         Text(
-                            text = stringResource(activeLabelRes),
+                            text = if (isVibrationDisabled) {
+                                stringResource(R.string.settings_vibration_disabled_status)
+                            } else {
+                                stringResource(activeLabelRes)
+                            },
                             fontSize = 11.5.sp,
-                            color = if (activeProfile != HapticProfile.STEALTH) accentColor else TextMuted,
+                            color = if (isHapticActive) effectiveAccent else TextMuted,
                             lineHeight = 14.sp
                         )
                     }
@@ -178,7 +188,7 @@ fun SettingsHapticCard(
             SettingsCollapseButton(
                 isExpanded = isExpanded,
                 onToggle = { isExpanded = !isExpanded },
-                accentColor = accentColor
+                accentColor = effectiveAccent
             )
         }
 
@@ -199,90 +209,137 @@ fun SettingsHapticCard(
                     lineHeight = 17.sp
                 )
 
-                // Сетка вариантов 2x2
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    profiles.chunked(2).forEach { rowProfiles ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            rowProfiles.forEach { (profile, labelRes) ->
-                                val isSelected = activeProfile == profile
-                                val borderColor by animateColorAsState(
-                                    targetValue = if (isSelected) accentColor else AmoledBorder,
-                                    label = "haptic_profile_border"
-                                )
-                                val textColor by animateColorAsState(
-                                    targetValue = if (isSelected) TextWhite else TextMuted,
-                                    label = "haptic_profile_text"
-                                )
+                // Глобальный выключатель всей вибрации в приложении
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Transparent)
+                        .border(
+                            width = 1.dp,
+                            color = if (isVibrationDisabled) effectiveAccent.copy(alpha = 0.65f) else AmoledBorder,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.settings_disable_vibration_title),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextWhite
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_disable_vibration_desc),
+                            fontSize = 11.sp,
+                            color = TextMuted,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    InertialSpringSwitch(
+                        checked = isVibrationDisabled,
+                        activeColor = effectiveAccent,
+                        onCheckedChange = { disabled ->
+                            prefs.setVibrationDisabled(disabled)
+                        }
+                    )
+                }
 
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = if (isSelected) accentColor.copy(alpha = 0.12f) else Color.Transparent,
-                                    border = BorderStroke(1.dp, borderColor),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .springPress(onClick = {
-                                            prefs.setHapticProfile(profile)
-                                            HapticHelper.performTapClick(context, overrideProfile = profile)
-                                        })
+                AnimatedVisibility(
+                    visible = !isVibrationDisabled,
+                    enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Сетка вариантов 2x2
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            profiles.chunked(2).forEach { rowProfiles ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 12.dp, horizontal = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = stringResource(labelRes),
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                            color = textColor
+                                    rowProfiles.forEach { (profile, labelRes) ->
+                                        val isSelected = activeProfile == profile
+                                        val borderColor by animateColorAsState(
+                                            targetValue = if (isSelected) effectiveAccent else AmoledBorder,
+                                            label = "haptic_profile_border"
                                         )
+                                        val textColor by animateColorAsState(
+                                            targetValue = if (isSelected) TextWhite else TextMuted,
+                                            label = "haptic_profile_text"
+                                        )
+
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (isSelected) effectiveAccent.copy(alpha = 0.12f) else Color.Transparent,
+                                            border = BorderStroke(1.dp, borderColor),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .springPress(onClick = {
+                                                    prefs.setHapticProfile(profile)
+                                                    HapticHelper.performTapClick(context, overrideProfile = profile)
+                                                })
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = stringResource(labelRes),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                                    color = textColor
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                }
 
-                // Кнопка быстрого тестирования выбранного виброотклика
-                AnimatedVisibility(
-                    visible = activeProfile != HapticProfile.STEALTH,
-                    enter = expandVertically(tween(240)) + fadeIn(tween(220)),
-                    exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .springPress(onClick = {
-                                HapticHelper.performTapClick(context, overrideProfile = activeProfile)
-                            })
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                        // Кнопка быстрого тестирования выбранного виброотклика
+                        AnimatedVisibility(
+                            visible = activeProfile != HapticProfile.STEALTH,
+                            enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                            exit = shrinkVertically(tween(180)) + fadeOut(tween(160))
                         ) {
-                            MirrlyIcon(
-                                id = R.drawable.ic_fingerprint_badge,
-                                contentDescription = null,
-                                tint = accentColor,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Box(modifier = Modifier.size(8.dp))
-                            Text(
-                                text = stringResource(R.string.settings_customization_haptic_test),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextWhite
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .springPress(onClick = {
+                                        HapticHelper.performTapClick(context, overrideProfile = activeProfile)
+                                    })
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    MirrlyIcon(
+                                        id = R.drawable.ic_vibrate,
+                                        contentDescription = null,
+                                        tint = effectiveAccent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Box(modifier = Modifier.size(8.dp))
+                                    Text(
+                                        text = stringResource(R.string.settings_customization_haptic_test),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextWhite
+                                    )
+                                }
+                            }
                         }
                     }
                 }

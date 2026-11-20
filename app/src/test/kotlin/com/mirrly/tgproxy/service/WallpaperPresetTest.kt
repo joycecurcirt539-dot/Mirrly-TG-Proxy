@@ -18,8 +18,10 @@
 
 package com.mirrly.tgproxy.service
 
+import com.mirrly.tgproxy.ui.resolveStaticPreviewPath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,6 +31,7 @@ class WallpaperPresetTest {
     fun builtinPresets_containExpectedPresets() {
         val presets = WallpaperPreset.BUILTIN_PRESETS
         assertEquals(4, presets.size)
+        assertEquals(WallpaperPreset.PRESET_ID_DEFAULT_AMOLED, presets.first().id)
 
         val defaultAmoled = presets.find { it.id == WallpaperPreset.PRESET_ID_DEFAULT_AMOLED }
         assertNotNull(defaultAmoled)
@@ -81,5 +84,30 @@ class WallpaperPresetTest {
         assertEquals(original.blurDp, restored.blurDp, 0.001f)
         assertEquals(original.dimFactor, restored.dimFactor, 0.001f)
         assertEquals(original.isBuiltIn, restored.isBuiltIn)
+    }
+
+    @Test
+    fun resolveStaticPreviewPath_skipsMp4AndUsesSpaceToiletJpg() {
+        val spaceToilet = WallpaperPreset.BUILTIN_PRESETS.first {
+            it.id == WallpaperPreset.PRESET_ID_SPACE_TOILET
+        }
+        assertEquals("wallpapers/space_toilet_preview.jpg", spaceToilet.resolveStaticPreviewPath())
+
+        val userVideoWithThumb = WallpaperPreset(
+            id = "user_vid_1",
+            title = "Clip",
+            type = PreferencesManager.WALLPAPER_TYPE_VIDEO,
+            filePath = "/data/user/0/com.mirrly.tgproxy/files/clip.mp4",
+            previewFilePath = "/data/user/0/com.mirrly.tgproxy/files/clip_preview.jpg",
+            blurDp = 0f,
+            dimFactor = 0.5f
+        )
+        assertEquals(
+            "/data/user/0/com.mirrly.tgproxy/files/clip_preview.jpg",
+            userVideoWithThumb.resolveStaticPreviewPath()
+        )
+
+        val userVideoWithoutThumb = userVideoWithThumb.copy(previewFilePath = "/data/user/0/com.mirrly.tgproxy/files/clip.mp4")
+        assertNull(userVideoWithoutThumb.resolveStaticPreviewPath())
     }
 }

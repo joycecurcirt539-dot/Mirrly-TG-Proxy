@@ -118,6 +118,15 @@ class PreferencesManager(private val context: Context) {
     private val _vpnUplinkModeFlow = MutableStateFlow(loadConfig().vpnUplinkMode)
     val vpnUplinkModeFlow: StateFlow<com.mirrly.tgproxy.core.UplinkMode> = _vpnUplinkModeFlow.asStateFlow()
 
+    private val _isAlarmClockWatchdogEnabledFlow = MutableStateFlow(loadConfig().isAlarmClockWatchdogEnabled)
+    val isAlarmClockWatchdogEnabledFlow: StateFlow<Boolean> = _isAlarmClockWatchdogEnabledFlow.asStateFlow()
+
+    private val _isCpuAntiFreezeEnabledFlow = MutableStateFlow(loadConfig().isCpuAntiFreezeEnabled)
+    val isCpuAntiFreezeEnabledFlow: StateFlow<Boolean> = _isCpuAntiFreezeEnabledFlow.asStateFlow()
+
+    private val _isTrafficPulseEnabledFlow = MutableStateFlow(loadConfig().isTrafficPulseEnabled)
+    val isTrafficPulseEnabledFlow: StateFlow<Boolean> = _isTrafficPulseEnabledFlow.asStateFlow()
+
     private val _appLanguageFlow = MutableStateFlow(getAppLanguage())
     val appLanguageFlow: StateFlow<String> = _appLanguageFlow.asStateFlow()
 
@@ -343,6 +352,12 @@ class PreferencesManager(private val context: Context) {
     )
     val hapticProfileFlow: StateFlow<HapticProfile> = _hapticProfileFlow.asStateFlow()
 
+    /** Master toggle that disables all haptic feedback and vibration across the app. */
+    private val _vibrationDisabledFlow = MutableStateFlow(
+        prefs.getBoolean(KEY_VIBRATION_DISABLED, false)
+    )
+    val vibrationDisabledFlow: StateFlow<Boolean> = _vibrationDisabledFlow.asStateFlow()
+
     /** Central orbital rings visibility on the home screen. */
     private val _homeRingsEnabledFlow = MutableStateFlow(
         prefs.getBoolean(KEY_HOME_RINGS_ENABLED, true)
@@ -389,6 +404,10 @@ class PreferencesManager(private val context: Context) {
     private val _customBackgroundUserPresetsFlow = MutableStateFlow<List<WallpaperPreset>>(emptyList())
     val customBackgroundUserPresetsFlow: StateFlow<List<WallpaperPreset>> = _customBackgroundUserPresetsFlow.asStateFlow()
 
+    /** Auto-saved custom preset waiting for the one-time black-default migration notice, or null. */
+    private val _pendingMigratedWallpaperPresetFlow = MutableStateFlow<WallpaperPreset?>(null)
+    val pendingMigratedWallpaperPresetFlow: StateFlow<WallpaperPreset?> = _pendingMigratedWallpaperPresetFlow.asStateFlow()
+
     // ── Theme Accent & Customization Flows ──
     private val _themeAccentModeFlow = MutableStateFlow(getThemeAccentMode())
     val themeAccentModeFlow: StateFlow<ThemeAccentMode> = _themeAccentModeFlow.asStateFlow()
@@ -410,6 +429,9 @@ class PreferencesManager(private val context: Context) {
 
     private val _themeAlphaFlow = MutableStateFlow(getThemeAlpha())
     val themeAlphaFlow: StateFlow<Float> = _themeAlphaFlow.asStateFlow()
+
+    private val _appIconIdFlow = MutableStateFlow(getAppIconId())
+    val appIconIdFlow: StateFlow<String> = _appIconIdFlow.asStateFlow()
 
     // ── Central Button Icon & Custom Code Flows ──
     private val _centralButtonIconMtprotoFlow = MutableStateFlow(getCentralButtonIcon("mtproto"))
@@ -483,6 +505,9 @@ class PreferencesManager(private val context: Context) {
         if (key == KEY_THEME_ALPHA) {
             _themeAlphaFlow.value = getThemeAlpha()
         }
+        if (key == KEY_APP_ICON_ID) {
+            _appIconIdFlow.value = getAppIconId()
+        }
         if (key == KEY_CENTRAL_BUTTON_ICON_MTPROTO) {
             _centralButtonIconMtprotoFlow.value = getCentralButtonIcon("mtproto")
         }
@@ -515,6 +540,14 @@ class PreferencesManager(private val context: Context) {
         }
         if (key == "disable_animations_particles") {
             _animationsDisabledFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == KEY_HAPTIC_PROFILE) {
+            _hapticProfileFlow.value = HapticProfile.fromString(
+                sharedPreferences.getString(key, HapticProfile.MECHANICAL_CLICK.id)
+            )
+        }
+        if (key == KEY_VIBRATION_DISABLED) {
+            _vibrationDisabledFlow.value = sharedPreferences.getBoolean(key, false)
         }
         if (key == KEY_WALLPAPER_PARTICLES_STYLE) {
             _wallpaperParticlesStyleFlow.value = sharedPreferences.getString(key, ParticleStyle.BOKEH_DUST.name) ?: ParticleStyle.BOKEH_DUST.name
@@ -672,6 +705,7 @@ class PreferencesManager(private val context: Context) {
         prefs.registerOnSharedPreferenceChangeListener(preferenceChangeListener)
         _customBackgroundUserPresetsFlow.value = getUserPresets()
         ensureDefaultWallpaperInitialized()
+        _pendingMigratedWallpaperPresetFlow.value = resolvePendingMigratedWallpaperPreset()
     }
 
     fun loadConfig(): ProxyConfig {
@@ -766,16 +800,23 @@ class PreferencesManager(private val context: Context) {
         val socks5Password = WarpKeystoreEncryption.decrypt(socks5PasswordRaw)
         val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
         val socks5OptimisticResponse = prefs.getBoolean("socks5_optimistic_response", defaults.socks5OptimisticResponse)
-        val socks5UplinkMigrationDone = prefs.getBoolean("socks5_uplink_default_flowseal_migrated_v1", false)
-        var socks5UplinkMode = prefs.getInt(KEY_SOCKS5_UPLINK_MODE, defaults.socks5UplinkMode)
-        if (!socks5UplinkMigrationDone) {
-            val activeWorkerSocks5Id = prefs.getString(KEY_ACTIVE_WORKER_ID_SOCKS5, "") ?: ""
-            val hasCustomWorker = activeWorkerSocks5Id.isNotBlank() && activeWorkerSocks5Id != "no_worker"
-            if (!hasCustomWorker) {
-                socks5UplinkMode = 1
-                prefs.edit().putInt(KEY_SOCKS5_UPLINK_MODE, 1).putBoolean("socks5_uplink_default_flowseal_migrated_v1", true).apply()
-            } else {
-                prefs.edit().putBoolean("socks5_uplink_default_flowseal_migrated_v1", true).apply()
+        val hasValidCustomWorker = getCustomWorkers().any { ProxyConfig.sanitizeDomain(it.domain).isNotBlank() }
+        val socks5UplinkStartup = Socks5UplinkPolicy.resolveStartupState(
+            storedUplinkMode = prefs.getInt(KEY_SOCKS5_UPLINK_MODE, defaults.socks5UplinkMode),
+            v2MigrationDone = prefs.getBoolean(KEY_SOCKS5_UPLINK_FLOWSEAL_MIGRATED_V2, false),
+            hasValidCustomWorker = hasValidCustomWorker
+        )
+        val socks5UplinkMode = socks5UplinkStartup.effectiveUplinkMode
+        if (socks5UplinkStartup.shouldPersistMode || socks5UplinkStartup.markV2Migrated) {
+            prefs.edit().apply {
+                if (socks5UplinkStartup.shouldPersistMode) {
+                    putInt(KEY_SOCKS5_UPLINK_MODE, socks5UplinkMode)
+                }
+                if (socks5UplinkStartup.markV2Migrated) {
+                    putBoolean("socks5_uplink_default_flowseal_migrated_v1", true)
+                    putBoolean(KEY_SOCKS5_UPLINK_FLOWSEAL_MIGRATED_V2, true)
+                }
+                apply()
             }
         }
         val targetTelegramPort = prefs.getInt("target_telegram_port", defaults.targetTelegramPort)
@@ -1043,6 +1084,9 @@ class PreferencesManager(private val context: Context) {
         _proxyModeFlow.value = config.proxyMode
         _uplinkModeFlow.value = config.uplinkMode
         _vpnUplinkModeFlow.value = config.vpnUplinkMode
+        _isAlarmClockWatchdogEnabledFlow.value = config.isAlarmClockWatchdogEnabled
+        _isCpuAntiFreezeEnabledFlow.value = config.isCpuAntiFreezeEnabled
+        _isTrafficPulseEnabledFlow.value = config.isTrafficPulseEnabled
     }
 
     fun getProxyMode(): ProxyMode {
@@ -1460,9 +1504,9 @@ class PreferencesManager(private val context: Context) {
             .putBoolean(KEY_WALLPAPER_ENABLED, false)
             .remove(KEY_WALLPAPER_REVISION)
             .remove(KEY_WALLPAPER_TYPE)
-            .remove(KEY_WALLPAPER_ACTIVE_PRESET_ID)
+            .putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, WallpaperPreset.PRESET_ID_DEFAULT_AMOLED)
             .apply()
-        _customBackgroundActivePresetIdFlow.value = null
+        _customBackgroundActivePresetIdFlow.value = WallpaperPreset.PRESET_ID_DEFAULT_AMOLED
         _customBackgroundTypeFlow.value = WALLPAPER_TYPE_IMAGE
         _customBackgroundVideoMetadataFlow.value = null
         _customBackgroundUriFlow.value = null
@@ -1651,65 +1695,159 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putString(KEY_HAPTIC_PROFILE, profile.id).apply()
     }
 
+    fun isVibrationDisabled(): Boolean = _vibrationDisabledFlow.value
+
+    fun setVibrationDisabled(disabled: Boolean) {
+        _vibrationDisabledFlow.value = disabled
+        prefs.edit().putBoolean(KEY_VIBRATION_DISABLED, disabled).apply()
+    }
+
     // ── Wallpaper Presets Engine ─────────────────────────────────────────────
 
     fun ensureDefaultWallpaperInitialized() {
-        val alreadyInitialized = prefs.getBoolean(KEY_WALLPAPER_DEFAULT_SPACE_TOILET_INIT, false)
-        if (!alreadyInitialized) {
-            try {
-                val targetVideo = wallpaperVideoFile()
-                val targetPreview = wallpaperVideoPreviewFile()
-                val assetVideoName = "wallpapers/space_toilet.mp4"
-                val assetPreviewName = "wallpapers/space_toilet_preview.jpg"
+        val alreadyMigrated = prefs.getBoolean(KEY_WALLPAPER_BLACK_DEFAULT_MIGRATION, false)
+        val wallpaperEnabled = prefs.getBoolean(KEY_WALLPAPER_ENABLED, false)
+        val wallpaperType = prefs.getString(KEY_WALLPAPER_TYPE, null)
+        val activePresetId = prefs.getString(KEY_WALLPAPER_ACTIVE_PRESET_ID, null)
+        val activeMediaFile = when (wallpaperType) {
+            WALLPAPER_TYPE_VIDEO -> wallpaperVideoFile()
+            WALLPAPER_TYPE_IMAGE -> wallpaperFile()
+            else -> null
+        }
+        val hasValidMediaFile = activeMediaFile != null && activeMediaFile.isFile && activeMediaFile.length() > 0L
+        val fileLength = if (hasValidMediaFile) activeMediaFile!!.length() else 0L
+        val matchesLegacyBuiltinSize = hasValidMediaFile &&
+            WallpaperDefaultMigrationPlanner.isLegacyBuiltinAssetSize(wallpaperType, fileLength)
 
-                context.assets.open(assetVideoName).use { input ->
-                    FileOutputStream(targetVideo).use { output ->
-                        input.copyTo(output)
-                        output.fd.sync()
-                    }
-                }
-                context.assets.open(assetPreviewName).use { input ->
-                    FileOutputStream(targetPreview).use { output ->
-                        input.copyTo(output)
-                        output.fd.sync()
-                    }
-                }
-
-                val revision = System.currentTimeMillis()
-                prefs.edit()
-                    .putBoolean(KEY_WALLPAPER_DEFAULT_SPACE_TOILET_INIT, true)
-                    .putBoolean(KEY_WALLPAPER_ENABLED, true)
-                    .putLong(KEY_WALLPAPER_REVISION, revision)
-                    .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_VIDEO)
-                    .putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, WallpaperPreset.PRESET_ID_SPACE_TOILET)
-                    .putFloat(KEY_WALLPAPER_BLUR, 0f)
-                    .putFloat(KEY_WALLPAPER_DIM, 0.70f)
-                    .putInt(KEY_WALLPAPER_VIDEO_WIDTH, 1080)
-                    .putInt(KEY_WALLPAPER_VIDEO_HEIGHT, 1920)
-                    .putInt(KEY_WALLPAPER_VIDEO_DURATION, 10)
-                    .putLong(KEY_WALLPAPER_VIDEO_SIZE, targetVideo.length())
-                    .apply()
-
-                _customBackgroundRevisionFlow.value = revision
-                _customBackgroundTypeFlow.value = WALLPAPER_TYPE_VIDEO
-                _customBackgroundUriFlow.value = targetVideo.absolutePath
-                _customBackgroundActivePresetIdFlow.value = WallpaperPreset.PRESET_ID_SPACE_TOILET
-                _customBackgroundBlurFlow.value = 0f
-                _customBackgroundDimFlow.value = 0.70f
-                _customBackgroundVideoMetadataFlow.value = resolveStoredVideoMetadata()
-
-                AppLogger.i("Wallpaper", "Default Space Toilet wallpaper initialized successfully.")
-            } catch (e: Throwable) {
-                AppLogger.w("Wallpaper", "Failed to initialize default space toilet wallpaper: ${e.message}")
+        val currentUserPresets = getUserPresets()
+        val matchingExistingPreset = if (activePresetId != null) {
+            currentUserPresets.firstOrNull { preset ->
+                preset.id == activePresetId &&
+                    preset.filePath?.let { path -> File(path).let { it.isFile && it.length() > 0L } } == true
             }
         } else {
-            val activePreset = prefs.getString(KEY_WALLPAPER_ACTIVE_PRESET_ID, null)
-            val currentDim = prefs.getFloat(KEY_WALLPAPER_DIM, -1f)
-            if (activePreset == WallpaperPreset.PRESET_ID_SPACE_TOILET && (currentDim == 0.50f || currentDim == -1f)) {
-                prefs.edit().putFloat(KEY_WALLPAPER_DIM, 0.70f).apply()
-                _customBackgroundDimFlow.value = 0.70f
+            null
+        }
+
+        val plan = WallpaperDefaultMigrationPlanner.plan(
+            WallpaperMigrationInput(
+                alreadyMigrated = alreadyMigrated,
+                wallpaperEnabled = wallpaperEnabled,
+                wallpaperType = wallpaperType,
+                activePresetId = activePresetId,
+                hasValidMediaFile = hasValidMediaFile,
+                matchesBuiltinAssetSize = matchesLegacyBuiltinSize,
+                matchingExistingUserPresetId = matchingExistingPreset?.id
+            )
+        )
+
+        when (plan.action) {
+            WallpaperMigrationAction.NOOP_ALREADY_MIGRATED -> return
+            WallpaperMigrationAction.RESET_SILENT_TO_BLACK -> {
+                clearCustomWallpaper()
+                prefs.edit()
+                    .putBoolean(KEY_WALLPAPER_BLACK_DEFAULT_MIGRATION, true)
+                    .remove(KEY_PENDING_CUSTOM_WALLPAPER_NOTICE_PRESET_ID)
+                    .apply()
+                _pendingMigratedWallpaperPresetFlow.value = null
+            }
+            WallpaperMigrationAction.PRESERVE_CUSTOM_AND_RESET_TO_BLACK -> {
+                val preservedPresetId = plan.reuseExistingPresetId ?: saveActiveCustomWallpaperAsMigratedPreset(
+                    wallpaperType = wallpaperType!!,
+                    srcFile = activeMediaFile!!,
+                    existingPresets = currentUserPresets
+                )
+                clearCustomWallpaper()
+                if (preservedPresetId != null) {
+                    prefs.edit()
+                        .putBoolean(KEY_WALLPAPER_BLACK_DEFAULT_MIGRATION, true)
+                        .putString(KEY_PENDING_CUSTOM_WALLPAPER_NOTICE_PRESET_ID, preservedPresetId)
+                        .apply()
+                    _pendingMigratedWallpaperPresetFlow.value = resolvePendingMigratedWallpaperPreset()
+                    AppLogger.i("Wallpaper", "Migrated active wallpaper to black AMOLED; custom background saved as preset $preservedPresetId")
+                } else {
+                    prefs.edit()
+                        .putBoolean(KEY_WALLPAPER_BLACK_DEFAULT_MIGRATION, true)
+                        .remove(KEY_PENDING_CUSTOM_WALLPAPER_NOTICE_PRESET_ID)
+                        .apply()
+                    _pendingMigratedWallpaperPresetFlow.value = null
+                }
             }
         }
+    }
+
+    private fun saveActiveCustomWallpaperAsMigratedPreset(
+        wallpaperType: String,
+        srcFile: File,
+        existingPresets: List<WallpaperPreset>
+    ): String? {
+        return try {
+            val isVideo = wallpaperType == WALLPAPER_TYPE_VIDEO
+            val presetsDir = context.filesDir.resolve("wallpaper_presets").apply { mkdirs() }
+            val presetId = "custom_migrated_${System.currentTimeMillis()}"
+            val ext = if (isVideo) "mp4" else "jpg"
+            val savedFile = presetsDir.resolve("$presetId.$ext")
+            if (!srcFile.renameTo(savedFile)) {
+                srcFile.copyTo(savedFile, overwrite = true)
+            }
+
+            var savedPreviewFile: File? = null
+            if (isVideo) {
+                val previewSrc = wallpaperVideoPreviewFile()
+                if (previewSrc.isFile && previewSrc.length() > 0L) {
+                    val pf = presetsDir.resolve("${presetId}_preview.jpg")
+                    if (!previewSrc.renameTo(pf)) {
+                        previewSrc.copyTo(pf, overwrite = true)
+                    }
+                    savedPreviewFile = pf
+                }
+            }
+
+            val localizedTitle = runCatching {
+                com.mirrly.tgproxy.util.LocaleHelper.wrapContext(context, getAppLanguage())
+                    .getString(R.string.wallpaper_migrated_preset_name)
+            }.getOrNull()?.takeIf { it.isNotBlank() } ?: "Личный фон"
+
+            val preset = WallpaperPreset(
+                id = presetId,
+                title = localizedTitle,
+                type = wallpaperType,
+                filePath = savedFile.absolutePath,
+                previewFilePath = savedPreviewFile?.absolutePath ?: savedFile.absolutePath,
+                blurDp = _customBackgroundBlurFlow.value,
+                dimFactor = _customBackgroundDimFlow.value,
+                isBuiltIn = false,
+                createdAt = System.currentTimeMillis()
+            )
+
+            val updatedList = existingPresets.toMutableList().apply { add(0, preset) }
+            saveUserPresetsList(updatedList)
+            _customBackgroundUserPresetsFlow.value = updatedList
+            presetId
+        } catch (e: Throwable) {
+            AppLogger.e("Wallpaper", "Failed to auto-save custom wallpaper during migration: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun resolvePendingMigratedWallpaperPreset(): WallpaperPreset? {
+        val pendingId = prefs.getString(KEY_PENDING_CUSTOM_WALLPAPER_NOTICE_PRESET_ID, null) ?: return null
+        val preset = getUserPresets().firstOrNull { it.id == pendingId }
+        if (preset == null) {
+            prefs.edit().remove(KEY_PENDING_CUSTOM_WALLPAPER_NOTICE_PRESET_ID).apply()
+            return null
+        }
+        val fileExists = preset.filePath?.let { File(it).let { f -> f.isFile && f.length() > 0L } } == true
+        if (!fileExists) {
+            prefs.edit().remove(KEY_PENDING_CUSTOM_WALLPAPER_NOTICE_PRESET_ID).apply()
+            return null
+        }
+        return preset
+    }
+
+    fun dismissPendingMigratedWallpaperNotice() {
+        prefs.edit().remove(KEY_PENDING_CUSTOM_WALLPAPER_NOTICE_PRESET_ID).apply()
+        _pendingMigratedWallpaperPresetFlow.value = null
     }
 
     suspend fun applyPreset(preset: WallpaperPreset): Result<Unit> = withContext(Dispatchers.IO) {
@@ -2016,6 +2154,20 @@ class PreferencesManager(private val context: Context) {
         _themeAlphaFlow.value = 1.0f
     }
 
+    // ── App Launcher Icon Customization ──
+
+    fun getAppIconId(): String {
+        val raw = prefs.getString(KEY_APP_ICON_ID, AppIconPreset.DEFAULT.id)
+        return AppIconPreset.fromStorageKey(raw).id
+    }
+
+    fun setAppIconId(iconId: String) {
+        val normalized = AppIconPreset.fromStorageKey(iconId).id
+        // Flush synchronously so backup/startup state stays intact if launcher restarts the task.
+        prefs.edit().putString(KEY_APP_ICON_ID, normalized).commit()
+        _appIconIdFlow.value = normalized
+    }
+
     // ── Central Buttons Icon Customization ──
 
     fun getCentralButtonIcon(protocol: String): String {
@@ -2121,6 +2273,7 @@ class PreferencesManager(private val context: Context) {
         const val KEY_THEME_BRIGHTNESS = "theme_brightness"
         const val KEY_THEME_SATURATION = "theme_saturation"
         const val KEY_THEME_ALPHA = "theme_alpha"
+        const val KEY_APP_ICON_ID = "selected_app_icon_id"
 
         const val KEY_CENTRAL_BUTTON_ICON_MTPROTO = "central_button_icon_mtproto"
         const val KEY_CENTRAL_BUTTON_ICON_SOCKS5 = "central_button_icon_socks5"
@@ -2148,6 +2301,7 @@ class PreferencesManager(private val context: Context) {
         const val KEY_USER_PRIMARY_WORKER_ID_SOCKS5 = "user_primary_worker_id_socks5"
         const val KEY_USER_PRIMARY_WORKER_ID_MTPROTO = "user_primary_worker_id_mtproto"
         const val KEY_SOCKS5_UPLINK_MODE = "socks5_uplink_mode"
+        private const val KEY_SOCKS5_UPLINK_FLOWSEAL_MIGRATED_V2 = "socks5_uplink_default_flowseal_migrated_v2"
         private const val KEY_SOCKET_BUFFER_AUTOTUNE_MIGRATED = "socket_buffer_autotune_migrated_v1"
 
         // Custom Wallpaper Engine
@@ -2170,7 +2324,8 @@ class PreferencesManager(private val context: Context) {
         const val WALLPAPER_SHADER_SPEED_DEFAULT = 1.00f
         const val KEY_WALLPAPER_ACTIVE_PRESET_ID = "custom_wallpaper_active_preset_id"
         const val KEY_WALLPAPER_USER_PRESETS = "custom_wallpaper_user_presets"
-        private const val KEY_WALLPAPER_DEFAULT_SPACE_TOILET_INIT = "wallpaper_default_space_toilet_v3"
+        private const val KEY_WALLPAPER_BLACK_DEFAULT_MIGRATION = "wallpaper_black_default_migration_v5"
+        private const val KEY_PENDING_CUSTOM_WALLPAPER_NOTICE_PRESET_ID = "wallpaper_pending_migration_notice_preset_id"
         private const val KEY_WALLPAPER_ENABLED = "custom_wallpaper_enabled"
         private const val KEY_WALLPAPER_REVISION = "custom_wallpaper_revision"
         private const val KEY_WALLPAPER_TYPE = "custom_wallpaper_type"
@@ -2204,6 +2359,7 @@ class PreferencesManager(private val context: Context) {
 
         // Haptic Profile Keys
         const val KEY_HAPTIC_PROFILE = "haptic_profile"
+        const val KEY_VIBRATION_DISABLED = "disable_all_vibration"
 
         // UI Scaling & Dimensions Keys
         const val KEY_UI_SCALE = "ui_scale"
@@ -2478,20 +2634,32 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun deleteCustomWorker(id: String) {
+        val prevActiveMtprotoId = prefs.getString(KEY_ACTIVE_WORKER_ID_MTPROTO, null)
+            ?: prefs.getString("active_worker_id", "") ?: ""
+        val prevActiveSocks5Id = prefs.getString(KEY_ACTIVE_WORKER_ID_SOCKS5, null)
+            ?: prefs.getString("active_worker_id", "") ?: ""
+        val prevPrimaryMtprotoId = getUserPrimaryWorkerId(ProxyMode.MTPROTO)
+        val prevPrimarySocks5Id = getUserPrimaryWorkerId(ProxyMode.SOCKS5)
+
         val current = getCustomWorkers().filter { it.id != id }
         saveCustomWorkers(current)
         val nextWorker = current.firstOrNull()
-        if (getActiveWorkerId(ProxyMode.MTPROTO) == id) {
-            setActiveWorkerId(nextWorker?.id ?: "", mode = ProxyMode.MTPROTO, fromUserAction = true)
+        val hasValidRemainingWorker = current.any { ProxyConfig.sanitizeDomain(it.domain).isNotBlank() }
+
+        if (prevActiveMtprotoId == id) {
+            setActiveWorkerId(nextWorker?.id ?: "", mode = ProxyMode.MTPROTO, fromUserAction = false)
         }
-        if (getActiveWorkerId(ProxyMode.SOCKS5) == id) {
-            setActiveWorkerId(nextWorker?.id ?: "", mode = ProxyMode.SOCKS5, fromUserAction = true)
+        if (prevActiveSocks5Id == id) {
+            setActiveWorkerId(nextWorker?.id ?: "", mode = ProxyMode.SOCKS5, fromUserAction = false)
         }
-        if (getUserPrimaryWorkerId(ProxyMode.MTPROTO) == id) {
+        if (prevPrimaryMtprotoId == id) {
             setUserPrimaryWorkerId(nextWorker?.id ?: "", mode = ProxyMode.MTPROTO)
         }
-        if (getUserPrimaryWorkerId(ProxyMode.SOCKS5) == id) {
+        if (prevPrimarySocks5Id == id) {
             setUserPrimaryWorkerId(nextWorker?.id ?: "", mode = ProxyMode.SOCKS5)
+        }
+        if (!hasValidRemainingWorker) {
+            setSocks5UplinkMode(ProxyConfig.SOCKS5_UPLINK_FLOWSEAL)
         }
     }
 
@@ -2583,6 +2751,9 @@ class PreferencesManager(private val context: Context) {
         val worker = getActiveWorker(mode = mode, activeId = id)
         if (fromUserAction && mode == ProxyMode.SOCKS5 && worker.domain.isNotBlank()) {
             setSocks5UplinkMode(0)
+            try {
+                NotificationHelper.cancelSocks5FlowsealFallbackNotification(context)
+            } catch (_: Throwable) {}
         }
 
         try {
@@ -2772,6 +2943,22 @@ class PreferencesManager(private val context: Context) {
 
     fun setHasSeenOnboarding(seen: Boolean = true) {
         prefs.edit().putBoolean("has_seen_onboarding", seen).apply()
+    }
+
+    fun hasConfirmedOemAutostart(): Boolean {
+        return prefs.getBoolean("has_confirmed_oem_autostart", false)
+    }
+
+    fun setHasConfirmedOemAutostart(confirmed: Boolean = true) {
+        prefs.edit().putBoolean("has_confirmed_oem_autostart", confirmed).apply()
+    }
+
+    fun hasCompletedBackgroundOnboarding(): Boolean {
+        return prefs.getBoolean("has_completed_background_onboarding_v2", false)
+    }
+
+    fun setHasCompletedBackgroundOnboarding(completed: Boolean = true) {
+        prefs.edit().putBoolean("has_completed_background_onboarding_v2", completed).apply()
     }
 
     fun hasSeenVpnOnboarding(): Boolean {
@@ -2977,6 +3164,10 @@ class PreferencesManager(private val context: Context) {
             .apply()
 
         updateCloudflareSessionFlows()
+
+        if (getCustomWorkers().none { ProxyConfig.sanitizeDomain(it.domain).isNotBlank() }) {
+            setSocks5UplinkMode(ProxyConfig.SOCKS5_UPLINK_FLOWSEAL)
+        }
     }
 
     /**

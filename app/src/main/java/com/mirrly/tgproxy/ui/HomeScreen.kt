@@ -346,6 +346,7 @@ fun HomeScreen(
     val wasProxyRunningDuringSwitch by com.mirrly.tgproxy.service.ProtocolSwitchManager.wasProxyRunningDuringSwitch.collectAsState()
     val preflightStage by com.mirrly.tgproxy.service.PreflightDiagnosticsEngine.preflightStage.collectAsState()
     val preflightMessage by com.mirrly.tgproxy.service.PreflightDiagnosticsEngine.preflightStatusMessage.collectAsState()
+    val portConflictReport by com.mirrly.tgproxy.service.PortConflictMonitor.conflictReport.collectAsState()
     val liveWarmPoolStatus by server.warmPoolStatus.collectAsState()
     val preflightWarmPoolStatus by com.mirrly.tgproxy.service.PreflightDiagnosticsEngine.warmPoolStatus.collectAsState()
     val warmPoolStatus = liveWarmPoolStatus ?: preflightWarmPoolStatus
@@ -445,8 +446,10 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(isProxyRunning, isPreflightActive, pendingState) {
+    LaunchedEffect(isProxyRunning, isPreflightActive, pendingState, preflightStage, portConflictReport) {
         if (pendingState == ProxyUiState.CONNECTING && isProxyRunning && !isPreflightActive) {
+            pendingState = null
+        } else if (pendingState == ProxyUiState.CONNECTING && (preflightStage == com.mirrly.tgproxy.service.PreflightStage.FAILED || portConflictReport != null)) {
             pendingState = null
         } else if (pendingState == ProxyUiState.DISCONNECTING && !isProxyRunning) {
             pendingState = null
