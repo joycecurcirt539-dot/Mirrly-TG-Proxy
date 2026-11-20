@@ -1,6 +1,5 @@
 #[macro_use]
 pub mod config;
-pub mod awg;
 pub mod balancer;
 pub mod budget;
 pub mod bridge;
@@ -17,7 +16,6 @@ pub mod recovery;
 pub mod socks5;
 pub mod supervisor;
 pub mod tls_observability;
-pub mod vpn;
 pub mod ws;
 pub mod traffic_guard;
 pub mod snake;
@@ -183,19 +181,6 @@ where
             ))
         }
     }
-}
-
-struct VpnState {
-    handle: tokio::task::JoinHandle<()>,
-    cancel_token: CancellationToken,
-}
-
-static VPN_STATE: OnceCell<Mutex<Option<VpnState>>> = OnceCell::new();
-static LAST_VPN_ERROR: Lazy<parking_lot::RwLock<Option<String>>> = Lazy::new(|| parking_lot::RwLock::new(None));
-static IS_VPN_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-fn vpn_state_cell() -> &'static Mutex<Option<VpnState>> {
-    VPN_STATE.get_or_init(|| Mutex::new(None))
 }
 
 fn init_crypto_and_panic_hook() {
@@ -447,127 +432,6 @@ pub extern "C" fn StopProxy() -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn StartVpn(tun_fd: c_int, verbose: c_int) -> c_int {
-    init_crypto_and_panic_hook();
-
-    let cell = vpn_state_cell();
-    let mut guard = cell.lock();
-
-    if guard.is_some() {
-        return -1;
-    }
-
-    let is_verbose = verbose != 0;
-    init_logging(is_verbose);
-
-    let rt = runtime();
-    let cancel_token = CancellationToken::new();
-    let cancel_task = cancel_token.clone();
-
-    crate::awg::reset_awg_circuit_breaker();
-    *LAST_VPN_ERROR.write() = None;
-    IS_VPN_RUNNING.store(true, Ordering::SeqCst);
-
-    let handle = rt.spawn(async move {
-        let res = vpn::run_vpn(tun_fd, cancel_task).await;
-        IS_VPN_RUNNING.store(false, Ordering::SeqCst);
-        if let Err(ref e) = res {
-            crate::lerror!("VPN fatal error: {}", e);
-            *LAST_VPN_ERROR.write() = Some(e.clone());
-        }
-        let cell = vpn_state_cell();
-        let _ = cell.lock().take();
-    });
-
-    *guard = Some(VpnState {
-        handle,
-        cancel_token,
-    });
-
-    crate::linfo!("StartVpn: native L3 VPN started with tun_fd={}", tun_fd);
-    0
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn StopVpn() -> c_int {
-    IS_VPN_RUNNING.store(false, Ordering::SeqCst);
-    vpn::IS_VPN_ESTABLISHED.store(false, Ordering::SeqCst);
-    let cell = vpn_state_cell();
-    let mut guard = cell.lock();
-
-    if let Some(state) = guard.take() {
-        crate::linfo!("StopVpn: stopping native L3 VPN");
-        state.cancel_token.cancel();
-        state.handle.abort();
-
-        let rt = runtime();
-        rt.spawn(async move {
-            let _ = state.handle.await;
-            crate::linfo!("StopVpn: native L3 VPN background handle terminated");
-        });
-
-        crate::linfo!("StopVpn: native L3 VPN completely stopped");
-        0
-    } else {
-        0
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn SetVpnUplinkMode(mode: c_int) -> c_int {
-    vpn::set_vpn_uplink_mode(mode);
-    0
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn GetVpnStatusJson() -> *mut c_char {
-    let is_running = IS_VPN_RUNNING.load(Ordering::Relaxed);
-    let is_established = vpn::is_vpn_established();
-    let last_err = LAST_VPN_ERROR.read().clone().unwrap_or_default();
-    let up = crate::STATS.vpn_bytes_up.load(Ordering::Relaxed);
-    let down = crate::STATS.vpn_bytes_down.load(Ordering::Relaxed);
-    let pkts_up = crate::STATS.vpn_packets_up.load(Ordering::Relaxed);
-    let pkts_down = crate::STATS.vpn_packets_down.load(Ordering::Relaxed);
-    let awg_status = awg::get_awg_status();
-    let uplink_mode = vpn::get_vpn_uplink_mode();
-    let (awg_init_sent, awg_resp_received, awg_bytes_recv, cb_open, cb_failures, awg_ep) = awg::get_awg_diagnostics();
-
-    let json = serde_json::json!({
-        "is_running": is_running,
-        "is_established": is_established,
-        "last_error": last_err,
-        "bytes_up": up,
-        "bytes_down": down,
-        "packets_up": pkts_up,
-        "packets_down": pkts_down,
-        "uplink_mode": uplink_mode.as_str(),
-        "uplink_mode_id": uplink_mode as i32,
-        "awg": awg_status,
-        "awg_endpoint": awg_ep,
-        "awg_init_sent": awg_init_sent,
-        "awg_resp_received": awg_resp_received,
-        "awg_bytes_received": awg_bytes_recv,
-        "circuit_breaker_open": cb_open,
-        "circuit_breaker_failures": cb_failures,
-    });
-
-    let s = CString::new(json.to_string()).unwrap_or_else(|_| CString::new("{}").unwrap());
-    s.into_raw()
-}
-
-#[no_mangle]
-pub extern "C" fn ResetVpnSockets() {
-    awg::reset_awg_circuit_breaker();
-    awg::invalidate_active_peer();
-    vpn::notify_vpn_reconnect();
-}
-
-#[no_mangle]
-pub extern "C" fn NotifyVpnReconnect() {
-    ResetVpnSockets();
-}
-
-#[no_mangle]
 pub extern "C" fn ResetNetworkSockets() {
     reset_network_sockets_for_reason("external/network-generation reset");
 }
@@ -581,9 +445,7 @@ pub(crate) fn reset_network_sockets_for_reason(reason: &str) {
     let cell = state_cell();
     let guard = cell.lock();
     generation_guard::invalidate_profile();
-    awg::invalidate_active_peer();
     recovery::reset();
-    vpn::notify_vpn_reconnect();
     reset_network_sockets_for_reason_locked(guard.as_ref(), reason);
 }
 
@@ -650,8 +512,7 @@ fn reset_network_sockets_for_reason_locked(state: Option<&ProxyState>, reason: &
             });
         }
 
-        // 5. Reset AWG active peer and SOCKS5 warm pool to force clean handshakes on the new network interface
-        awg::invalidate_active_peer();
+        // 5. Reset SOCKS5 warm pool to force clean handshakes on the new network interface
         socks5::clear_socks5_warm_pool();
         let user_domain = CFPROXY.read().user_domain.clone();
         if !user_domain.is_empty() {
@@ -707,7 +568,7 @@ pub extern "C" fn WarmupWsPool() {
 }
 
 /// Predictive screen wakeup hook.
-/// Clears transient cooldowns caused by phone sleep, triggers MTProto prewarm and wakes timers.
+/// Clears transient cooldowns caused by phone sleep and triggers MTProto prewarm.
 #[no_mangle]
 pub extern "C" fn OnScreenWakeup() {
     crate::linfo!("OnScreenWakeup: triggering predictive wake and preserving endpoint rate-limit quarantine");
@@ -721,8 +582,6 @@ pub extern "C" fn OnScreenWakeup() {
             pool.prewarm(&map).await;
         });
     }
-
-    awg::notify_active_peer_timer();
 }
 
 #[no_mangle]
@@ -892,7 +751,6 @@ pub extern "C" fn SetBatteryQoSLevel(level: c_int) {
     let lvl = (level.clamp(0, 2)) as u8;
     BATTERY_QOS_LEVEL.store(lvl, Ordering::Relaxed);
     crate::linfo!("SetBatteryQoSLevel: set to {}", lvl);
-    awg::notify_active_peer_timer();
 }
 
 pub fn get_battery_qos_level() -> u8 {
@@ -1099,100 +957,6 @@ pub extern "C" fn GetSecretWithPrefix() -> *mut c_char {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn SetAwgConfigParams(
-    c_endpoint: *const c_char,
-    c_private_key_b64: *const c_char,
-    c_public_key_b64: *const c_char,
-    c_peer_pub_b64: *const c_char,
-    c_client_ipv4: *const c_char,
-    jc: c_int,
-    jmin: c_int,
-    jmax: c_int,
-    s1: c_int,
-    s2: c_int,
-    h1: c_int,
-    h2: c_int,
-    h3: c_int,
-    h4: c_int,
-) {
-    let endpoint = cstr_to_string(c_endpoint);
-    let private_key_b64 = cstr_to_string(c_private_key_b64);
-    let public_key_b64 = cstr_to_string(c_public_key_b64);
-    let peer_pub_b64 = cstr_to_string(c_peer_pub_b64);
-    let client_ipv4 = cstr_to_string(c_client_ipv4);
-    generation_guard::change_config(|| awg::set_awg_config(
-        &endpoint,
-        &private_key_b64,
-        &public_key_b64,
-        &peer_pub_b64,
-        &client_ipv4,
-        jc.max(0) as u32,
-        jmin.max(0) as usize,
-        jmax.max(0) as usize,
-        s1.max(0) as usize,
-        s2.max(0) as usize,
-        h1.max(0) as u32,
-        h2.max(0) as u32,
-        h3.max(0) as u32,
-        h4.max(0) as u32,
-    ));
-}
-
-/// Kotlin interface: SetAwgConfig(ini: String): Int
-/// Parses an AmneziaWG INI config string and loads it into the native engine.
-/// Returns 0 on success, -1 on parse error.
-#[no_mangle]
-pub unsafe extern "C" fn SetAwgConfig(c_ini: *const c_char) -> c_int {
-    let ini_str = cstr_to_string(c_ini);
-    if ini_str.is_empty() {
-        return -1;
-    }
-    match generation_guard::change_config(|| awg::set_awg_config_ini(&ini_str)) {
-        Ok(()) => 0,
-        Err(e) => {
-            crate::lerror!("SetAwgConfig (INI) error: {}", e);
-            -1
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn SetAwgWarpMode() {
-    generation_guard::change_config(|| {
-    let mut cfg = awg::AWG_CONFIG.write();
-    cfg.awg_params = awg::AwgParams::warp_recommended();
-    cfg.profile_name = "Cloudflare WARP".to_string();
-    cfg.fallback_endpoints = awg::CLOUDFLARE_WARP_ANYCAST_POOL
-        .iter()
-        .map(|&s| s.to_string())
-        .collect();
-    crate::linfo!(
-        "AWG: preset WARP mode applied (profile='{}', Jc={}, Jmin={}, Jmax={}, fallbacks={})",
-        cfg.profile_name,
-        cfg.awg_params.jc,
-        cfg.awg_params.jmin,
-        cfg.awg_params.jmax,
-        cfg.fallback_endpoints.len()
-    );
-    drop(cfg);
-    awg::invalidate_active_peer();
-    });
-    awg::reset_awg_circuit_breaker();
-}
-
-#[no_mangle]
-pub extern "C" fn SetAwgKeepalive(secs: c_int) {
-    let ka = if secs > 0 { Some(secs as u16) } else { None };
-    awg::set_awg_keepalive(ka);
-}
-
-#[no_mangle]
-pub extern "C" fn GetAwgStatus() -> *mut c_char {
-    let s = awg::get_awg_status();
-    CString::new(s).unwrap_or_default().into_raw()
-}
-
-#[no_mangle]
 pub extern "C" fn GetActiveCascadeStage() -> c_int {
     supervisor::get_active_cascade_stage()
 }
@@ -1262,7 +1026,6 @@ pub extern "C" fn GetUsefulRxSliJson() -> *mut c_char {
     let total_conns = STATS.connections_total.load(Ordering::Relaxed);
     let ws_total = STATS.connections_ws.load(Ordering::Relaxed);
     let cf_total = STATS.connections_cfproxy.load(Ordering::Relaxed);
-    let awg_total = STATS.connections_awg.load(Ordering::Relaxed);
     let v2_sessions = STATS.socks5_v2_sessions.load(Ordering::Relaxed);
     let v1_downgrades = STATS.socks5_v1_downgrades.load(Ordering::Relaxed);
     let fastpath_hits = STATS.socks5_fastpath_hits.load(Ordering::Relaxed);
@@ -1284,7 +1047,6 @@ pub extern "C" fn GetUsefulRxSliJson() -> *mut c_char {
         "connections_total": total_conns,
         "connections_ws": ws_total,
         "connections_cfproxy": cf_total,
-        "connections_awg": awg_total,
         "socks5_v2_sessions": v2_sessions,
         "socks5_v1_downgrades": v1_downgrades,
         "socks5_fastpath_hits": fastpath_hits,
@@ -1308,7 +1070,6 @@ pub extern "C" fn GetUsefulRxSliJson() -> *mut c_char {
         "balancer_median_rtt_ms": bal.median_probe_rtt_ms,
         "balancer_useful_success_count": bal.total_useful_success_count,
         "balancer_failure_count": bal.total_failure_count,
-        "vpn_established": vpn::IS_VPN_ESTABLISHED.load(Ordering::Relaxed),
     })
     .to_string();
 
@@ -1345,23 +1106,6 @@ pub extern "C" fn GetNodeIndependenceStatusJson() -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn GetTlsObservabilityStatusJson() -> *mut c_char {
     let s = tls_observability::TLS_TRACKER.read().get_status_json();
-    CString::new(s).unwrap_or_default().into_raw()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn ProbeWarpEndpoints(
-    c_endpoints_csv: *const c_char,
-    protocol: c_int,
-    timeout_ms: c_int,
-) -> *mut c_char {
-    init_crypto_and_panic_hook();
-    let endpoints_csv = cstr_to_string(c_endpoints_csv);
-    let to_ms = if timeout_ms <= 0 { 600 } else { timeout_ms as u64 };
-    let rt = runtime();
-    let results = rt.block_on(async {
-        prober::probe_warp_endpoints(&endpoints_csv, protocol, to_ms).await
-    });
-    let s = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
     CString::new(s).unwrap_or_default().into_raw()
 }
 

@@ -1,6 +1,7 @@
 use mirrlyengine::{
+    config::SOCKS5_UPLINK_FLOWSEAL,
     socks5::*,
-    supervisor::{RouteKind, RouteSupervisor, ROUTE_SUPERVISOR, UPLINK_AWG, UPLINK_WORKER},
+    supervisor::{RouteKind, RouteSupervisor, ROUTE_SUPERVISOR, UPLINK_WORKER},
 };
 use std::{sync::Arc, time::Duration};
 use tokio::{
@@ -14,40 +15,15 @@ static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn transport_matrix_and_pin() {
     let _guard = TEST_LOCK.lock().unwrap();
     let sup = RouteSupervisor::new();
-    for (mode, expected) in [
-        (UPLINK_WORKER, None),
-        (999, None),
-        (UPLINK_AWG, Some(RouteKind::Awg)),
-    ] {
+    for mode in [UPLINK_WORKER, SOCKS5_UPLINK_FLOWSEAL, 4, 999] {
         sup.set_intent(mode, 1, true);
-        assert_eq!(sup.pin_udp_route().map(|pin| pin.route), expected);
+        assert!(sup.pin_udp_route().is_none());
+        assert!(!sup.supports_udp());
+        assert_eq!(sup.get_active_route(), RouteKind::None);
     }
-    sup.set_intent(UPLINK_AWG, 2, true);
-    let pin = sup.pin_udp_route().unwrap();
-    assert_eq!(pin.route, RouteKind::Awg);
     sup.transition_to(RouteKind::None, "test");
     sup.set_intent(UPLINK_WORKER, 3, false);
     assert!(!sup.supports_udp());
-    assert!(!sup.udp_pin_is_current(&pin));
-}
-
-#[tokio::test]
-async fn stale_and_cancelled_pins_never_acquire() {
-    let _guard = TEST_LOCK.lock().unwrap();
-    let sup = RouteSupervisor::new();
-    sup.set_intent(UPLINK_AWG, 1, false);
-    let pin = sup.pin_udp_route().unwrap();
-    let cancel = CancellationToken::new();
-    cancel.cancel();
-    assert!(sup
-        .acquire_socks5_udp_uplink(&pin, "192.0.2.1:53", &cancel)
-        .await
-        .is_none());
-    sup.set_intent(UPLINK_WORKER, 2, false);
-    assert!(sup
-        .acquire_socks5_udp_uplink(&pin, "192.0.2.1:53", &CancellationToken::new())
-        .await
-        .is_none());
 }
 
 async fn start_association(
@@ -111,61 +87,24 @@ async fn start_association(
 #[tokio::test]
 async fn worker_wire_reply_is_exact_command_not_supported() {
     let _guard = TEST_LOCK.lock().unwrap();
-    let (mut client, reply, cancel, task) = start_association(UPLINK_WORKER).await;
-    assert!(
-        reply == [5, 7, 0, 1, 0, 0, 0, 0, 0, 0] || reply.is_empty(),
-        "expected exact SOCKS5 0x07 rejection or TCP reset, got {:?}",
-        reply
-    );
-    let eof_or_reset = match client.read(&mut [0; 1]).await {
-        Ok(0) => true,
-        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => true,
-        _ => false,
-    };
-    assert!(eof_or_reset, "expected EOF or ConnectionReset");
-    cancel.cancel();
-    task.await.unwrap();
-}
-
-#[tokio::test]
-async fn tcp_close_releases_udp_association_socket() {
-    let _guard = TEST_LOCK.lock().unwrap();
-    let (client, reply, cancel, task) = start_association(UPLINK_AWG).await;
-    assert_eq!(reply[1], 0);
-    let port = u16::from_be_bytes([reply[8], reply[9]]);
-    drop(client);
-    tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            if tokio::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, port))
-                .await
-                .is_ok()
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
-    cancel.cancel();
-    task.await.unwrap();
-}
-
-#[tokio::test]
-async fn profile_change_closes_idle_association() {
-    let _guard = TEST_LOCK.lock().unwrap();
-    let (mut client, reply, cancel, task) = start_association(UPLINK_AWG).await;
-    assert_eq!(reply[1], 0);
-    ROUTE_SUPERVISOR.set_intent(UPLINK_WORKER, 101, false);
-    assert_eq!(
-        tokio::time::timeout(Duration::from_secs(2), client.read(&mut [0; 1]))
-            .await
-            .unwrap()
-            .unwrap(),
-        0
-    );
-    cancel.cancel();
-    task.await.unwrap();
+    for mode in [UPLINK_WORKER, SOCKS5_UPLINK_FLOWSEAL, 4] {
+        let (mut client, reply, cancel, task) = start_association(mode).await;
+        assert_eq!(
+            reply,
+            vec![5, 7, 0, 1, 0, 0, 0, 0, 0, 0],
+            "expected exact SOCKS5 0x07 rejection for mode={}, got {:?}",
+            mode,
+            reply
+        );
+        let eof_or_reset = match client.read(&mut [0; 1]).await {
+            Ok(0) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => true,
+            _ => false,
+        };
+        assert!(eof_or_reset, "expected EOF or ConnectionReset for mode={}", mode);
+        cancel.cancel();
+        task.await.unwrap();
+    }
 }
 
 #[test]

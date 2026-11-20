@@ -1,5 +1,6 @@
+use mirrlyengine::config::SOCKS5_UPLINK_FLOWSEAL;
 use mirrlyengine::socks5::*;
-use mirrlyengine::supervisor::{ROUTE_SUPERVISOR, UPLINK_AWG, UPLINK_WORKER};
+use mirrlyengine::supervisor::{ROUTE_SUPERVISOR, UPLINK_WORKER};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -100,8 +101,8 @@ fn test_udp_active_conversation_eviction_immunity() {
 async fn test_concurrent_udp_associations_and_rapid_supervisor_flip() {
     let _lock = UDP_TEST_LOCK.lock();
 
-    // Start with UPLINK_AWG
-    ROUTE_SUPERVISOR.set_intent(UPLINK_AWG, 200, false);
+    // Start with UPLINK_WORKER (TCP/WS-only)
+    ROUTE_SUPERVISOR.set_intent(UPLINK_WORKER, 200, false);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -120,7 +121,7 @@ async fn test_concurrent_udp_associations_and_rapid_supervisor_flip() {
         .await;
     });
 
-    // Spawn 5 clients attempting UDP association
+    // Spawn 5 clients attempting UDP association (must cleanly reject with REP=0x07)
     let mut client_tasks = Vec::new();
     for i in 0..5 {
         let task = tokio::spawn(async move {
@@ -141,17 +142,20 @@ async fn test_concurrent_udp_associations_and_rapid_supervisor_flip() {
                 return;
             }
             let mut reply = [0u8; 10];
-            let _ = tokio::time::timeout(Duration::from_millis(500), client.read_exact(&mut reply)).await;
-            
+            if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(500), client.read_exact(&mut reply)).await {
+                assert_eq!(reply, [5, 7, 0, 1, 0, 0, 0, 0, 0, 0]);
+            }
+
             // Hold connection briefly
             tokio::time::sleep(Duration::from_millis(50 * (i + 1))).await;
         });
         client_tasks.push(task);
     }
 
-    // While clients are associating, simulate sudden network generation change
+    // While clients are associating, simulate sudden uplink / generation change
     tokio::time::sleep(Duration::from_millis(30)).await;
-    ROUTE_SUPERVISOR.set_intent(UPLINK_WORKER, 201, false);
+    ROUTE_SUPERVISOR.set_intent(SOCKS5_UPLINK_FLOWSEAL, 201, false);
+    ROUTE_SUPERVISOR.set_intent(UPLINK_WORKER, 202, false);
 
     // Wait for clients
     for ct in client_tasks {

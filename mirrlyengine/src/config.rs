@@ -218,12 +218,6 @@ pub const HIGH_THROUGHPUT_MAX_SOCKET_BUFFER: i32 = 8 * 1024 * 1024;
 /// Backward-compatible alias for existing code
 pub const MAX_SOCKET_BUFFER: i32 = DEFAULT_MAX_SOCKET_BUFFER;
 
-/// Dedicated WireGuard / AmneziaWG UDP tunnel socket buffers
-pub const DEFAULT_UDP_TUNNEL_RECV_BUF: usize = 4 * 1024 * 1024; // 4 MiB (cellular default)
-pub const HIGH_THROUGHPUT_UDP_TUNNEL_RECV_BUF: usize = 8 * 1024 * 1024; // 8 MiB (Wi-Fi / 5G)
-pub const DEFAULT_UDP_TUNNEL_SEND_BUF: usize = 2 * 1024 * 1024; // 2 MiB
-pub const HIGH_THROUGHPUT_UDP_TUNNEL_SEND_BUF: usize = 4 * 1024 * 1024; // 4 MiB
-
 /// Dynamic atomic ceiling for TCP / SOCKS5 sockets (defaults to 2 MiB)
 pub static MAX_SOCKET_BUFFER_CEILING: AtomicI32 = AtomicI32::new(DEFAULT_MAX_SOCKET_BUFFER);
 
@@ -679,7 +673,6 @@ pub struct Stats {
     pub connections_ws: AtomicI64,
     pub connections_tcp_fallback: AtomicI64,
     pub connections_cfproxy: AtomicI64,
-    pub connections_awg: AtomicI64,
     pub socks5_v2_sessions: AtomicI64,
     pub socks5_v1_downgrades: AtomicI64,
     pub socks5_fastpath_hits: AtomicI64,
@@ -692,10 +685,6 @@ pub struct Stats {
     pub bytes_down: AtomicI64,
     pub pool_hits: AtomicI64,
     pub pool_misses: AtomicI64,
-    pub vpn_bytes_up: AtomicI64,
-    pub vpn_bytes_down: AtomicI64,
-    pub vpn_packets_up: AtomicI64,
-    pub vpn_packets_down: AtomicI64,
     pub mtproto_429_cooldown_hits: AtomicI64,
     pub socks5_429_cooldown_hits: AtomicI64,
 }
@@ -703,27 +692,15 @@ pub struct Stats {
 pub static STATS: Lazy<Stats> = Lazy::new(Stats::default);
 
 impl Stats {
-    pub fn add_vpn_bytes_up(&self, n: i64) {
-        self.vpn_bytes_up.fetch_add(n, Ordering::Relaxed);
-        self.bytes_up.fetch_add(n, Ordering::Relaxed);
-        self.vpn_packets_up.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn add_vpn_bytes_down(&self, n: i64) {
-        self.vpn_bytes_down.fetch_add(n, Ordering::Relaxed);
-        self.bytes_down.fetch_add(n, Ordering::Relaxed);
-        self.vpn_packets_down.fetch_add(1, Ordering::Relaxed);
-    }
     pub fn summary(&self) -> String {
         let ph = self.pool_hits.load(Ordering::Relaxed);
         let pm = self.pool_misses.load(Ordering::Relaxed);
         format!(
-            "total={} active={} ws={} cf={} awg={} v2={} v1_down={} fp={} fb={} bad={} err={} pool={}/{} up={} down={}",
+            "total={} active={} ws={} cf={} v2={} v1_down={} fp={} fb={} bad={} err={} pool={}/{} up={} down={}",
             self.connections_total.load(Ordering::Relaxed),
             self.connections_active.load(Ordering::Relaxed),
             self.connections_ws.load(Ordering::Relaxed),
             self.connections_cfproxy.load(Ordering::Relaxed),
-            self.connections_awg.load(Ordering::Relaxed),
             self.socks5_v2_sessions.load(Ordering::Relaxed),
             self.socks5_v1_downgrades.load(Ordering::Relaxed),
             self.socks5_fastpath_hits.load(Ordering::Relaxed),
@@ -749,11 +726,6 @@ impl Stats {
         let cf = self.connections_cfproxy.load(Ordering::Relaxed);
         if cf > 0 {
             parts.push(format!("cf:{}", cf));
-        }
-
-        let awg = self.connections_awg.load(Ordering::Relaxed);
-        if awg > 0 {
-            parts.push(format!("awg:{}", awg));
         }
         let v2 = self.socks5_v2_sessions.load(Ordering::Relaxed);
         if v2 > 0 {
@@ -797,7 +769,6 @@ impl Stats {
         self.connections_ws.store(0, Ordering::Relaxed);
         self.connections_tcp_fallback.store(0, Ordering::Relaxed);
         self.connections_cfproxy.store(0, Ordering::Relaxed);
-        self.connections_awg.store(0, Ordering::Relaxed);
         self.socks5_v2_sessions.store(0, Ordering::Relaxed);
         self.socks5_v1_downgrades.store(0, Ordering::Relaxed);
         self.socks5_fastpath_hits.store(0, Ordering::Relaxed);

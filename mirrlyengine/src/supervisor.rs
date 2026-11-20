@@ -1,21 +1,17 @@
-use crate::{linfo, lwarn};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
 
 // Uplink modes
 pub const UPLINK_WORKER: i32 = 0;
-pub const UPLINK_AWG: i32 = 4;
 
 pub const STAGE_NONE: i32 = 0;
-pub const STAGE_AWG: i32 = 2;
 
 // Compatibility aliases
 pub const CASCADE_STAGE_NONE: i32 = STAGE_NONE;
-pub const CASCADE_STAGE_AWG: i32 = STAGE_AWG;
 
 /// Immutable association transport and configuration identity; never reselected per target.
 #[derive(Debug, Clone)]
@@ -26,9 +22,7 @@ pub struct UdpRoutePin {
     intent_generation: u64,
 }
 
-pub enum SocksUdpUplink {
-    Awg(crate::awg::AwgTunnel),
-}
+pub enum SocksUdpUplink {}
 
 tokio::task_local! {
     static ACQUIRE_GENERATION: crate::generation_guard::GenerationStamp;
@@ -37,7 +31,6 @@ tokio::task_local! {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeOperator {
     None,
-    CloudflareWarp,
 }
 
 impl NodeOperator {
@@ -48,14 +41,12 @@ impl NodeOperator {
     pub fn display_name(&self) -> &'static str {
         match self {
             NodeOperator::None => "None",
-            NodeOperator::CloudflareWarp => "Cloudflare Anycast",
         }
     }
 
     pub fn id_str(&self) -> &'static str {
         match self {
             NodeOperator::None => "none",
-            NodeOperator::CloudflareWarp => "cloudflare_warp",
         }
     }
 }
@@ -63,42 +54,36 @@ impl NodeOperator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteKind {
     None,
-    Awg, // Cloudflare WARP AmneziaWG
 }
 
 impl RouteKind {
     pub fn stage_code(&self) -> i32 {
         match self {
             RouteKind::None => STAGE_NONE,
-            RouteKind::Awg => STAGE_AWG,
         }
     }
 
     pub fn id_str(&self) -> &'static str {
         match self {
             RouteKind::None => "none",
-            RouteKind::Awg => "warp_awg",
         }
     }
 
     pub fn display_name(&self) -> &'static str {
         match self {
             RouteKind::None => "None",
-            RouteKind::Awg => "WARP AmneziaWG",
         }
     }
 
     pub fn operator(&self, _is_private: bool) -> NodeOperator {
         match self {
             RouteKind::None => NodeOperator::None,
-            RouteKind::Awg => NodeOperator::CloudflareWarp,
         }
     }
 
     pub fn effective_display_name(&self, _is_private: bool) -> &'static str {
         match self {
             RouteKind::None => "Not connected",
-            RouteKind::Awg => "WARP AmneziaWG (Anycast)",
         }
     }
 }
@@ -141,7 +126,6 @@ pub struct RouteSupervisor {
     active_route: RwLock<RouteKind>,
     trace: RwLock<VecDeque<TransitionRecord>>,
     trust_policy: RwLock<TrustPolicy>,
-    awg_cooldown_until_ms: AtomicU64,
     transport_ready: AtomicBool,
     app_ready: AtomicBool,
     last_app_error: RwLock<String>,
@@ -162,7 +146,6 @@ impl RouteSupervisor {
             active_route: RwLock::new(RouteKind::None),
             trace: RwLock::new(VecDeque::with_capacity(32)),
             trust_policy: RwLock::new(TrustPolicy::default()),
-            awg_cooldown_until_ms: AtomicU64::new(0),
             transport_ready: AtomicBool::new(false),
             app_ready: AtomicBool::new(false),
             last_app_error: RwLock::new(String::new()),
@@ -230,7 +213,6 @@ impl RouteSupervisor {
     }
 
     pub fn reset(&self) {
-        self.awg_cooldown_until_ms.store(0, Ordering::Relaxed);
         self.transport_ready.store(false, Ordering::Relaxed);
         self.app_ready.store(false, Ordering::Relaxed);
         *self.last_app_error.write() = String::new();
@@ -240,10 +222,7 @@ impl RouteSupervisor {
     }
 
     pub fn set_intent(&self, mode: i32, intent_gen: u64, fallback_enabled: bool) {
-        let initial_route = match mode {
-            UPLINK_AWG => RouteKind::Awg,
-            _ => RouteKind::None,
-        };
+        let initial_route = RouteKind::None;
 
         {
             let mut intent_guard = self.intent.write();
@@ -252,7 +231,6 @@ impl RouteSupervisor {
             intent_guard.fallback_enabled = fallback_enabled;
         }
 
-        self.awg_cooldown_until_ms.store(0, Ordering::Relaxed);
         self.transport_ready.store(false, Ordering::Relaxed);
         self.app_ready.store(false, Ordering::Relaxed);
         *self.last_app_error.write() = String::new();
@@ -324,47 +302,23 @@ impl RouteSupervisor {
         );
     }
 
-    pub fn report_route_failure(&self, reason: &str) -> i32 {
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        let (_mode, fallback_enabled) = {
-            let i = self.intent.read();
-            (i.mode, i.fallback_enabled)
-        };
+    pub fn report_route_failure(&self, _reason: &str) -> i32 {
         let active = *self.active_route.read();
 
         match active {
-            RouteKind::Awg => {
-                self.awg_cooldown_until_ms
-                    .store(now_ms + 30_000, Ordering::Relaxed);
-                if fallback_enabled {
-                    self.transition_to(RouteKind::None, reason);
-                }
-            }
             RouteKind::None => {}
         }
 
         self.active_stage.load(Ordering::Relaxed)
     }
 
-    /// Pin the effective UDP transport once, before SOCKS success. Only AWG
-    /// supports negotiated UDP capability; non-AWG receives REP=command-not-supported.
+    /// Pin the effective UDP transport once, before SOCKS success.
+    /// Remaining proxy uplinks are TCP/WS-only, so UDP ASSOCIATE is unsupported
+    /// and receives REP=0x07 (command-not-supported).
     pub fn pin_udp_route(&self) -> Option<UdpRoutePin> {
-        let generation = crate::generation_guard::snapshot();
-        let intent = self.intent.read().clone();
-        let route = match intent.mode {
-            UPLINK_AWG => RouteKind::Awg,
-            _ => return None,
-        };
-        Some(UdpRoutePin {
-            route,
-            generation,
-            mode: intent.mode,
-            intent_generation: intent.generation,
-        })
+        let _ = crate::generation_guard::snapshot();
+        let _ = self.intent.read().clone();
+        None
     }
 
     pub fn supports_udp(&self) -> bool {
@@ -380,29 +334,15 @@ impl RouteSupervisor {
     pub async fn acquire_socks5_udp_uplink(
         &self,
         pin: &UdpRoutePin,
-        target_addr: &str,
+        _target_addr: &str,
         cancel_token: &CancellationToken,
     ) -> Option<SocksUdpUplink> {
         if cancel_token.is_cancelled() || !self.udp_pin_is_current(pin) {
             return None;
         }
-        // Every target in this association uses the pinned AWG transport.
-        let result = tokio::select! {
-            biased;
-            _ = cancel_token.cancelled() => return None,
-            result = tokio::time::timeout(Duration::from_secs(3), async {
-                match pin.route {
-                    RouteKind::Awg => {
-                        crate::awg::awg_acquire_tunnel(target_addr, cancel_token).await.map(SocksUdpUplink::Awg)
-                    }
-                    RouteKind::None => None,
-                }
-            }) => result.ok().flatten(),
-        };
-        if cancel_token.is_cancelled() || !self.udp_pin_is_current(pin) {
-            return None;
+        match pin.route {
+            RouteKind::None => None,
         }
-        result
     }
 
     pub fn get_route_state_json(&self) -> String {
@@ -423,13 +363,6 @@ impl RouteSupervisor {
         let operator = route.operator(is_private).display_name();
         let trust_maintained = match route {
             RouteKind::None => true,
-            RouteKind::Awg => {
-                if is_private {
-                    policy.allow_public_relay_fallback
-                } else {
-                    true
-                }
-            }
         };
 
         let mut trace_json_items = Vec::new();
@@ -444,10 +377,7 @@ impl RouteSupervisor {
             ));
         }
 
-        let candidates = match intent.mode {
-            UPLINK_AWG => r#"["warp_awg"]"#,
-            _ => r#"[]"#,
-        };
+        let candidates = "[]";
 
         format!(
             r#"{{"generation":{},"intent_mode":{},"intent_generation":{},"stage_code":{},"stage_name":"{}","effective_route":"{}","operator":"{}","is_private":{},"trust_boundary_maintained":{},"allow_public_relay_fallback":{},"transport_ready":{},"app_ready":{},"supports_udp":{},"last_app_error":"{}","app_success_count":{},"app_failure_count":{},"route_id":"{}","candidates":{},"trace":[{}]}}"#,
@@ -500,22 +430,41 @@ mod tests {
     fn test_route_supervisor_supports_udp() {
         let sup = RouteSupervisor::new();
 
-        sup.set_intent(UPLINK_AWG, 1, false);
-        assert!(sup.supports_udp());
-
         sup.set_intent(UPLINK_WORKER, 1, false);
         assert!(!sup.supports_udp());
+        assert!(sup.pin_udp_route().is_none());
+
+        sup.set_intent(crate::config::SOCKS5_UPLINK_FLOWSEAL, 2, false);
+        assert!(!sup.supports_udp());
+        assert!(sup.pin_udp_route().is_none());
+
+        sup.set_intent(4, 3, false);
+        assert!(!sup.supports_udp());
+        assert!(sup.pin_udp_route().is_none());
     }
 
     #[test]
     fn test_route_state_json_contains_supports_udp() {
         let sup = RouteSupervisor::new();
-        sup.set_intent(UPLINK_AWG, 1, false);
-        let json = sup.get_route_state_json();
-        assert!(json.contains("\"supports_udp\":true"));
-
         sup.set_intent(UPLINK_WORKER, 1, false);
         let json_worker = sup.get_route_state_json();
         assert!(json_worker.contains("\"supports_udp\":false"));
+    }
+
+    #[tokio::test]
+    async fn test_udp_pin_never_acquires_without_udp_uplink() {
+        let sup = RouteSupervisor::new();
+        sup.set_intent(UPLINK_WORKER, 1, false);
+        let pin = UdpRoutePin {
+            route: RouteKind::None,
+            generation: crate::generation_guard::snapshot(),
+            mode: UPLINK_WORKER,
+            intent_generation: 1,
+        };
+        assert!(sup.udp_pin_is_current(&pin));
+        assert!(sup
+            .acquire_socks5_udp_uplink(&pin, "192.0.2.1:53", &CancellationToken::new())
+            .await
+            .is_none());
     }
 }
