@@ -13,7 +13,7 @@ else
 fi
 
 echo "============================================="
-echo "Mirrly TG Proxy - Native Rust Engine (NDK)"
+echo "Mirrly TG Proxy - Native Rust Engines (NDK)"
 echo "Project Root: $PROJECT_ROOT"
 echo "============================================="
 
@@ -82,7 +82,8 @@ done
 
 prune_cargo_profile_dir() {
     local profile_dir="$1"
-    shift
+    local root_crate="$2"
+    shift 2
     [ -d "$profile_dir" ] || return 0
     rm -rf "$profile_dir/incremental"
 
@@ -90,7 +91,7 @@ prune_cargo_profile_dir() {
         return 0
     fi
 
-    python3 - "$profile_dir" "mirrlyengine" "$@" <<'PYEOF'
+    python3 - "$profile_dir" "$root_crate" "$@" <<'PYEOF'
 import json, os, re, shutil, sys
 
 profile_dir = os.path.realpath(sys.argv[1])
@@ -212,17 +213,16 @@ else
     ABIS_TO_BUILD=("arm64-v8a" "armeabi-v7a" "x86" "x86_64")
 fi
 
-TMP_JSON_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_JSON_DIR"' EXIT
+CRATES=("mirrlyengine" "mirrlyvpn")
+for crate in "${CRATES[@]}"; do
+    if [ ! -f "$PROJECT_ROOT/$crate/Cargo.toml" ]; then
+        echo "ERROR: Crate Cargo.toml not found: $PROJECT_ROOT/$crate/Cargo.toml" >&2
+        exit 1
+    fi
+done
 
-AR_TOOL="$NDK_BIN_DIR/llvm-ar"
-RANLIB_TOOL="$NDK_BIN_DIR/llvm-ranlib"
-TARGET_ROOT="$PROJECT_ROOT/mirrlyengine/target"
-ALL_JSON_LOGS=()
-
-cd "$PROJECT_ROOT/mirrlyengine"
-
-for abi in "${ABIS_TO_BUILD[@]}"; do
+resolve_abi_vars() {
+    local abi="$1"
     case "$abi" in
         arm64-v8a)
             RUST_TRIPLE="aarch64-linux-android"
@@ -249,7 +249,16 @@ for abi in "${ABIS_TO_BUILD[@]}"; do
             ENV_UPPER="X86_64_LINUX_ANDROID"
             ;;
     esac
+}
 
+TMP_JSON_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_JSON_DIR"' EXIT
+
+AR_TOOL="$NDK_BIN_DIR/llvm-ar"
+RANLIB_TOOL="$NDK_BIN_DIR/llvm-ranlib"
+
+for abi in "${ABIS_TO_BUILD[@]}"; do
+    resolve_abi_vars "$abi"
     CC_TOOL="$NDK_BIN_DIR/${CLANG_PREFIX}${API_LEVEL}-clang"
     CXX_TOOL="$NDK_BIN_DIR/${CLANG_PREFIX}${API_LEVEL}-clang++"
     if [ ! -x "$CC_TOOL" ]; then
@@ -263,25 +272,38 @@ for abi in "${ABIS_TO_BUILD[@]}"; do
     export "RANLIB_${ENV_LOWER}=$RANLIB_TOOL"
     export "CARGO_TARGET_${ENV_UPPER}_LINKER=$CC_TOOL"
     export "CARGO_TARGET_${ENV_UPPER}_AR=$AR_TOOL"
-
-    echo "Building mirrlyengine [$abi / $RUST_TRIPLE] (API $API_LEVEL)..."
-    JSON_LOG="$TMP_JSON_DIR/${abi}.json"
-    cargo build --release --lib --target "$RUST_TRIPLE" --message-format=json-render-diagnostics > "$JSON_LOG"
-    ALL_JSON_LOGS+=("$JSON_LOG")
-
-    BUILT_SO="$TARGET_ROOT/$RUST_TRIPLE/release/libmirrlyengine.so"
-    if [ ! -f "$BUILT_SO" ]; then
-        echo "ERROR: Built shared library not found: $BUILT_SO" >&2
-        exit 1
-    fi
-
-    mkdir -p "$OUT_JNI_LIBS/$abi"
-    cp -f "$BUILT_SO" "$OUT_JNI_LIBS/$abi/libmirrlyengine.so"
-
-    prune_cargo_profile_dir "$TARGET_ROOT/$RUST_TRIPLE/release" "$JSON_LOG"
 done
 
-prune_cargo_profile_dir "$TARGET_ROOT/release" "${ALL_JSON_LOGS[@]}"
+for crate in "${CRATES[@]}"; do
+    CRATE_DIR="$PROJECT_ROOT/$crate"
+    SO_NAME="lib${crate}.so"
+    TARGET_ROOT="$CRATE_DIR/target"
+    ALL_JSON_LOGS=()
+
+    cd "$CRATE_DIR"
+
+    for abi in "${ABIS_TO_BUILD[@]}"; do
+        resolve_abi_vars "$abi"
+
+        echo "Building $crate [$abi / $RUST_TRIPLE] (API $API_LEVEL)..."
+        JSON_LOG="$TMP_JSON_DIR/${crate}_${abi}.json"
+        cargo build --release --lib --target "$RUST_TRIPLE" --message-format=json-render-diagnostics > "$JSON_LOG"
+        ALL_JSON_LOGS+=("$JSON_LOG")
+
+        BUILT_SO="$TARGET_ROOT/$RUST_TRIPLE/release/$SO_NAME"
+        if [ ! -f "$BUILT_SO" ]; then
+            echo "ERROR: Built shared library not found: $BUILT_SO" >&2
+            exit 1
+        fi
+
+        mkdir -p "$OUT_JNI_LIBS/$abi"
+        cp -f "$BUILT_SO" "$OUT_JNI_LIBS/$abi/$SO_NAME"
+
+        prune_cargo_profile_dir "$TARGET_ROOT/$RUST_TRIPLE/release" "$crate" "$JSON_LOG"
+    done
+
+    prune_cargo_profile_dir "$TARGET_ROOT/release" "$crate" "${ALL_JSON_LOGS[@]}"
+done
 
 # 5. Post-processing with llvm-strip (single pass per library)
 STRIP_TOOL="$NDK_BIN_DIR/llvm-strip"
@@ -292,11 +314,14 @@ fi
 if [ -n "$STRIP_TOOL" ] && [ -x "$STRIP_TOOL" ]; then
     echo "Running llvm-strip on output libraries..."
     for abi in "${ABIS_TO_BUILD[@]}"; do
-        SO_PATH="$OUT_JNI_LIBS/$abi/libmirrlyengine.so"
-        if [ -f "$SO_PATH" ]; then
-            "$STRIP_TOOL" --strip-all --remove-section=.comment --remove-section=.note.GNU-stack "$SO_PATH" 2>/dev/null || true
-            echo "  -> $abi/libmirrlyengine.so ($(wc -c < "$SO_PATH") bytes)"
-        fi
+        for crate in "${CRATES[@]}"; do
+            SO_NAME="lib${crate}.so"
+            SO_PATH="$OUT_JNI_LIBS/$abi/$SO_NAME"
+            if [ -f "$SO_PATH" ]; then
+                "$STRIP_TOOL" --strip-all --remove-section=.comment --remove-section=.note.GNU-stack "$SO_PATH" 2>/dev/null || true
+                echo "  -> $abi/$SO_NAME ($(wc -c < "$SO_PATH") bytes)"
+            fi
+        done
     done
 fi
 

@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build & Verify (Rust Engine + APKs)
+    name: Build & Verify (Rust Engines + APKs)
     runs-on: ubuntu-latest
 
     steps:
@@ -42,7 +42,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             mirrlyengine/target/
-          key: cargo-${{ runner.os }}-${{ hashFiles('mirrlyengine/Cargo.lock') }}
+            mirrlyvpn/target/
+          key: cargo-${{ runner.os }}-${{ hashFiles('mirrlyengine/Cargo.lock', 'mirrlyvpn/Cargo.lock') }}
           restore-keys: |
             cargo-${{ runner.os }}-
 
@@ -57,10 +58,43 @@ jobs:
             gradle-${{ runner.os }}-
 
       - name: Grant execute permissions
-        run: chmod +x ./gradlew ./build_native.sh
+        run: chmod +x ./gradlew ./build_native.sh ./tools/build/build_native.sh
 
-      - name: Build Native Rust Engine (mirrlyengine for 4 ABIs)
+      - name: Run Rust Engine Tests (mirrlyengine & mirrlyvpn)
+        run: |
+          (cd mirrlyengine && cargo test)
+          (cd mirrlyvpn && cargo test)
+
+      - name: Build Native Rust Engines (mirrlyengine & mirrlyvpn for 4 ABIs)
         run: ./build_native.sh
+
+      - name: Verify Native Libraries & 16 KiB ELF Alignment
+        run: |
+          NDK_DIR="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-${NDK_HOME:-$(ls -d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -n 1 || true)}}}"
+          LLVM_READELF=""
+          if [ -n "$NDK_DIR" ] && [ -d "$NDK_DIR/toolchains/llvm/prebuilt" ]; then
+            LLVM_READELF="$(find "$NDK_DIR/toolchains/llvm/prebuilt" -type f -name llvm-readelf 2>/dev/null | head -n 1 || true)"
+          fi
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            for lib in libmirrlyengine.so libmirrlyvpn.so; do
+              so_path="app/src/main/jniLibs/$abi/$lib"
+              if [ ! -f "$so_path" ]; then
+                echo "ERROR: Missing native library $so_path" >&2
+                exit 1
+              fi
+              if [ -n "$LLVM_READELF" ] && { [ "$abi" = "arm64-v8a" ] || [ "$abi" = "x86_64" ]; }; then
+                echo "Checking 16 KiB LOAD segment alignment for $so_path"
+                "$LLVM_READELF" -lW "$so_path" | awk '$1 == "LOAD" {print $NF}' | sort -u
+                while IFS= read -r align; do
+                  [ -z "$align" ] && continue
+                  if (( align < 16384 )); then
+                    echo "ERROR: Non-16KiB LOAD alignment in $so_path: $align" >&2
+                    exit 1
+                  fi
+                done < <("$LLVM_READELF" -lW "$so_path" | awk '$1 == "LOAD" {print $NF}' | sort -u)
+              fi
+            done
+          done
 
       - name: Setup Release Keystore (if secret is configured)
         if: ${{ env.HAVE_KEYSTORE == 'true' }}

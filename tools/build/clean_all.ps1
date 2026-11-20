@@ -34,7 +34,8 @@ $dirsToRemove = @(
     ".kotlin-rsp",
     "captures",
     ".verify_check",
-    "mirrlyengine/target"
+    "mirrlyengine/target",
+    "mirrlyvpn/target"
 )
 
 foreach ($dir in $dirsToRemove) {
@@ -45,10 +46,12 @@ foreach ($dir in $dirsToRemove) {
 }
 
 if ($DeepCargoClean) {
-    $cargoCacheRoot = "$env:USERPROFILE\.cargo\target-cache\mirrlyengine"
-    if (Test-Path $cargoCacheRoot) {
-        Write-Host "Removing external Cargo cache: $cargoCacheRoot ..." -ForegroundColor Yellow
-        Remove-Item -Recurse -Force $cargoCacheRoot -ErrorAction SilentlyContinue | Out-Null
+    foreach ($crateCache in @("mirrlyengine", "mirrlyvpn")) {
+        $cargoCacheRoot = "$env:USERPROFILE\.cargo\target-cache\$crateCache"
+        if (Test-Path $cargoCacheRoot) {
+            Write-Host "Removing external Cargo cache: $cargoCacheRoot ..." -ForegroundColor Yellow
+            Remove-Item -Recurse -Force $cargoCacheRoot -ErrorAction SilentlyContinue | Out-Null
+        }
     }
 }
 
