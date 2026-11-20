@@ -270,13 +270,8 @@ async fn handle_socks5_client(
     }
     if req_hdr[1] == 0x03 {
         // CMD 0x03 = UDP ASSOCIATE (RFC 1928, used by VoIP calls)
-        if !crate::supervisor::ROUTE_SUPERVISOR.supports_udp() {
-            lwarn!("SOCKS5 UDP ASSOCIATE rejected early: active route does not support UDP relay (prompting Telegram VoIP TCP TURN fallback)");
-            let _ = client
-                .write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
-                .await;
-            return;
-        }
+        // Drain DST.ADDR + DST.PORT inside handle_socks5_udp_associate before
+        // sending REP=0x07 so Winsock/TCP does not RST unread request bytes.
         handle_socks5_udp_associate(client, req_hdr[3], cancel).await;
         return;
     }
@@ -2208,10 +2203,12 @@ async fn handle_socks5_udp_associate(
 
     let route_pin = crate::supervisor::ROUTE_SUPERVISOR.pin_udp_route();
     if route_pin.is_none() {
-        lwarn!("SOCKS5 UDP ASSOCIATE rejected: Active route does not support UDP");
+        lwarn!("SOCKS5 UDP ASSOCIATE rejected: Active route does not support UDP (prompting Telegram VoIP TCP TURN fallback)");
         let _ = client
             .write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
             .await;
+        let _ = client.flush().await;
+        let _ = client.shutdown().await;
         return;
     }
 
@@ -2389,52 +2386,24 @@ async fn handle_socks5_udp_associate(
             SessionAcquireResult::New(rx, cancel_child, stats) => {
                 let target_addr = packet.target_addr.clone();
                 let session_table_clone = session_table.clone();
-                let udp_socket_clone = udp_socket.clone();
-                let client_addr_clone = client_udp_addr.clone();
-                let atyp = packet.atyp;
-                let raw_addr = packet.raw_addr;
-                let target_port = packet.target_port;
 
                 let route_pin = route_pin.clone();
                 tasks.spawn(async move {
+                    let _keep_rx = rx;
                     let session_identity = stats.clone();
                     ldebug!("SOCKS5 UDP: Acquiring UDP uplink for {}", target_addr);
                     let uplink_opt = crate::supervisor::ROUTE_SUPERVISOR
                         .acquire_socks5_udp_uplink(&route_pin, &target_addr, &cancel_child)
                         .await;
 
-                    let uplink = match uplink_opt {
-                        Some(u) => u,
-                        None => {
-                            lwarn!(
-                                "SOCKS5 UDP: Failed to acquire UDP uplink for {}",
-                                target_addr
-                            );
-                            let mut tbl = session_table_clone.lock().await;
-                            tbl.remove_if_current(&target_addr, &session_identity);
-                            return;
-                        }
-                    };
-
-                    stats.mark_established();
-                    linfo!("SOCKS5 UDP: Uplink established for {}", target_addr);
-                    match uplink {
-                        crate::supervisor::SocksUdpUplink::Awg(awg_tunnel) => {
-                            bridge_awg_udp_target(
-                                awg_tunnel,
-                                rx,
-                                udp_socket_clone,
-                                client_addr_clone,
-                                atyp,
-                                raw_addr,
-                                target_port,
-                                cancel_child,
-                                stats,
-                            )
-                            .await;
-                        }
+                    if let Some(uplink) = uplink_opt {
+                        match uplink {}
                     }
 
+                    lwarn!(
+                        "SOCKS5 UDP: Failed to acquire UDP uplink for {}",
+                        target_addr
+                    );
                     let mut tbl = session_table_clone.lock().await;
                     tbl.remove_if_current(&target_addr, &session_identity);
                 });
@@ -2714,130 +2683,6 @@ pub fn parse_udp_from_ip_packet(ip_pkt: &[u8]) -> Option<UdpDatagramInfo<'_>> {
         }
         _ => None,
     }
-}
-
-async fn bridge_awg_udp_target(
-    tunnel: crate::awg::AwgTunnel,
-    mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
-    udp_socket: Arc<tokio::net::UdpSocket>,
-    client_addr: Arc<parking_lot::RwLock<Option<SocketAddr>>>,
-    atyp: u8,
-    raw_addr: Vec<u8>,
-    target_port: u16,
-    cancel_token: CancellationToken,
-    stats: UdpSessionStats,
-) {
-    let target_addr_str = tunnel.target_addr.clone();
-    let (target_ip, resolved_target_port) =
-        match crate::dns::parse_target_endpoint(&target_addr_str).await {
-            Ok((ip, p)) => (ip, if p != 0 { p } else { target_port }),
-            Err(e) => {
-                lwarn!(
-                    "AWG UDP: failed to resolve target endpoint '{}': {}",
-                    target_addr_str,
-                    e
-                );
-                return;
-            }
-        };
-
-    let client_v4 = tunnel.peer.config.client_ipv4;
-    let client_v6_opt = tunnel.peer.config.client_ipv6;
-
-    if target_ip.is_ipv6() && client_v6_opt.is_none() {
-        lwarn!(
-            "AWG UDP: target '{}' is IPv6 but no client IPv6 configured; aborting",
-            target_addr_str
-        );
-        return;
-    }
-
-    let local_port = tunnel.local_port;
-    let peer = tunnel.peer.clone();
-    let cancel_up = cancel_token.clone();
-    let cancel_down = cancel_token.clone();
-
-    let peer_up = peer.clone();
-    let stats_up = stats.clone();
-    let mut up_task = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = cancel_up.cancelled() => break,
-                opt = rx.recv() => {
-                    match opt {
-                        Some(payload) => {
-                            stats_up.on_packet_sent(payload.len());
-                            let ip_pkt = match target_ip {
-                                IpAddr::V4(v4) => {
-                                    build_ipv4_udp_packet(client_v4, v4, local_port, resolved_target_port, &payload)
-                                }
-                                IpAddr::V6(v6) => {
-                                    let c6 = match client_v6_opt {
-                                        Some(c) => c,
-                                        None => break,
-                                    };
-                                    build_ipv6_udp_packet(c6, v6, local_port, resolved_target_port, &payload)
-                                }
-                            };
-                            STATS.bytes_up.fetch_add(payload.len() as i64, Ordering::Relaxed);
-                            if let Err(e) = peer_up.send_ip_packet(&ip_pkt).await {
-                                lwarn!("AWG UDP: send_ip_packet error: {}", e);
-                                break;
-                            }
-                        }
-                        None => break,
-                    }
-                }
-            }
-        }
-    });
-
-    let raw_addr_down = raw_addr.clone();
-    let udp_socket_down = udp_socket.clone();
-    let client_addr_down = client_addr.clone();
-    let stats_down = stats.clone();
-    let mut down_task = tokio::spawn(async move {
-        let mut flow_rx = tunnel.flow_rx.lock().await;
-        loop {
-            let res = tokio::select! {
-                _ = cancel_down.cancelled() => break,
-                pkt_opt = tokio::time::timeout(Duration::from_secs(120), flow_rx.recv()) => pkt_opt,
-            };
-            match res {
-                Ok(Some(ip_pkt)) => {
-                    if let Some(info) = parse_udp_from_ip_packet(&ip_pkt) {
-                        if info.dst_port == local_port {
-                            stats_down.on_packet_received();
-                            let s5_pkt = build_socks5_udp_packet(
-                                atyp,
-                                &raw_addr_down,
-                                target_port,
-                                info.payload,
-                            );
-                            let dest_opt = *client_addr_down.read();
-                            if let Some(dest) = dest_opt {
-                                STATS.bytes_down.fetch_add(info.payload.len() as i64, Ordering::Relaxed);
-                                if udp_socket_down.send_to(&s5_pkt, dest).await.is_err() {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                Ok(None) | Err(_) => break,
-            }
-        }
-        tunnel.close().await;
-    });
-
-    tokio::select! {
-        _ = cancel_token.cancelled() => {},
-        _ = &mut up_task => {},
-        _ = &mut down_task => {},
-    }
-    up_task.abort();
-    down_task.abort();
-    cancel_token.cancel();
 }
 
 #[cfg(test)]

@@ -51,11 +51,11 @@ async fn slow_result_a_cannot_rewrite_or_reset_generation_b() {
     change_config(|| {
         CFPROXY.write().user_domain = B.to_string();
         BALANCER.write().update_domain_for_dc(DC, false, B);
-        route.set_intent(mirrlyengine::supervisor::UPLINK_AWG, 2, true);
+        route.set_intent(mirrlyengine::supervisor::UPLINK_WORKER, 2, true);
     });
     let b = snapshot();
     let route_b_generation = route.get_generation();
-    assert_eq!(route.get_active_route(), RouteKind::Awg);
+    assert_eq!(route.get_active_route(), RouteKind::None);
     let b_ip: IpAddr = "192.0.2.20".parse().unwrap();
     assert!(cache_resolved_ips_if_current(b, DNS_HOST, vec![b_ip]));
 
@@ -65,7 +65,7 @@ async fn slow_result_a_cannot_rewrite_or_reset_generation_b() {
     assert!(!dns_applied, "A overwrote B's DNS cache");
     assert!(!recovery_applied, "A initiated recovery/reset in B");
     assert!(!route_applied, "A overwrote B's failover route");
-    assert_eq!(route.get_active_route(), RouteKind::Awg);
+    assert_eq!(route.get_active_route(), RouteKind::None);
     assert_eq!(route.get_generation(), route_b_generation);
     assert_eq!(
         BALANCER.read().get_active_domain_for_dc(DC, false).as_deref(),
