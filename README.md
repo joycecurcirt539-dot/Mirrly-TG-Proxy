@@ -49,17 +49,15 @@
 
 <h3>Поддержать разработку</h3>
 
-Mirrly TG Proxy — бесплатное приложение с открытым исходным кодом. Если проект помогает оставаться на связи, вы можете поставить звезду на GitHub или поддержать автора на удобной площадке:
+Mirrly TG Proxy — бесплатное приложение с открытым исходным кодом. Поддержать дальнейшее развитие проекта можно банковской картой, через СБП, Mir Pay или Яндекс Пэй:
 
 <br/>
 
-[![GitHub Star](https://img.shields.io/badge/GitHub-Поставить_звезду-1E293B?style=flat&labelColor=0F172A&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy)
+[![CloudTips](https://img.shields.io/badge/CloudTips-СБП_%C2%B7_Mir_Pay-1E293B?style=for-the-badge&labelColor=0F172A&logo=contactlesspayment&logoColor=00E676)](https://pay.cloudtips.ru/p/e8c24aee)
 &nbsp;
-[![CloudTips](https://img.shields.io/badge/CloudTips-Карты_РФ_%C2%B7_СБП_%C2%B7_Mir_Pay-1E293B?style=flat&labelColor=0F172A&logo=contactlesspayment&logoColor=00E676)](https://pay.cloudtips.ru/p/e8c24aee)
-<br/>
-[![Яндекс Чаевые](https://img.shields.io/badge/Яндекс_Чаевые-СБП_%C2%B7_Яндекс_Пэй-1E293B?style=flat&labelColor=0F172A&logo=lightning&logoColor=FFCC00)](https://tips.yandex.ru/guest/payment/3754149)
+[![Яндекс Чаевые](https://img.shields.io/badge/Яндекс_Чаевые-СБП_%C2%B7_Яндекс_Пэй-1E293B?style=for-the-badge&labelColor=0F172A&logo=lightning&logoColor=FFCC00)](https://tips.yandex.ru/guest/payment/3754149)
 &nbsp;
-[![DaLink](https://img.shields.io/badge/DaLink-Карты_и_кошельки-1E293B?style=flat&labelColor=0F172A&logo=githubsponsors&logoColor=26A5E4)](https://dalink.to/cartneyzix)
+[![DaLink](https://img.shields.io/badge/DaLink-Карты_%C2%B7_Кошельки-1E293B?style=for-the-badge&labelColor=0F172A&logo=githubsponsors&logoColor=26A5E4)](https://dalink.to/cartneyzix)
 
 ---
 
