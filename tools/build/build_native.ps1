@@ -15,7 +15,7 @@ $projectRoot = if (Test-Path "$currentDir\..\..\mirrlyengine") {
 }
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "Mirrly TG Proxy - Native Rust Engine (NDK)" -ForegroundColor White
+Write-Host "Mirrly TG Proxy - Native Rust Engines (NDK)" -ForegroundColor White
 Write-Host "Project Root: $projectRoot" -ForegroundColor DarkGray
 Write-Host "=============================================" -ForegroundColor Cyan
 
@@ -143,8 +143,9 @@ function Prune-CargoProfileDir {
     $activeBuildDirs = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     $activeHashes = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
 
-    $depsPrefix = "$depsDir\"
-    $buildPrefix = "$buildDir\"
+    $sep = [System.IO.Path]::DirectorySeparatorChar
+    $depsPrefix = "$depsDir$sep"
+    $buildPrefix = "$buildDir$sep"
     foreach ($p in $ActivePaths) {
         if ($p.StartsWith($depsPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
             [void]$activeDepsFiles.Add($p)
@@ -211,7 +212,7 @@ function Prune-CargoProfileDir {
     }
 
     if ($removedCount -gt 0) {
-        $label = $normProfileDir.Replace("$projectRoot\", "")
+        $label = $normProfileDir.Replace("$projectRoot$sep", "")
         Write-Host "  Pruned $removedCount stale cache entries in $label" -ForegroundColor DarkGray
     }
 }
@@ -234,14 +235,23 @@ if ($effectiveSingleTarget) {
     $targetsToBuild = $requiredTargets
 }
 
+$crates = @(
+    @{ name = "mirrlyengine"; dir = (Join-Path $projectRoot "mirrlyengine"); soName = "libmirrlyengine.so" },
+    @{ name = "mirrlyvpn";    dir = (Join-Path $projectRoot "mirrlyvpn");    soName = "libmirrlyvpn.so" }
+)
+
+foreach ($crate in $crates) {
+    $manifestPath = Join-Path $crate.dir "Cargo.toml"
+    if (-not (Test-Path $manifestPath)) {
+        Write-Error "Crate Cargo.toml not found: $manifestPath"
+        exit 1
+    }
+}
+
 $clangExt = if ($isWin) { ".cmd" } else { "" }
 $exeExt = if ($isWin) { ".exe" } else { "" }
 $arTool = Join-Path $ndkBinDir "llvm-ar$exeExt"
 $ranlibTool = Join-Path $ndkBinDir "llvm-ranlib$exeExt"
-
-Set-Location "$projectRoot\mirrlyengine"
-$targetRoot = "$projectRoot\mirrlyengine\target"
-$allActivePaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
 
 foreach ($t in $targetsToBuild) {
     $ccTool = Join-Path $ndkBinDir "$($t.clangPrefix)$apiLevel-clang$clangExt"
@@ -257,55 +267,67 @@ foreach ($t in $targetsToBuild) {
     Set-Item -Path "Env:RANLIB_$($t.envLower)" -Value $ranlibTool
     Set-Item -Path "Env:CARGO_TARGET_$($t.envUpper)_LINKER" -Value $ccTool
     Set-Item -Path "Env:CARGO_TARGET_$($t.envUpper)_AR" -Value $arTool
-
-    Write-Host "Building mirrlyengine [$($t.abi) / $($t.rust)] (API $apiLevel)..." -ForegroundColor Cyan
-    $jsonLines = & cargo build --release --lib --target $t.rust --message-format=json-render-diagnostics
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "cargo build failed for $($t.rust) with exit code $LASTEXITCODE"
-        exit 1
-    }
-
-    $targetActivePaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-    $builtSo = $null
-    foreach ($line in $jsonLines) {
-        if (-not $line -or -not $line.StartsWith("{")) { continue }
-        $msg = $line | ConvertFrom-Json -ErrorAction SilentlyContinue
-        if (-not $msg) { continue }
-        if ($msg.reason -eq "compiler-artifact") {
-            foreach ($f in $msg.filenames) {
-                $full = [System.IO.Path]::GetFullPath($f)
-                [void]$targetActivePaths.Add($full)
-                [void]$allActivePaths.Add($full)
-                if ($msg.target.name -eq "mirrlyengine" -and $full.EndsWith("libmirrlyengine.so", [System.StringComparison]::OrdinalIgnoreCase)) {
-                    $builtSo = $full
-                }
-            }
-        } elseif ($msg.reason -eq "build-script-executed" -and $msg.out_dir) {
-            $full = [System.IO.Path]::GetFullPath($msg.out_dir)
-            [void]$targetActivePaths.Add($full)
-            [void]$allActivePaths.Add($full)
-        }
-    }
-
-    if (-not $builtSo) {
-        $builtSo = "$targetRoot\$($t.rust)\release\libmirrlyengine.so"
-    }
-    if (-not (Test-Path $builtSo)) {
-        Write-Error "Built shared library not found: $builtSo"
-        exit 1
-    }
-
-    $abiOutDir = Join-Path $outJniLibs $t.abi
-    if (-not (Test-Path $abiOutDir)) {
-        New-Item -ItemType Directory -Path $abiOutDir -Force | Out-Null
-    }
-    $destSo = Join-Path $abiOutDir "libmirrlyengine.so"
-    Copy-Item -Path $builtSo -Destination $destSo -Force
-
-    Prune-CargoProfileDir -ProfileDir "$targetRoot\$($t.rust)\release" -ActivePaths $targetActivePaths
 }
 
-Prune-CargoProfileDir -ProfileDir "$targetRoot\release" -ActivePaths $allActivePaths
+try {
+    foreach ($crate in $crates) {
+        Set-Location $crate.dir
+        $targetRoot = Join-Path $crate.dir "target"
+        $allActivePaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+
+        foreach ($t in $targetsToBuild) {
+            Write-Host "Building $($crate.name) [$($t.abi) / $($t.rust)] (API $apiLevel)..." -ForegroundColor Cyan
+            $jsonLines = & cargo build --release --lib --target $t.rust --message-format=json-render-diagnostics
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "cargo build failed for $($crate.name) ($($t.rust)) with exit code $LASTEXITCODE"
+                exit 1
+            }
+
+            $targetActivePaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+            $builtSo = $null
+            foreach ($line in $jsonLines) {
+                if (-not $line -or -not $line.StartsWith("{")) { continue }
+                $msg = $line | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if (-not $msg) { continue }
+                if ($msg.reason -eq "compiler-artifact") {
+                    foreach ($f in $msg.filenames) {
+                        $full = [System.IO.Path]::GetFullPath($f)
+                        [void]$targetActivePaths.Add($full)
+                        [void]$allActivePaths.Add($full)
+                        if ($msg.target.name -eq $crate.name -and $full.EndsWith($crate.soName, [System.StringComparison]::OrdinalIgnoreCase)) {
+                            $builtSo = $full
+                        }
+                    }
+                } elseif ($msg.reason -eq "build-script-executed" -and $msg.out_dir) {
+                    $full = [System.IO.Path]::GetFullPath($msg.out_dir)
+                    [void]$targetActivePaths.Add($full)
+                    [void]$allActivePaths.Add($full)
+                }
+            }
+
+            if (-not $builtSo) {
+                $builtSo = "$targetRoot\$($t.rust)\release\$($crate.soName)"
+            }
+            if (-not (Test-Path $builtSo)) {
+                Write-Error "Built shared library not found: $builtSo"
+                exit 1
+            }
+
+            $abiOutDir = Join-Path $outJniLibs $t.abi
+            if (-not (Test-Path $abiOutDir)) {
+                New-Item -ItemType Directory -Path $abiOutDir -Force | Out-Null
+            }
+            $destSo = Join-Path $abiOutDir $crate.soName
+            Copy-Item -Path $builtSo -Destination $destSo -Force
+
+            Prune-CargoProfileDir -ProfileDir "$targetRoot\$($t.rust)\release" -ActivePaths $targetActivePaths -RootCrateName $crate.name
+        }
+
+        Prune-CargoProfileDir -ProfileDir "$targetRoot\release" -ActivePaths $allActivePaths -RootCrateName $crate.name
+    }
+} finally {
+    Set-Location "$projectRoot"
+}
 
 # 6. Post-processing with llvm-strip (single pass per library)
 $stripTool = Join-Path $ndkBinDir "llvm-strip$exeExt"
@@ -316,16 +338,16 @@ if (-not (Test-Path $stripTool)) {
 if ($stripTool -and (Test-Path $stripTool)) {
     Write-Host "Running llvm-strip on output libraries..." -ForegroundColor DarkGray
     foreach ($t in $targetsToBuild) {
-        $soPath = "$outJniLibs\$($t.abi)\libmirrlyengine.so"
-        if (Test-Path $soPath) {
-            & $stripTool --strip-all --remove-section=.comment --remove-section=.note.GNU-stack "$soPath" 2>$null
-            $size = (Get-Item $soPath).Length
-            Write-Host "  -> $($t.abi)/libmirrlyengine.so ($size bytes)" -ForegroundColor Green
+        foreach ($crate in $crates) {
+            $soPath = Join-Path (Join-Path $outJniLibs $t.abi) $crate.soName
+            if (Test-Path $soPath) {
+                & $stripTool --strip-all --remove-section=.comment --remove-section=.note.GNU-stack "$soPath" 2>$null
+                $size = (Get-Item $soPath).Length
+                Write-Host "  -> $($t.abi)/$($crate.soName) ($size bytes)" -ForegroundColor Green
+            }
         }
     }
 }
-
-Set-Location "$projectRoot"
 
 Write-Host "=============================================" -ForegroundColor Green
 Write-Host "Native build complete: all JNI libs updated in app/src/main/jniLibs/" -ForegroundColor Green
