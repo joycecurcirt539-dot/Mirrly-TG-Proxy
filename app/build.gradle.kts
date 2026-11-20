@@ -156,6 +156,7 @@ android {
         jniLibs {
             useLegacyPackaging = false
             keepDebugSymbols += "**/libmirrlyengine.so"
+            keepDebugSymbols += "**/libmirrlyvpn.so"
         }
     }
     sourceSets {
@@ -178,13 +179,19 @@ android {
 val rootDirFile = rootProject.projectDir
 val buildCargoNdk = tasks.register<Exec>("buildCargoNdk") {
     group = "build"
-    description = "Builds mirrlyengine native Rust libraries via cargo-ndk for active ABIs into app/src/main/jniLibs"
+    description = "Builds mirrlyengine and mirrlyvpn native Rust libraries via cargo-ndk for active ABIs into app/src/main/jniLibs"
     workingDir = rootDirFile
     inputs.dir(rootDirFile.resolve("mirrlyengine/src")).withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(rootDirFile.resolve("mirrlyvpn/src")).withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(
         rootDirFile.resolve("mirrlyengine/Cargo.toml"),
         rootDirFile.resolve("mirrlyengine/Cargo.lock"),
-        rootDirFile.resolve("mirrlyengine/.cargo/config.toml")
+        rootDirFile.resolve("mirrlyengine/build.rs"),
+        rootDirFile.resolve("mirrlyengine/.cargo/config.toml"),
+        rootDirFile.resolve("mirrlyvpn/Cargo.toml"),
+        rootDirFile.resolve("mirrlyvpn/Cargo.lock"),
+        rootDirFile.resolve("mirrlyvpn/build.rs"),
+        rootDirFile.resolve("mirrlyvpn/.cargo/config.toml")
     ).withPathSensitivity(PathSensitivity.RELATIVE)
     if (singleAbiProp != null) {
         inputs.property("singleAbi", singleAbiProp)
