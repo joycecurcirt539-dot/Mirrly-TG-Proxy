@@ -49,36 +49,17 @@
 
 <h3>Поддержать разработку</h3>
 
-*Mirrly TG Proxy — бесплатное приложение с открытым исходным кодом. Если проект помогает оставаться на связи, вы можете поставить звезду на GitHub или отправить добровольный перевод.*
+Mirrly TG Proxy — бесплатное приложение с открытым исходным кодом. Если проект помогает оставаться на связи, вы можете поставить звезду на GitHub или поддержать автора на удобной площадке:
 
-<table>
-  <tr>
-    <td align="center">
-      <a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy">
-        <img src="https://img.shields.io/badge/GitHub-Star-1E293B?style=for-the-badge&logo=github&logoColor=F5A623" alt="GitHub Star" />
-      </a><br/>
-      <sub>Звезда репозиторию</sub>
-    </td>
-    <td align="center">
-      <a href="https://pay.cloudtips.ru/p/e8c24aee">
-        <img src="https://img.shields.io/badge/CloudTips-Перевести-1E293B?style=for-the-badge&logo=contactlesspayment&logoColor=00E676" alt="CloudTips" />
-      </a><br/>
-      <sub>Карты РФ, СБП, Mir Pay</sub>
-    </td>
-    <td align="center">
-      <a href="https://tips.yandex.ru/guest/payment/3754149">
-        <img src="https://img.shields.io/badge/Яндекс_Чаевые-Перевести-1E293B?style=for-the-badge&logo=lightning&logoColor=FFCC00" alt="Яндекс Чаевые" />
-      </a><br/>
-      <sub>Карты РФ, СБП, Яндекс Пэй</sub>
-    </td>
-    <td align="center">
-      <a href="https://dalink.to/cartneyzix">
-        <img src="https://img.shields.io/badge/DaLink-Перевести-1E293B?style=for-the-badge&logo=buymeacoffee&logoColor=26A5E4" alt="DaLink" />
-      </a><br/>
-      <sub>Карты и электронные кошельки</sub>
-    </td>
-  </tr>
-</table>
+<br/>
+
+[![GitHub Star](https://img.shields.io/badge/GitHub-Поставить_звезду-1E293B?style=flat&labelColor=0F172A&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy)
+&nbsp;
+[![CloudTips](https://img.shields.io/badge/CloudTips-Карты_РФ_%C2%B7_СБП_%C2%B7_Mir_Pay-1E293B?style=flat&labelColor=0F172A&logo=contactlesspayment&logoColor=00E676)](https://pay.cloudtips.ru/p/e8c24aee)
+<br/>
+[![Яндекс Чаевые](https://img.shields.io/badge/Яндекс_Чаевые-СБП_%C2%B7_Яндекс_Пэй-1E293B?style=flat&labelColor=0F172A&logo=lightning&logoColor=FFCC00)](https://tips.yandex.ru/guest/payment/3754149)
+&nbsp;
+[![DaLink](https://img.shields.io/badge/DaLink-Карты_и_кошельки-1E293B?style=flat&labelColor=0F172A&logo=githubsponsors&logoColor=26A5E4)](https://dalink.to/cartneyzix)
 
 ---
 
