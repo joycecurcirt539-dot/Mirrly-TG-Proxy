@@ -252,4 +252,14 @@
     <string name="vpn_server_tel_germany">TEL Германия</string>
     <string name="vpn_server_tel_poland">TEL Польша</string>
     <string name="vpn_server_tel_finland">TEL Финляндия</string>
+
+    <!-- VPN TLS Control -->
+    <string name="settings_vpn_tls_enabled_title">TLS в VPN-туннеле</string>
+    <string name="settings_vpn_tls_enabled_desc">Разрешает Private DNS по DoT :853 и TLS-пробы :443 в режиме WARP</string>
+    <string name="settings_vpn_tls_enabled_card_title">TLS в VPN включен · DoT :853 и пробы :443</string>
+    <string name="settings_vpn_tls_enabled_card_desc">Запросы Private DNS по порту 853 проходят через туннель, а проверка узлов WARP использует резервный TCP :443. При блокировке TLS или сбоях Private DNS отключите этот параметр для перехода на обычный DNS :53 внутри туннеля.</string>
+    <string name="settings_vpn_tls_disabled_card_title">TLS в VPN отключен · Режим без TLS</string>
+    <string name="settings_vpn_tls_disabled_card_desc">Соединения Private DNS DoT по порту 853 блокируются на выходе TUN для переключения на обычный DNS :53, а проверка узлов WARP выполняется только по UDP и ICMP без TCP :443.</string>
+    <string name="info_vpn_tls_enabled_title">TLS в VPN-туннеле</string>
+    <string name="info_vpn_tls_enabled_body">Управляет обработкой TLS-запросов Private DNS и резервных проверок в режиме VPN:\n\n• Включено по умолчанию: пакеты Private DNS по DoT TCP :853 пропускаются через туннель, а зондирование эндпоинтов WARP может использовать резервную TCP-проверку :443.\n• При отключении: исходящие пакеты DoT :853 отбрасываются в TUN-обработчике для автоматического отката системы на обычный DNS :53 через выбранные DNS-серверы VPN, а пробы WARP выполняются только по UDP и ICMP.\n• Шифрование самого туннеля WireGuard и AmneziaWG сохраняется в обоих режимах.</string>
 </resources>

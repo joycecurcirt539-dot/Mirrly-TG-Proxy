@@ -189,7 +189,15 @@ class VpnNetworkBroker(
                 val newGen = currentNetworkGeneration.incrementAndGet()
                 applyUnderlyingNetworks(network)
                 AppLogger.i(TAG, "Сеть изменилась на $network (поколение: $newGen)")
+                val isCellular = try {
+                    connectivityManager.getNetworkCapabilities(network)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+                } catch (_: Exception) {
+                    false
+                }
                 try {
+                    NativeProxy.setVpnNetworkGeneration(newGen)
+                    NativeProxy.setVpnNetworkProfile(isCellular)
                     NativeProxy.notifyVpnReconnect()
                 } catch (e: Exception) {
                     AppLogger.w(TAG, "Ошибка вызова notifyVpnReconnect: ${e.message}")
@@ -203,6 +211,7 @@ class VpnNetworkBroker(
                     applyUnderlyingNetworks(null)
                     AppLogger.w(TAG, "Связь потеряна (поколение: $newGen)")
                     try {
+                        NativeProxy.setVpnNetworkGeneration(newGen)
                         NativeProxy.notifyVpnReconnect()
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Ошибка вызова notifyVpnReconnect: ${e.message}")

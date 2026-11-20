@@ -52,6 +52,8 @@ class VpnSecretsAndDiagnosticsTest {
         assertTrue(maskedLicenseKey.endsWith("ef01"))
 
         // VPN telemetry fields presence
+        assertTrue(json.has("vpn_tls_enabled"))
+        assertTrue(json.getBoolean("vpn_tls_enabled"))
         assertTrue(json.has("vpn_internal_state"))
         assertTrue(json.has("vpn_failure_reason"))
         assertTrue(json.has("vpn_generation"))

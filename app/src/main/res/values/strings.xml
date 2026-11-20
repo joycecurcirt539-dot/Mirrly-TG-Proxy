@@ -2109,6 +2109,8 @@
     <string name="info_ws_keepalive_body">Задаёт интервал отправки служебных Ping-фреймов по WebSocket-каналу к Cloudflare Edge:\n\n• Зачем это нужно: промежуточные сетевые шлюзы операторов связи и домашние Wi-Fi роутеры сбрасывают неактивные NAT-трансляции через 30–60 секунд отсутствия трафика. Регулярный пинг не даёт каналу «заснуть».\n• 15 сек — максимальная живучесть на агрессивных мобильных сетях, предотвращает разрывы при блокировках неактивных соединений.\n• 30 сек — стандартный проверенный интервал, минимальный расход батареи и гарантированная доставка уведомлений.\n• 60 сек — энергосберегающий режим для стабильных проводных Wi-Fi сетей.</string>
     <string name="info_tls_enabled_title">Шифрование TLS 1.2 и 1.3</string>
     <string name="info_tls_enabled_body">Критически важная настройка, определяющая стабильность прокси и реакцию сетевых фильтров:\n\n• Оба режима несут сетевые риски: в зависимости от провайдера и правил ТСПУ один режим может приводить к сбоям, а другой в некоторых случаях поможет восстановить сеть.\n• Отключено по умолчанию (для персидского языка включено по умолчанию): транспорт работает по открытому WebSocket на порту 80 с системным DNS и прямыми проверками соединения без TLS; внутреннее шифрование MTProto сохраняется.\n• При включении: трафик передается через TLS 1.2 и 1.3 на порту 443 с фрагментацией ClientHello и FakeTLS.</string>
+    <string name="info_vpn_tls_enabled_title">TLS в VPN-туннеле</string>
+    <string name="info_vpn_tls_enabled_body">Управляет обработкой TLS-запросов Private DNS и резервных проверок в режиме VPN:\n\n• Включено по умолчанию: пакеты Private DNS по DoT TCP :853 пропускаются через туннель, а зондирование эндпоинтов WARP может использовать резервную TCP-проверку :443.\n• При отключении: исходящие пакеты DoT :853 отбрасываются в TUN-обработчике для автоматического отката системы на обычный DNS :53 через выбранные DNS-серверы VPN, а пробы WARP выполняются только по UDP и ICMP.\n• Шифрование самого туннеля WireGuard и AmneziaWG сохраняется в обоих режимах.</string>
 
     <!-- Task 06: Error Taxonomy & Failure Descriptions -->
     <string name="failure_worker_quota_exceeded">Превышен суточный лимит запросов воркера (429)</string>
@@ -2670,6 +2672,14 @@
     <string name="settings_tls_enabled_card_desc">Транспорт работает по защищенным сокетам TLS на порту 443 с обходом DPI. У некоторых провайдеров фильтры ТСПУ сбрасывают TLS-рукопожатия и SNI, что может остановить работу прокси. При блокировке открытого WebSocket включение TLS в ряде случаев помогает восстановить сеть.</string>
     <string name="settings_tls_disabled_card_title">TLS отключен · Риск открытого транспорта</string>
     <string name="settings_tls_disabled_card_desc">Транспорт переведен на открытый WebSocket по порту 80 без TLS и FakeTLS. Заголовки запросов передаются без TLS-шифрования и могут блокироваться фильтрами по HTTP-сигнатурам, но внутреннее шифрование MTProto сохраняется. При блокировке TLS-рукопожатий и SNI отключение TLS в некоторых случаях помогает восстановить сеть.</string>
+
+    <!-- VPN TLS Control -->
+    <string name="settings_vpn_tls_enabled_title">TLS в VPN-туннеле</string>
+    <string name="settings_vpn_tls_enabled_desc">Разрешает Private DNS по DoT :853 и TLS-пробы :443 в режиме WARP</string>
+    <string name="settings_vpn_tls_enabled_card_title">TLS в VPN включен · DoT :853 и пробы :443</string>
+    <string name="settings_vpn_tls_enabled_card_desc">Запросы Private DNS по порту 853 проходят через туннель, а проверка узлов WARP использует резервный TCP :443. При блокировке TLS или сбоях Private DNS отключите этот параметр для перехода на обычный DNS :53 внутри туннеля.</string>
+    <string name="settings_vpn_tls_disabled_card_title">TLS в VPN отключен · Режим без TLS</string>
+    <string name="settings_vpn_tls_disabled_card_desc">Соединения Private DNS DoT по порту 853 блокируются на выходе TUN для переключения на обычный DNS :53, а проверка узлов WARP выполняется только по UDP и ICMP без TCP :443.</string>
 <!-- SOCKS5 Routing Uplink -->
     <string name="settings_socks5_uplink_title">Аплинк маршрутизации SOCKS5</string>
     <string name="settings_socks5_uplink_desc">Выбор исходящего транспорта для передачи трафика Telegram</string>

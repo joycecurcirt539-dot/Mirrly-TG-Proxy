@@ -174,7 +174,9 @@ data class ProxyConfig(
     var livenessProbeFailoverThreshold: Int = 2,
     // Режим DNS для VPN (Cloudflare, XboxDNS SmartDNS, Custom)
     var vpnDnsModeName: String = VpnDnsMode.CLOUDFLARE.name,
-    var vpnCustomDnsIps: String = ""
+    var vpnCustomDnsIps: String = "",
+    // Управление TLS (DoT :853 / WARP :443 probe fallback) в VPN-режиме
+    var isVpnTlsEnabled: Boolean = true
 ) {
     var ipFamilyPreference: IpFamilyPreference
         get() = runCatching { IpFamilyPreference.valueOf(ipFamilyPreferenceName) }
