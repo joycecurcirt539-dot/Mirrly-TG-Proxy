@@ -227,6 +227,9 @@ class MirrlyVpnService : VpnService() {
                         isScreenOn = true
                         val actionName = intent.action ?: "WAKEUP"
                         AppLogger.i(TAG, "DeviceSleepWakeReceiver: событие пробуждения ($actionName), запуск восстановления туннеля...")
+                        if (isRunning) {
+                            NativeProxy.onScreenWakeup()
+                        }
                         sleepWakeDebounceJob?.cancel()
                         sleepWakeDebounceJob = serviceScope.launch {
                             delay(1500L) // 1.5s дебаунс: даем радиомодулю / Wi-Fi чипу восстановить несущую
@@ -449,6 +452,8 @@ class MirrlyVpnService : VpnService() {
                 if (!isActive || vpnGeneration.get() != gen) return@launch
                 val app = MirrlyApplication.instance
                 val config = app.config
+                config.isVpnTlsEnabled = app.prefsManager.isVpnTlsEnabled()
+                NativeProxy.setVpnTlsEnabled(config.isVpnTlsEnabled)
 
                 // 1. Инициализация параметров Cloudflare WARP (WireGuard AWG)
                 // Автовыбор: если включен ID_AUTO и в кэше менеджера еще нет замеров пинга,
@@ -707,7 +712,22 @@ class MirrlyVpnService : VpnService() {
                     tunResult.onSuccess { holder ->
                         tunHolder = holder
 
-                        // 4. Передача файлового дескриптора в нативный L3 VPN движок в mirrlyengine (Rust)
+                        // 4. Синхронизация состояния и передача файлового дескриптора в нативный L3 VPN движок mirrlyvpn (Rust)
+                        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                        val physCaps = physicalNetwork?.let { cm?.getNetworkCapabilities(it) }
+                        val isMobilePhysical = physCaps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true ||
+                            app.prefsManager.isForceMobileModeEnabled()
+                        val syncProfileJson = app.proxyServer.effectiveNetworkProfile
+                            .withGeneration(gen)
+                            .toJsonString()
+                        NativeProxy.syncVpnRuntimeState(
+                            tlsEnabled = config.isVpnTlsEnabled,
+                            networkGeneration = gen,
+                            networkProfileJson = syncProfileJson,
+                            isMobile = isMobilePhysical,
+                            qosLevel = app.proxyServer.qosEngine.currentThrottleLevel,
+                            socketBufferBytes = config.bufferSizeBytes
+                        )
                         val vpnCode = NativeProxy.startVpn(holder.fd, verbose = false)
                         if (vpnCode != 0 || !isActive || vpnGeneration.get() != gen) {
                             AppLogger.e(TAG, "Сбой старта или отмена нативного L3 VPN движка (code=$vpnCode, genMatch=${vpnGeneration.get() == gen})")

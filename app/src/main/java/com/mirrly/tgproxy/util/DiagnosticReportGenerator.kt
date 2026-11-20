@@ -165,14 +165,15 @@ object DiagnosticReportGenerator {
             sb.append("\n")
 
             val vpnStatus = MirrlyVpnService.vpnStatus.value
-            val vpnJsonStr = NativeProxy.getVpnStatusJson()
+            val isVpnActive = MirrlyVpnService.isRunning
+            val vpnJsonStr = if (isVpnActive || NativeProxy.isVpnStarted) NativeProxy.getVpnStatusJson() else null
             val vpnJson = try { if (vpnJsonStr != null) JSONObject(vpnJsonStr) else null } catch (_: Exception) { null }
             val isNativeRunning = vpnJson?.optBoolean("is_running", false) ?: false
-            val isVpnActive = MirrlyVpnService.isRunning
 
             sb.append("#### 7. Диагностика VPN и TUN-слоя (L3 Engine)\n")
             sb.append("- **VPN Service**: `").append(if (isVpnActive) "АКТИВЕН (Uptime: ${vpnStatus.uptimeMs / 1000} сек)" else "ОСТАНОВЛЕН").append("`\n")
             sb.append("- **Аплинк VPN**: `").append(config.vpnUplinkMode.displayName).append("`\n")
+            sb.append("- **VPN TLS (DoT :853 / :443)**: `").append(if (config.isVpnTlsEnabled) "ВКЛЮЧЕН" else "ОТКЛЮЧЕН").append("`\n")
             sb.append("- **TUN-интерфейс**: `").append(if (isVpnActive) "ESTABLISHED (MTU 1280, блокирующий I/O)" else "НЕ СОЗДАН").append("`\n")
             sb.append("- **IPv4 маршрутизация**: `0.0.0.0/0 (без loopback 127.0.0.0/8) -> TUN (${config.warpClientIpv4})`\n")
             val ipv6Desc = when {
@@ -260,14 +261,15 @@ object DiagnosticReportGenerator {
             sb.append("\n")
 
             val vpnStatus = MirrlyVpnService.vpnStatus.value
-            val vpnJsonStr = NativeProxy.getVpnStatusJson()
+            val isVpnActive = MirrlyVpnService.isRunning
+            val vpnJsonStr = if (isVpnActive || NativeProxy.isVpnStarted) NativeProxy.getVpnStatusJson() else null
             val vpnJson = try { if (vpnJsonStr != null) JSONObject(vpnJsonStr) else null } catch (_: Exception) { null }
             val isNativeRunning = vpnJson?.optBoolean("is_running", false) ?: false
-            val isVpnActive = MirrlyVpnService.isRunning
 
             sb.append("#### 7. VPN and TUN Layer Diagnostics (L3 Engine)\n")
             sb.append("- **VPN Service**: `").append(if (isVpnActive) "ACTIVE (Uptime: ${vpnStatus.uptimeMs / 1000} sec)" else "STOPPED").append("`\n")
             sb.append("- **VPN Uplink**: `").append(config.vpnUplinkMode.displayName).append("`\n")
+            sb.append("- **VPN TLS (DoT :853 / :443)**: `").append(if (config.isVpnTlsEnabled) "ENABLED" else "DISABLED").append("`\n")
             sb.append("- **TUN Interface**: `").append(if (isVpnActive) "ESTABLISHED (MTU 1280, blocking I/O)" else "NOT CREATED").append("`\n")
             sb.append("- **IPv4 Routing**: `0.0.0.0/0 (excluding 127.0.0.0/8 loopback) -> TUN (${config.warpClientIpv4})`\n")
             val ipv6DescEn = when {

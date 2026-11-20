@@ -74,6 +74,9 @@ class PreferencesManager(private val context: Context) {
     private val _isTlsEnabledFlow = MutableStateFlow(isTlsEnabled())
     val isTlsEnabledFlow: StateFlow<Boolean> = _isTlsEnabledFlow.asStateFlow()
 
+    private val _vpnTlsEnabledFlow = MutableStateFlow(isVpnTlsEnabled())
+    val vpnTlsEnabledFlow: StateFlow<Boolean> = _vpnTlsEnabledFlow.asStateFlow()
+
     private val _isTlsRecordPaddingEnabledFlow = MutableStateFlow(isTlsRecordPaddingEnabled())
     val isTlsRecordPaddingEnabledFlow: StateFlow<Boolean> = _isTlsRecordPaddingEnabledFlow.asStateFlow()
 
@@ -591,6 +594,9 @@ class PreferencesManager(private val context: Context) {
                 com.mirrly.tgproxy.util.LocaleHelper.isPersianLanguage(getAppLanguage())
             )
         }
+        if (key == KEY_VPN_TLS_ENABLED) {
+            _vpnTlsEnabledFlow.value = sharedPreferences.getBoolean(key, true)
+        }
         if (key == KEY_TLS_RECORD_PADDING_ENABLED) {
             _isTlsRecordPaddingEnabledFlow.value = sharedPreferences.getBoolean(key, true)
         }
@@ -895,6 +901,7 @@ class PreferencesManager(private val context: Context) {
         val vpnMtu = prefs.getInt("vpn_mtu", defaults.vpnMtu)
         val vpnBlockQuic = prefs.getBoolean("vpn_block_quic", defaults.vpnBlockQuic)
         val vpnBlockIpv6Leaks = prefs.getBoolean("vpn_block_ipv6_leaks", defaults.vpnBlockIpv6Leaks)
+        val isVpnTlsEnabled = prefs.getBoolean(KEY_VPN_TLS_ENABLED, defaults.isVpnTlsEnabled)
         val vpnDnsModeName = prefs.getString("vpn_dns_mode", defaults.vpnDnsModeName) ?: defaults.vpnDnsModeName
         val vpnCustomDnsIps = prefs.getString("vpn_custom_dns_ips", defaults.vpnCustomDnsIps) ?: defaults.vpnCustomDnsIps
         val warpAccountId = prefs.getString("warp_account_id", defaults.warpAccountId) ?: defaults.warpAccountId
@@ -981,7 +988,8 @@ class PreferencesManager(private val context: Context) {
             awgStrategyName = awgStrategyName,
             awgCustomIni = awgCustomIni,
             vpnDnsModeName = vpnDnsModeName,
-            vpnCustomDnsIps = vpnCustomDnsIps
+            vpnCustomDnsIps = vpnCustomDnsIps,
+            isVpnTlsEnabled = isVpnTlsEnabled
         )
     }
 
@@ -1076,6 +1084,7 @@ class PreferencesManager(private val context: Context) {
             .putInt("vpn_mtu", config.vpnMtu)
             .putBoolean("vpn_block_quic", config.vpnBlockQuic)
             .putBoolean("vpn_block_ipv6_leaks", config.vpnBlockIpv6Leaks)
+            .putBoolean(KEY_VPN_TLS_ENABLED, config.isVpnTlsEnabled)
             .putString("vpn_dns_mode", config.vpnDnsModeName)
             .putString("vpn_custom_dns_ips", config.vpnCustomDnsIps)
             .apply()
@@ -1084,6 +1093,7 @@ class PreferencesManager(private val context: Context) {
         _proxyModeFlow.value = config.proxyMode
         _uplinkModeFlow.value = config.uplinkMode
         _vpnUplinkModeFlow.value = config.vpnUplinkMode
+        _vpnTlsEnabledFlow.value = config.isVpnTlsEnabled
         _isAlarmClockWatchdogEnabledFlow.value = config.isAlarmClockWatchdogEnabled
         _isCpuAntiFreezeEnabledFlow.value = config.isCpuAntiFreezeEnabled
         _isTrafficPulseEnabledFlow.value = config.isTrafficPulseEnabled
@@ -2290,6 +2300,7 @@ class PreferencesManager(private val context: Context) {
         const val KEY_AI_CHAT_DRAFT = "ai_chat_draft"
 
         const val KEY_TLS_ENABLED = "tls_enabled"
+        const val KEY_VPN_TLS_ENABLED = "vpn_tls_enabled"
         private const val KEY_TLS_USER_OVERRIDE = "tls_user_override"
         private const val KEY_TLS_FA_DEFAULT_MIGRATED = "tls_fa_default_enabled_migrated_v1"
         const val KEY_ECH_ENABLED = "ech_enabled"
@@ -2400,6 +2411,7 @@ class PreferencesManager(private val context: Context) {
             report.put("schema_version", 2)
             report.put("timestamp_utc_ms", System.currentTimeMillis())
             report.put("tls_enabled", config.isTlsEnabled)
+            report.put("vpn_tls_enabled", config.isVpnTlsEnabled)
             report.put("uplink_mode", config.uplinkModeName)
             report.put("proxy_mode", config.proxyModeName)
             report.put("bind_port", config.bindPort)
@@ -3387,6 +3399,20 @@ class PreferencesManager(private val context: Context) {
             app?.config?.isTlsEnabled = enabled
             app?.proxyServer?.applyTlsEnabled(enabled)
         } catch (_: Exception) {}
+    }
+
+    fun isVpnTlsEnabled(): Boolean = prefs.getBoolean(KEY_VPN_TLS_ENABLED, true)
+
+    fun setVpnTlsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VPN_TLS_ENABLED, enabled).apply()
+        _vpnTlsEnabledFlow.value = enabled
+        try {
+            val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
+            app?.config?.isVpnTlsEnabled = enabled
+        } catch (_: Exception) {}
+        if (MirrlyVpnService.isRunning || com.mirrly.tgproxy.core.NativeProxy.isVpnStarted) {
+            com.mirrly.tgproxy.core.NativeProxy.setVpnTlsEnabled(enabled)
+        }
     }
 
     fun isTlsClientHelloSplitEnabled(): Boolean = prefs.getBoolean(KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED, true)

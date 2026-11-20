@@ -2075,6 +2075,8 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="info_ws_keepalive_body">Specifies the frequency of heartbeat ping frames sent to Cloudflare Edge over WebSocket:\n\n• Why use this: intermediate carrier gateways and home Wi-Fi routers drop idle NAT translations after 30–60 seconds of inactivity. Periodic pings keep the tunnel open.\n• 15 sec — Maximum resilience on aggressive cellular carriers, prevents drops during idle intervals.\n• 30 sec — Standard verified default, optimizes battery life while ensuring reliable notifications.\n• 60 sec — Low-power mode for stable fixed broadband connections.</string>
     <string name="info_tls_enabled_title">رمزنگاری TLS 1.2 و 1.3</string>
     <string name="info_tls_enabled_body">تنظیم حیاتی برای پایداری پروکسی و نحوه برخورد فیلترینگ با ترافیک:\n\n• هر دو حالت ریسک قطع اتصال دارند: بسته به اپراتور و قوانین DPI، یکی از این دو وضعیت ممکن است در برخی موارد اتصال شبکه را بازیابی کند.\n• در زبان فارسی به صورت پیش‌فرض فعال است: ارتباط از طریق TLS 1.2 و 1.3 روی پورت ۴۴۳ با تکه‌سازی ClientHello و FakeTLS برقرار می‌شود.\n• در صورت غیرفعال‌سازی: WebSocket ساده روی پورت ۸۰ با DNS سیستم و بررسی مستقیم اتصال بدون TLS اجرا می‌شود؛ رمزنگاری داخلی MTProto فعال می‌ماند.</string>
+    <string name="info_vpn_tls_enabled_title">رمزنگاری TLS در تونل VPN</string>
+    <string name="info_vpn_tls_enabled_body">نحوه مدیریت ترافیک Private DNS DoT و بررسی‌های پشتیبان ۴۴۳ در حالت VPN را کنترل می‌کند:\n\n• به صورت پیش‌فرض فعال است: ترافیک Private DNS روی TCP ۸۵۳ از تونل عبور می‌کند و بررسی گره‌های WARP مجاز به استفاده از TCP ۴۴۳ است.\n• در صورت غیرفعال‌سازی: بسته‌های DoT ۸۵۳ در لایه TUN متوقف می‌شوند تا سیستم به صورت خودکار به DNS ساده ۵۳ روی سرورهای DNS تنظیم‌شده در VPN برگردد و بررسی WARP فقط از طریق UDP و ICMP انجام شود.\n• رمزنگاری اصلی تونل WireGuard و AmneziaWG در هر دو حالت فعال باقی می‌ماند.</string>
 
     <!-- Task 06: Error Taxonomy & Failure Descriptions -->
     <string name="failure_worker_quota_exceeded">سقف روزانه درخواست‌های ورکر پر شده است (429)</string>
@@ -2606,6 +2608,14 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_tls_enabled_card_desc">ترافیک از سوکت‌های TLS روی پورت ۴۴۳ همراه با دور زدن DPI استفاده می‌کند. در برخی اپراتورها فیلترینگ دست‌تکانی TLS و SNI را مسدود می‌کند و پروکسی از کار می‌افتد؛ اما در شبکه‌هایی که هدرهای ساده مسدود می‌شوند، فعال کردن TLS در برخی موارد می‌تواند به بازیابی شبکه کمک کند.</string>
     <string name="settings_tls_disabled_card_title">TLS غیرفعال · ریسک انتقال متن ساده</string>
     <string name="settings_tls_disabled_card_desc">ترافیک بدون TLS و FakeTLS از طریق WebSocket ساده روی پورت ۸۰ منتقل می‌شود. هدرهای انتقال بدون رمزنگاری هستند و ممکن است مسدود شوند، اما رمزنگاری داخلی MTProto حفظ می‌گردد. هنگام مسدودسازی TLS و SNI، غیرفعال کردن TLS در برخی موارد به بازیابی شبکه کمک می‌کند.</string>
+
+    <!-- VPN TLS Control -->
+    <string name="settings_vpn_tls_enabled_title">رمزنگاری TLS در تونل VPN</string>
+    <string name="settings_vpn_tls_enabled_desc">اجازه عبور Private DNS روی پورت ۸۵۳ و بررسی‌های TCP ۴۴۳ در حالت WARP</string>
+    <string name="settings_vpn_tls_enabled_card_title">TLS در VPN فعال · DoT :853 و بررسی :443</string>
+    <string name="settings_vpn_tls_enabled_card_desc">درخواست‌های Private DNS روی پورت ۸۵۳ از تونل عبور می‌کنند و بررسی گره‌های WARP می‌تواند از TCP ۴۴۳ استفاده کند. در صورت اختلال فیلترینگ TLS یا توقف Private DNS، برای بازگشت به DNS ساده ۵۳ این گزینه را غیرفعال کنید.</string>
+    <string name="settings_vpn_tls_disabled_card_title">TLS در VPN غیرفعال · حالت بدون TLS</string>
+    <string name="settings_vpn_tls_disabled_card_desc">بسته‌های خروجی Private DNS DoT روی پورت ۸۵۳ در TUN مسدود می‌شوند تا DNS به پورت ساده ۵۳ روی سرورهای DNS تونل برگردد و بررسی گره‌های WARP تنها با UDP و ICMP انجام می‌شود.</string>
 <!-- SOCKS5 Routing Uplink -->
     <string name="settings_socks5_uplink_title">آپلینک مسیریابی SOCKS5</string>
     <string name="settings_socks5_uplink_desc">انتخاب ترانسپورت خروجی برای انتقال ترافیک تلگرام</string>

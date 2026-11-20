@@ -563,6 +563,15 @@ class ProxyConfigTest {
     }
 
     @Test
+    fun testIsVpnTlsEnabledDefaultsToTrueAndCanBeDisabled() {
+        val defaultConfig = ProxyConfig()
+        assertTrue(defaultConfig.isVpnTlsEnabled)
+
+        val vpnTlsOffConfig = ProxyConfig(isVpnTlsEnabled = false)
+        assertFalse(vpnTlsOffConfig.isVpnTlsEnabled)
+    }
+
+    @Test
     fun testIsSocks5WorkerMissingRespectsFlowsealAndWorkers() {
         val flowsealConfig = ProxyConfig(
             proxyModeName = ProxyMode.SOCKS5.name,

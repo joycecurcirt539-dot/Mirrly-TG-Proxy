@@ -36,8 +36,6 @@ interface ProxyLibrary : Library {
     fun StartSocks5Proxy(host: String, port: Int, verbose: Int): Int
     fun StopProxy(): Int
     fun ResetNetworkSockets()
-    fun ResetVpnSockets()
-    fun NotifyVpnReconnect()
     fun EmergencyKillAllSockets()
     fun SetPoolSize(size: Int): Int
     fun SetTcpNoDelay(enabled: Int)
@@ -59,9 +57,6 @@ interface ProxyLibrary : Library {
     fun SetUplinkMode(mode: Int)
     fun GetSecretWithPrefix(): Pointer?
     fun GetStats(): Pointer?
-    fun SetAwgConfig(ini: String): Int
-    fun SetAwgKeepalive(secs: Int)
-    fun GetAwgStatus(): Pointer?
     fun SetBatteryQoSLevel(level: Int)
     fun GetActiveCascadeStage(): Int
     fun FreeString(p: Pointer)
@@ -86,18 +81,65 @@ interface ProxyLibrary : Library {
     fun GetDomainBalancerStatusJson(): Pointer?
     fun GetNodeIndependenceStatusJson(): Pointer?
     fun GetTlsObservabilityStatusJson(): Pointer?
-    fun StartVpn(tunFd: Int, verbose: Int): Int
-    fun StopVpn(): Int
-    fun GetVpnStatusJson(): Pointer?
-    fun SetVpnUplinkMode(mode: Int): Int
     fun SetProtectSocketCallback(cb: ProtectCallback?): Unit
-    fun ProbeWarpEndpoints(endpointsCsv: String, protocol: Int, timeoutMs: Int): Pointer?
     fun PingHost(host: String, port: Int, timeoutMs: Int): Pointer?
     fun PingWorker(domain: String, timeoutMs: Int): Pointer?
     fun ProbeTransportHealth(mode: Int, domain: String, timeoutMs: Int): Pointer?
     fun GetLastStartError(): Pointer?
     fun GetEngineSecurityState(): Int
     fun GetSecurityPostureReportJson(): Pointer?
+}
+
+interface VpnLibrary : Library {
+    companion object {
+        val INSTANCE: VpnLibrary by lazy {
+            val lib = Native.load("mirrlyvpn", VpnLibrary::class.java) as VpnLibrary
+            NativeProxy.isVpnLibraryLoaded = true
+            lib
+        }
+    }
+
+    fun StartVpn(tunFd: Int, verbose: Int): Int
+    fun StopVpn(): Int
+    fun SetVpnUplinkMode(mode: Int): Int
+    fun GetVpnStatusJson(): Pointer?
+    fun ResetVpnSockets()
+    fun NotifyVpnReconnect()
+    fun SetAwgConfigParams(
+        endpoint: String,
+        privateKeyB64: String,
+        publicKeyB64: String,
+        peerPubB64: String,
+        clientIpv4: String,
+        jc: Int,
+        jmin: Int,
+        jmax: Int,
+        s1: Int,
+        s2: Int,
+        h1: Int,
+        h2: Int,
+        h3: Int,
+        h4: Int
+    )
+    fun SetAwgConfig(ini: String): Int
+    fun SetAwgWarpMode()
+    fun SetAwgKeepalive(secs: Int)
+    fun GetAwgStatus(): Pointer?
+    fun ProbeWarpEndpoints(endpointsCsv: String, protocol: Int, timeoutMs: Int): Pointer?
+    fun ProbeVpnTransportHealth(domain: String, timeoutMs: Int): Pointer?
+    fun SetVpnTlsEnabled(enabled: Int)
+    fun IsVpnTlsEnabled(): Int
+    fun SetVpnProtectSocketCallback(cb: ProtectCallback?)
+    fun SetVpnNetworkGeneration(gen: Long)
+    fun SetVpnNetworkProfile(isMobile: Int)
+    fun SetVpnNetworkProfileJson(json: String): Int
+    fun SetVpnIpv6OnlyNetwork(isIpv6Only: Int)
+    fun SetVpnBatteryQoSLevel(level: Int)
+    fun OnVpnScreenWakeup()
+    fun SetVpnSocketBufferSizes(recvSize: Int, sendSize: Int): Int
+    fun GetVpnStats(): Pointer?
+    fun GetVpnLastError(): Pointer?
+    fun FreeVpnString(p: Pointer)
 }
 
 fun interface ProtectCallback : com.sun.jna.Callback {
@@ -118,31 +160,112 @@ object NativeProxy {
     var isVpnStarted: Boolean = false
         private set
 
+    @Volatile
+    var isVpnLibraryLoaded: Boolean = false
+        internal set
+
+    @Volatile
     private var activeProtectCallback: ProtectCallback? = null
 
+    @Volatile
+    private var cachedNetworkGeneration: Long? = null
+
+    @Volatile
+    private var cachedNetworkProfileJson: String? = null
+
+    @Volatile
+    private var cachedIpv6OnlyNetwork: Boolean? = null
+
+    @Volatile
+    private var cachedBatteryQoSLevel: QoSThrottleLevel? = null
+
+    @Volatile
+    private var cachedSocketBufferSizes: Pair<Int, Int>? = null
+
+    @Volatile
+    private var cachedVpnTlsEnabled: Boolean = true
+
+    private fun isVpnEngineActive(): Boolean = isVpnStarted || isVpnLibraryLoaded
+
     fun setProtectCallback(onProtect: (Int) -> Boolean) {
+        val cb = ProtectCallback { fd ->
+            if (onProtect(fd)) 1 else 0
+        }
+        activeProtectCallback = cb
         try {
-            activeProtectCallback = ProtectCallback { fd ->
-                if (onProtect(fd)) 1 else 0
-            }
-            ProxyLibrary.INSTANCE.SetProtectSocketCallback(activeProtectCallback)
+            ProxyLibrary.INSTANCE.SetProtectSocketCallback(cb)
         } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой установки ProtectCallback: ${t.message}", t)
+            AppLogger.e("NativeProxy", "Сбой установки ProtectCallback [Proxy]: ${t.message}", t)
+        }
+        if (isVpnEngineActive()) {
+            try {
+                VpnLibrary.INSTANCE.SetVpnProtectSocketCallback(cb)
+            } catch (t: Throwable) {
+                AppLogger.e("NativeProxy", "Сбой установки ProtectCallback [VPN]: ${t.message}", t)
+            }
         }
     }
 
     fun clearProtectCallback() {
+        activeProtectCallback = null
         try {
-            activeProtectCallback = null
             ProxyLibrary.INSTANCE.SetProtectSocketCallback(null)
         } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой сброса ProtectCallback: ${t.message}", t)
+            AppLogger.e("NativeProxy", "Сбой сброса ProtectCallback [Proxy]: ${t.message}", t)
+        }
+        if (isVpnEngineActive()) {
+            try {
+                VpnLibrary.INSTANCE.SetVpnProtectSocketCallback(null)
+            } catch (t: Throwable) {
+                AppLogger.e("NativeProxy", "Сбой сброса ProtectCallback [VPN]: ${t.message}", t)
+            }
+        }
+    }
+
+    fun syncVpnRuntimeState(
+        tlsEnabled: Boolean? = null,
+        networkGeneration: Long? = null,
+        networkProfileJson: String? = null,
+        isMobile: Boolean? = null,
+        ipv6Only: Boolean? = null,
+        qosLevel: QoSThrottleLevel? = null,
+        socketBufferBytes: Int? = null
+    ) {
+        if (tlsEnabled != null) cachedVpnTlsEnabled = tlsEnabled
+        if (networkGeneration != null && networkGeneration > 0L) cachedNetworkGeneration = networkGeneration
+        if (networkProfileJson != null) cachedNetworkProfileJson = networkProfileJson
+        if (ipv6Only != null) cachedIpv6OnlyNetwork = ipv6Only
+        if (qosLevel != null) cachedBatteryQoSLevel = qosLevel
+        if (socketBufferBytes != null) cachedSocketBufferSizes = Pair(socketBufferBytes, socketBufferBytes)
+
+        try {
+            val vpn = VpnLibrary.INSTANCE
+            activeProtectCallback?.let { vpn.SetVpnProtectSocketCallback(it) }
+            vpn.SetVpnTlsEnabled(if (cachedVpnTlsEnabled) 1 else 0)
+            cachedNetworkGeneration?.let { vpn.SetVpnNetworkGeneration(it) }
+            cachedNetworkProfileJson?.let { vpn.SetVpnNetworkProfileJson(it) }
+            if (isMobile != null) {
+                vpn.SetVpnNetworkProfile(if (isMobile) 1 else 0)
+            }
+            cachedIpv6OnlyNetwork?.let { vpn.SetVpnIpv6OnlyNetwork(if (it) 1 else 0) }
+            cachedBatteryQoSLevel?.let { lvl ->
+                val code = when (lvl) {
+                    QoSThrottleLevel.NONE -> 0
+                    QoSThrottleLevel.MODERATE -> 1
+                    QoSThrottleLevel.SEVERE -> 2
+                }
+                vpn.SetVpnBatteryQoSLevel(code)
+            }
+            cachedSocketBufferSizes?.let { (r, s) -> vpn.SetVpnSocketBufferSizes(r, s) }
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой синхронизации состояния VPN: ${t.message}")
         }
     }
 
     fun startVpn(tunFd: Int, verbose: Boolean = false): Int {
         return try {
-            val code = ProxyLibrary.INSTANCE.StartVpn(tunFd, if (verbose) 1 else 0)
+            syncVpnRuntimeState()
+            val code = VpnLibrary.INSTANCE.StartVpn(tunFd, if (verbose) 1 else 0)
             if (code == 0) {
                 isVpnStarted = true
             }
@@ -156,7 +279,7 @@ object NativeProxy {
     fun stopVpn(): Int {
         return try {
             isVpnStarted = false
-            ProxyLibrary.INSTANCE.StopVpn()
+            VpnLibrary.INSTANCE.StopVpn()
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [stopVpn]: ${t.message}", t)
             -1
@@ -165,7 +288,7 @@ object NativeProxy {
 
     fun resetVpnSockets() {
         try {
-            ProxyLibrary.INSTANCE.ResetVpnSockets()
+            VpnLibrary.INSTANCE.ResetVpnSockets()
         } catch (t: Throwable) {
             AppLogger.w("NativeProxy", "Сбой вызова FFI [ResetVpnSockets]: ${t.message}")
         }
@@ -173,7 +296,7 @@ object NativeProxy {
 
     fun notifyVpnReconnect() {
         try {
-            ProxyLibrary.INSTANCE.NotifyVpnReconnect()
+            VpnLibrary.INSTANCE.NotifyVpnReconnect()
         } catch (t: Throwable) {
             resetVpnSockets()
         }
@@ -181,10 +304,12 @@ object NativeProxy {
 
     fun getVpnStatusJson(): String? {
         return try {
-            val ptr = ProxyLibrary.INSTANCE.GetVpnStatusJson() ?: return null
-            val json = ptr.getString(0, "UTF-8")
-            ProxyLibrary.INSTANCE.FreeString(ptr)
-            json
+            val ptr = VpnLibrary.INSTANCE.GetVpnStatusJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                VpnLibrary.INSTANCE.FreeVpnString(ptr)
+            }
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [getVpnStatusJson]: ${t.message}", t)
             null
@@ -197,20 +322,90 @@ object NativeProxy {
             else -> 0
         }
         return try {
-            ProxyLibrary.INSTANCE.SetVpnUplinkMode(nativeMode)
+            VpnLibrary.INSTANCE.SetVpnUplinkMode(nativeMode)
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [SetVpnUplinkMode]: ${t.message}", t)
             -1
         }
     }
 
-    fun probeWarpEndpoints(endpointsCsv: String, protocol: Int = 0, timeoutMs: Int = 600): String {
+    fun setVpnTlsEnabled(enabled: Boolean) {
+        cachedVpnTlsEnabled = enabled
+        if (!isVpnEngineActive()) return
+        try {
+            VpnLibrary.INSTANCE.SetVpnTlsEnabled(if (enabled) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [SetVpnTlsEnabled]: ${t.message}", t)
+        }
+    }
+
+    fun isVpnTlsEnabled(): Boolean {
+        if (!isVpnEngineActive()) return cachedVpnTlsEnabled
         return try {
-            val ptr = ProxyLibrary.INSTANCE.ProbeWarpEndpoints(endpointsCsv, protocol, timeoutMs) ?: return "[]"
+            VpnLibrary.INSTANCE.IsVpnTlsEnabled() != 0
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [IsVpnTlsEnabled]: ${t.message}", t)
+            cachedVpnTlsEnabled
+        }
+    }
+
+    fun setVpnNetworkGeneration(gen: Long) {
+        if (gen > 0L) {
+            cachedNetworkGeneration = gen
+        }
+        if (!isVpnEngineActive()) return
+        try {
+            VpnLibrary.INSTANCE.SetVpnNetworkGeneration(gen)
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetVpnNetworkGeneration]: ${t.message}")
+        }
+    }
+
+    fun setVpnNetworkProfile(isMobile: Boolean) {
+        if (!isVpnEngineActive()) return
+        try {
+            VpnLibrary.INSTANCE.SetVpnNetworkProfile(if (isMobile) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetVpnNetworkProfile]: ${t.message}")
+        }
+    }
+
+    fun getVpnStats(): String? {
+        return try {
+            val ptr = VpnLibrary.INSTANCE.GetVpnStats() ?: return null
             try {
                 ptr.getString(0, "UTF-8")
             } finally {
-                ProxyLibrary.INSTANCE.FreeString(ptr)
+                VpnLibrary.INSTANCE.FreeVpnString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetVpnStats] error: ${t.message}")
+            null
+        }
+    }
+
+    fun getVpnLastError(): String? {
+        return try {
+            val ptr = VpnLibrary.INSTANCE.GetVpnLastError() ?: return null
+            try {
+                ptr.getString(0, "UTF-8").trim().takeIf { it.isNotEmpty() }
+            } finally {
+                VpnLibrary.INSTANCE.FreeVpnString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetVpnLastError] error: ${t.message}")
+            null
+        }
+    }
+
+    fun probeWarpEndpoints(endpointsCsv: String, protocol: Int = 0, timeoutMs: Int = 600): String {
+        return try {
+            activeProtectCallback?.let { VpnLibrary.INSTANCE.SetVpnProtectSocketCallback(it) }
+            val ptr = VpnLibrary.INSTANCE.ProbeWarpEndpoints(endpointsCsv, protocol, timeoutMs) ?: return "[]"
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                VpnLibrary.INSTANCE.FreeVpnString(ptr)
             }
         } catch (t: Throwable) {
             AppLogger.d("NativeProxy", "FFI [ProbeWarpEndpoints] error: ${t.message}")
@@ -260,11 +455,20 @@ object NativeProxy {
         timeoutMs: Int = 2500
     ): TransportProbeOutcome? {
         return try {
-            val ptr = ProxyLibrary.INSTANCE.ProbeTransportHealth(mode, domain, timeoutMs) ?: return null
-            val jsonStr = try {
-                ptr.getString(0, "UTF-8")
-            } finally {
-                ProxyLibrary.INSTANCE.FreeString(ptr)
+            val jsonStr = if (mode == 4) {
+                val ptr = VpnLibrary.INSTANCE.ProbeVpnTransportHealth(domain, timeoutMs) ?: return null
+                try {
+                    ptr.getString(0, "UTF-8")
+                } finally {
+                    VpnLibrary.INSTANCE.FreeVpnString(ptr)
+                }
+            } else {
+                val ptr = ProxyLibrary.INSTANCE.ProbeTransportHealth(mode, domain, timeoutMs) ?: return null
+                try {
+                    ptr.getString(0, "UTF-8")
+                } finally {
+                    ProxyLibrary.INSTANCE.FreeString(ptr)
+                }
             }
             TransportProbeOutcome.fromJson(jsonStr)
         } catch (t: Throwable) {
@@ -471,7 +675,7 @@ object NativeProxy {
      */
     fun setAwgConfig(ini: String): Boolean {
         return try {
-            val code = ProxyLibrary.INSTANCE.SetAwgConfig(ini)
+            val code = VpnLibrary.INSTANCE.SetAwgConfig(ini)
             if (code != 0) {
                 AppLogger.e("NativeProxy", "SetAwgConfig вернул код ошибки: $code")
             }
@@ -482,14 +686,60 @@ object NativeProxy {
         }
     }
 
+    fun setAwgConfigParams(
+        endpoint: String,
+        privateKeyB64: String,
+        publicKeyB64: String,
+        peerPubB64: String,
+        clientIpv4: String,
+        jc: Int,
+        jmin: Int,
+        jmax: Int,
+        s1: Int,
+        s2: Int,
+        h1: Int,
+        h2: Int,
+        h3: Int,
+        h4: Int
+    ) {
+        try {
+            VpnLibrary.INSTANCE.SetAwgConfigParams(
+                endpoint,
+                privateKeyB64,
+                publicKeyB64,
+                peerPubB64,
+                clientIpv4,
+                jc,
+                jmin,
+                jmax,
+                s1,
+                s2,
+                h1,
+                h2,
+                h3,
+                h4
+            )
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [SetAwgConfigParams]: ${t.message}", t)
+        }
+    }
+
+    fun setAwgWarpMode() {
+        try {
+            VpnLibrary.INSTANCE.SetAwgWarpMode()
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetAwgWarpMode]: ${t.message}")
+        }
+    }
+
     /** Возвращает строку диагностического статуса AWG конфига из нативного ядра. */
     fun getAwgStatus(): String {
         return try {
-            val ptr = ProxyLibrary.INSTANCE.GetAwgStatus() ?: return "awg:unavailable"
+            val ptr = VpnLibrary.INSTANCE.GetAwgStatus() ?: return "awg:unavailable"
             try {
                 ptr.getString(0, "UTF-8") ?: "awg:null"
             } finally {
-                ProxyLibrary.INSTANCE.FreeString(ptr)
+                VpnLibrary.INSTANCE.FreeVpnString(ptr)
             }
         } catch (t: Throwable) {
             AppLogger.d("NativeProxy", "FFI [GetAwgStatus] недоступен: ${t.message}")
@@ -498,23 +748,32 @@ object NativeProxy {
     }
 
     fun setBatteryQoSLevel(level: QoSThrottleLevel) {
-        if (!isStarted) return
-        try {
-            val code = when (level) {
-                QoSThrottleLevel.NONE -> 0
-                QoSThrottleLevel.MODERATE -> 1
-                QoSThrottleLevel.SEVERE -> 2
+        cachedBatteryQoSLevel = level
+        val code = when (level) {
+            QoSThrottleLevel.NONE -> 0
+            QoSThrottleLevel.MODERATE -> 1
+            QoSThrottleLevel.SEVERE -> 2
+        }
+        if (isStarted) {
+            try {
+                ProxyLibrary.INSTANCE.SetBatteryQoSLevel(code)
+            } catch (t: Throwable) {
+                AppLogger.w("NativeProxy", "Сбой вызова FFI [setBatteryQoSLevel]: ${t.message}")
             }
-            ProxyLibrary.INSTANCE.SetBatteryQoSLevel(code)
-        } catch (t: Throwable) {
-            AppLogger.w("NativeProxy", "Сбой вызова FFI [setBatteryQoSLevel]: ${t.message}")
+        }
+        if (isVpnEngineActive()) {
+            try {
+                VpnLibrary.INSTANCE.SetVpnBatteryQoSLevel(code)
+            } catch (t: Throwable) {
+                AppLogger.w("NativeProxy", "Сбой вызова FFI [SetVpnBatteryQoSLevel]: ${t.message}")
+            }
         }
     }
 
     fun setAwgKeepalive(secs: Int) {
-        if (!isStarted) return
+        if (!isVpnEngineActive()) return
         try {
-            ProxyLibrary.INSTANCE.SetAwgKeepalive(secs)
+            VpnLibrary.INSTANCE.SetAwgKeepalive(secs)
         } catch (t: Throwable) {
             AppLogger.w("NativeProxy", "Сбой вызова FFI [setAwgKeepalive]: ${t.message}")
         }
@@ -540,9 +799,11 @@ object NativeProxy {
         if (!isStarted) return null
         return try {
             val ptr = ProxyLibrary.INSTANCE.GetSecretWithPrefix() ?: return null
-            val res = ptr.getString(0)
-            ProxyLibrary.INSTANCE.FreeString(ptr)
-            res
+            try {
+                ptr.getString(0)
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [getSecretWithPrefix]: ${t.message}", t)
             null
@@ -553,9 +814,11 @@ object NativeProxy {
         if (!isStarted) return null
         return try {
             val ptr = ProxyLibrary.INSTANCE.GetStats() ?: return null
-            val res = ptr.getString(0)
-            ProxyLibrary.INSTANCE.FreeString(ptr)
-            res
+            try {
+                ptr.getString(0)
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [getStats]: ${t.message}", t)
             null
@@ -563,11 +826,20 @@ object NativeProxy {
     }
 
     fun setIpv6OnlyNetwork(isIpv6Only: Boolean) {
+        cachedIpv6OnlyNetwork = isIpv6Only
+        val flag = if (isIpv6Only) 1 else 0
         try {
-            ProxyLibrary.INSTANCE.SetIpv6OnlyNetwork(if (isIpv6Only) 1 else 0)
+            ProxyLibrary.INSTANCE.SetIpv6OnlyNetwork(flag)
         } catch (_: UnsatisfiedLinkError) {
         } catch (_: NoClassDefFoundError) {
         } catch (_: Throwable) {}
+        if (isVpnEngineActive()) {
+            try {
+                VpnLibrary.INSTANCE.SetVpnIpv6OnlyNetwork(flag)
+            } catch (_: UnsatisfiedLinkError) {
+            } catch (_: NoClassDefFoundError) {
+            } catch (_: Throwable) {}
+        }
     }
 
     fun setMtprotoStandbyPerActiveSlot(requested: Int): Int? {
@@ -599,13 +871,21 @@ object NativeProxy {
     }
 
     fun setSocketBufferSizes(recvSize: Int, sendSize: Int): Boolean {
-        return try {
-            val code = ProxyLibrary.INSTANCE.SetSocketBufferSizes(recvSize, sendSize)
-            code == 0
+        cachedSocketBufferSizes = Pair(recvSize, sendSize)
+        val proxyOk = try {
+            ProxyLibrary.INSTANCE.SetSocketBufferSizes(recvSize, sendSize) == 0
         } catch (t: Throwable) {
             AppLogger.w("NativeProxy", "Сбой вызова FFI [SetSocketBufferSizes]: ${t.message}")
             false
         }
+        if (isVpnEngineActive()) {
+            try {
+                VpnLibrary.INSTANCE.SetVpnSocketBufferSizes(recvSize, sendSize)
+            } catch (t: Throwable) {
+                AppLogger.w("NativeProxy", "Сбой вызова FFI [SetVpnSocketBufferSizes]: ${t.message}")
+            }
+        }
+        return proxyOk
     }
 
     fun getSocketBufferStatusJson(): String? {
@@ -644,21 +924,39 @@ object NativeProxy {
     }
 
     fun setNetworkGeneration(gen: Long) {
+        if (gen > 0L) {
+            cachedNetworkGeneration = gen
+        }
         try {
             ProxyLibrary.INSTANCE.SetNetworkGeneration(gen)
         } catch (t: Throwable) {
             AppLogger.w("NativeProxy", "Сбой вызова FFI [SetNetworkGeneration]: ${t.message}")
         }
+        if (isVpnEngineActive()) {
+            try {
+                VpnLibrary.INSTANCE.SetVpnNetworkGeneration(gen)
+            } catch (t: Throwable) {
+                AppLogger.w("NativeProxy", "Сбой вызова FFI [SetVpnNetworkGeneration]: ${t.message}")
+            }
+        }
     }
 
     fun setNetworkProfileJson(json: String): Boolean {
-        return try {
-            val code = ProxyLibrary.INSTANCE.SetNetworkProfileJson(json)
-            code == 0
+        cachedNetworkProfileJson = json
+        val proxyOk = try {
+            ProxyLibrary.INSTANCE.SetNetworkProfileJson(json) == 0
         } catch (t: Throwable) {
             AppLogger.w("NativeProxy", "Сбой вызова FFI [SetNetworkProfileJson]: ${t.message}")
             false
         }
+        if (isVpnEngineActive()) {
+            try {
+                VpnLibrary.INSTANCE.SetVpnNetworkProfileJson(json)
+            } catch (t: Throwable) {
+                AppLogger.w("NativeProxy", "Сбой вызова FFI [SetVpnNetworkProfileJson]: ${t.message}")
+            }
+        }
+        return proxyOk
     }
 
     fun getNetworkProfileJson(): String? {
@@ -710,11 +1008,19 @@ object NativeProxy {
     }
 
     fun onScreenWakeup() {
-        if (!isStarted) return
-        try {
-            ProxyLibrary.INSTANCE.OnScreenWakeup()
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [OnScreenWakeup]: ${t.message}", t)
+        if (isStarted) {
+            try {
+                ProxyLibrary.INSTANCE.OnScreenWakeup()
+            } catch (t: Throwable) {
+                AppLogger.e("NativeProxy", "Сбой вызова FFI [OnScreenWakeup]: ${t.message}", t)
+            }
+        }
+        if (isVpnEngineActive()) {
+            try {
+                VpnLibrary.INSTANCE.OnVpnScreenWakeup()
+            } catch (t: Throwable) {
+                AppLogger.e("NativeProxy", "Сбой вызова FFI [OnVpnScreenWakeup]: ${t.message}", t)
+            }
         }
     }
 

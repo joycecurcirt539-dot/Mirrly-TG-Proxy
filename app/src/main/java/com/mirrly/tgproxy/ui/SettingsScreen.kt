@@ -1000,6 +1000,7 @@ fun SettingsScreen(
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
     val uplinkMode by app.prefsManager.uplinkModeFlow.collectAsState()
     val vpnUplinkMode by app.prefsManager.vpnUplinkModeFlow.collectAsState()
+    val isVpnTlsEnabled by app.prefsManager.vpnTlsEnabledFlow.collectAsState()
     val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
     val vpnSplitTunnelEnabled by app.prefsManager.vpnSplitTunnelEnabledFlow.collectAsState()
     val vpnSplitTunnelAllowlist by app.prefsManager.vpnSplitTunnelAllowlistFlow.collectAsState()
@@ -1262,7 +1263,20 @@ fun SettingsScreen(
 
                 when (activeProtocolMode) {
                     SettingsProtocolMode.VPN -> {
-                        // Настройки VPN (DNS, раздельное туннелирование, выбор серверов) перенесены на главный экран вкладки VPN
+                        SettingsVpnTlsCard(
+                            isVpnTlsEnabled = isVpnTlsEnabled,
+                            accentColor = LocalProtocolColors.current.primary,
+                            onCheckedChange = { checked ->
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                app.prefsManager.setVpnTlsEnabled(checked)
+                                if (com.mirrly.tgproxy.service.MirrlyVpnService.isRunning ||
+                                    vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED
+                                ) {
+                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                                }
+                            },
+                            onInfoClick = { infoKey = "vpn_tls_enabled" }
+                        )
                     }
                     SettingsProtocolMode.MTPROTO -> {
                         SettingsNetworkSection(
@@ -1511,6 +1525,7 @@ fun SettingsScreen(
 
                         SettingsAdvancedEngineeringSection(
                             config = config,
+                            isVpnMode = isVpnMode,
                             onInfoClick = { infoKey = it },
                             onRestartProxy = { restartProxyIfNeeded() }
                         )
@@ -4180,6 +4195,7 @@ private fun SettingsAdvancedModeToggleCard(
 @Composable
 private fun SettingsAdvancedEngineeringSection(
     config: ProxyConfig,
+    isVpnMode: Boolean = false,
     onInfoClick: (String) -> Unit,
     onRestartProxy: () -> Unit
 ) {
@@ -4556,105 +4572,26 @@ private fun SettingsAdvancedEngineeringSection(
             }
         }
 
-        // 4.5. Transport TLS Control (Critical Stability Setting)
-        val isTlsEnabled by app.prefsManager.isTlsEnabledFlow.collectAsState()
-        val tlsCardBorder by animateColorAsState(
-            targetValue = if (isTlsEnabled) Color(0xFFF59E0B).copy(alpha = 0.45f) else Color(0xFFFF1744).copy(alpha = 0.55f),
-            animationSpec = tween(220),
-            label = "tlsCardBorder"
-        )
-        val tlsWarnBorder by animateColorAsState(
-            targetValue = if (isTlsEnabled) Color(0xFFF59E0B).copy(alpha = 0.4f) else Color(0xFFFF1744).copy(alpha = 0.45f),
-            animationSpec = tween(220),
-            label = "tlsWarnBorder"
-        )
-        val tlsWarnTitleColor by animateColorAsState(
-            targetValue = if (isTlsEnabled) Color(0xFFFFB74D) else Color(0xFFFF5252),
-            animationSpec = tween(220),
-            label = "tlsWarnTitleColor"
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color.Transparent)
-                .border(1.dp, tlsCardBorder, RoundedCornerShape(14.dp))
-                .padding(14.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.settings_tls_enabled_title),
-                                color = TextWhite,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.5.sp
-                            )
-                            InfoButton { onInfoClick("tls_enabled") }
-                        }
-                        Text(
-                            text = stringResource(R.string.settings_tls_enabled_desc),
-                            color = TextMuted,
-                            fontSize = 11.5.sp,
-                            lineHeight = 15.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    InertialSpringSwitch(
-                        checked = isTlsEnabled,
-                        onCheckedChange = { checked ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            app.prefsManager.setTlsEnabled(checked)
-                            onRestartProxy()
-                        },
-                        activeColor = Color(0xFFF59E0B)
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, tlsWarnBorder, RoundedCornerShape(12.dp))
-                        .padding(12.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = stringResource(
-                                if (isTlsEnabled) R.string.settings_tls_enabled_card_title
-                                else R.string.settings_tls_disabled_card_title
-                            ),
-                            color = tlsWarnTitleColor,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        )
-                        Text(
-                            text = stringResource(
-                                if (isTlsEnabled) R.string.settings_tls_enabled_card_desc
-                                else R.string.settings_tls_disabled_card_desc
-                            ),
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                    }
-                }
-            }
+        // 4.5. Transport TLS Control (Proxy WS/WSS, shown when not in VPN mode)
+        if (!isVpnMode) {
+            val isTlsEnabled by app.prefsManager.isTlsEnabledFlow.collectAsState()
+            SettingsTlsControlCard(
+                checked = isTlsEnabled,
+                onCheckedChange = { checked ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    app.prefsManager.setTlsEnabled(checked)
+                    onRestartProxy()
+                },
+                titleRes = R.string.settings_tls_enabled_title,
+                descRes = R.string.settings_tls_enabled_desc,
+                enabledCardTitleRes = R.string.settings_tls_enabled_card_title,
+                enabledCardDescRes = R.string.settings_tls_enabled_card_desc,
+                disabledCardTitleRes = R.string.settings_tls_disabled_card_title,
+                disabledCardDescRes = R.string.settings_tls_disabled_card_desc,
+                activeAccentColor = Color(0xFFF59E0B),
+                enabledTitleColor = Color(0xFFFFB74D),
+                onInfoClick = { onInfoClick("tls_enabled") }
+            )
         }
 
         // 5. Reset Engineering Defaults
@@ -5368,6 +5305,136 @@ private fun SettingsUplinkWarpSection(
             }
         }
 
+    }
+}
+
+@Composable
+private fun SettingsVpnTlsCard(
+    isVpnTlsEnabled: Boolean,
+    accentColor: Color,
+    onCheckedChange: (Boolean) -> Unit,
+    onInfoClick: () -> Unit
+) {
+    SettingsTlsControlCard(
+        checked = isVpnTlsEnabled,
+        onCheckedChange = onCheckedChange,
+        titleRes = R.string.settings_vpn_tls_enabled_title,
+        descRes = R.string.settings_vpn_tls_enabled_desc,
+        enabledCardTitleRes = R.string.settings_vpn_tls_enabled_card_title,
+        enabledCardDescRes = R.string.settings_vpn_tls_enabled_card_desc,
+        disabledCardTitleRes = R.string.settings_vpn_tls_disabled_card_title,
+        disabledCardDescRes = R.string.settings_vpn_tls_disabled_card_desc,
+        activeAccentColor = accentColor,
+        enabledTitleColor = accentColor,
+        onInfoClick = onInfoClick
+    )
+}
+
+@Composable
+private fun SettingsTlsControlCard(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    @StringRes titleRes: Int,
+    @StringRes descRes: Int,
+    @StringRes enabledCardTitleRes: Int,
+    @StringRes enabledCardDescRes: Int,
+    @StringRes disabledCardTitleRes: Int,
+    @StringRes disabledCardDescRes: Int,
+    activeAccentColor: Color,
+    enabledTitleColor: Color,
+    onInfoClick: () -> Unit
+) {
+    val cardBorder by animateColorAsState(
+        targetValue = if (checked) activeAccentColor.copy(alpha = 0.45f) else Color(0xFFFF1744).copy(alpha = 0.55f),
+        animationSpec = tween(220),
+        label = "tlsCardBorder"
+    )
+    val warnBorder by animateColorAsState(
+        targetValue = if (checked) activeAccentColor.copy(alpha = 0.4f) else Color(0xFFFF1744).copy(alpha = 0.45f),
+        animationSpec = tween(220),
+        label = "tlsWarnBorder"
+    )
+    val warnTitleColor by animateColorAsState(
+        targetValue = if (checked) enabledTitleColor else Color(0xFFFF5252),
+        animationSpec = tween(220),
+        label = "tlsWarnTitleColor"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.Transparent)
+            .border(1.dp, cardBorder, RoundedCornerShape(14.dp))
+            .padding(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(titleRes),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        InfoButton(onClick = onInfoClick)
+                    }
+                    Text(
+                        text = stringResource(descRes),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                InertialSpringSwitch(
+                    checked = checked,
+                    onCheckedChange = onCheckedChange,
+                    activeColor = activeAccentColor
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, warnBorder, RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = stringResource(
+                            if (checked) enabledCardTitleRes else disabledCardTitleRes
+                        ),
+                        color = warnTitleColor,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = stringResource(
+                            if (checked) enabledCardDescRes else disabledCardDescRes
+                        ),
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -6913,6 +6980,7 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "socket_buffer" -> R.string.info_socket_buffer_title to R.string.info_socket_buffer_body
         "ws_keepalive" -> R.string.info_ws_keepalive_title to R.string.info_ws_keepalive_body
         "tls_enabled" -> R.string.info_tls_enabled_title to R.string.info_tls_enabled_body
+        "vpn_tls_enabled" -> R.string.info_vpn_tls_enabled_title to R.string.info_vpn_tls_enabled_body
         "vpn_core_info" -> R.string.info_vpn_system_title to R.string.info_vpn_system_body
         "vpn_splittunnel_info" -> R.string.info_vpn_splittunnel_title to R.string.info_vpn_splittunnel_body
         "custom_wallpaper_info", "customization_info" -> R.string.settings_customization_info_title to R.string.settings_customization_info_desc
