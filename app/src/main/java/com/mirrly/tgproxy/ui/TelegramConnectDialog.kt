@@ -32,6 +32,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,7 +65,17 @@ fun TelegramConnectDialog(
     val app = MirrlyApplication.instance
     val server = app.proxyServer
 
-    val mtprotoUrl = remember(app.config.secretHex, app.config.bindHost, app.config.bindPort) { server.getTelegramProxyUrl() }
+    val isTlsEnabled by app.prefsManager.isTlsEnabledFlow.collectAsState()
+    val isProxyRunning by server.isRunningFlow.collectAsState()
+    val mtprotoUrl = remember(
+        app.config.secretHex,
+        app.config.bindHost,
+        app.config.bindPort,
+        isTlsEnabled,
+        app.config.isTlsEnabled,
+        isProxyRunning,
+        app.config.proxyModeName
+    ) { server.getTelegramProxyUrl() }
     val socks5Url = remember(app.config.bindHost, app.config.activePort, app.config.socks5Username, app.config.socks5Password) { server.getTelegramSocks5Url() }
 
     val isMtActive = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO

@@ -78,6 +78,17 @@ class EngineSplitContractTest {
             )
         }
 
+        val removedSecuritySymbols = setOf(
+            "GetEngineSecurityState",
+            "GetSecurityPostureReportJson"
+        )
+        removedSecuritySymbols.forEach { method ->
+            assertFalse(
+                proxyMethods.contains(method),
+                "ProxyLibrary must not declare removed security symbol $method"
+            )
+        }
+
         val expectedProxyMethods = setOf(
             "StartProxy",
             "StartSocks5Proxy",
@@ -92,14 +103,12 @@ class EngineSplitContractTest {
             "ProbeTransportHealth",
             "GetStats",
             "GetUsefulRxSliJson",
-            "FreeString",
-            "GetEngineSecurityState",
-            "GetSecurityPostureReportJson"
+            "FreeString"
         )
         expectedProxyMethods.forEach { method ->
             assertTrue(
                 proxyMethods.contains(method),
-                "ProxyLibrary must keep proxy/security symbol $method"
+                "ProxyLibrary must keep proxy symbol $method"
             )
         }
 
@@ -200,5 +209,46 @@ class EngineSplitContractTest {
     fun `VPN TLS state defaults to enabled when native library is not loaded`() {
         assertTrue(NativeProxy.isVpnTlsEnabled())
         assertFalse(NativeProxy.isVpnStarted)
+    }
+
+    @Test
+    fun `proguard rules keep VpnLibrary and ProtectCallback JNA interfaces for R8 release builds`() {
+        val candidates = listOf(
+            File("../app/proguard-rules.pro"),
+            File("app/proguard-rules.pro")
+        )
+        val proguardFile = candidates.firstOrNull { it.exists() }?.canonicalFile
+            ?: error("Unable to locate app/proguard-rules.pro")
+        val rules = proguardFile.readText()
+        assertTrue(
+            rules.contains("-keep interface com.mirrly.tgproxy.core.ProxyLibrary { *; }"),
+            "proguard-rules.pro must keep ProxyLibrary interface methods"
+        )
+        assertTrue(
+            rules.contains("-keep interface com.mirrly.tgproxy.core.VpnLibrary { *; }"),
+            "proguard-rules.pro must keep VpnLibrary interface methods so R8 does not strip JNA methods in release builds"
+        )
+        assertTrue(
+            rules.contains("-keep interface com.mirrly.tgproxy.core.ProtectCallback { *; }"),
+            "proguard-rules.pro must keep ProtectCallback JNA callback interface"
+        )
+    }
+
+    @Test
+    fun `NativeProxy removes GetEngineSecurityState and GetSecurityPostureReportJson bindings`() {
+        val nativeProxySrc = loadNativeProxySource()
+        val forbiddenTokens = listOf(
+            "GetEngineSecurityState",
+            "getEngineSecurityState",
+            "isEngineAuthorized",
+            "GetSecurityPostureReportJson",
+            "getSecurityPostureReportJson"
+        )
+        forbiddenTokens.forEach { token ->
+            assertFalse(
+                nativeProxySrc.contains(token),
+                "NativeProxy.kt must not contain $token"
+            )
+        }
     }
 }

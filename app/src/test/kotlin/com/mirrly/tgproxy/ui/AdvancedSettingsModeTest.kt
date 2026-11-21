@@ -75,7 +75,13 @@ class AdvancedSettingsModeTest {
             "settings_socket_buffer_title",
             "settings_socket_buffer_desc",
             "settings_ws_keepalive_title",
-            "settings_ws_keepalive_desc"
+            "settings_ws_keepalive_desc",
+            "info_ws_keepalive_title",
+            "info_ws_keepalive_body",
+            "settings_tls_record_padding_title",
+            "settings_tls_record_padding_desc",
+            "info_tls_record_padding_title",
+            "info_tls_record_padding_body"
         )
 
         for (key in requiredKeys) {
@@ -106,6 +112,8 @@ class AdvancedSettingsModeTest {
         assertFalse(config.isBatteryGuardEnabled)
         assertFalse(config.batteryGuardStopOnPowerSave)
         assertFalse(config.isAdaptiveQoSEnabled)
+        assertTrue(config.isTlsRecordPaddingEnabled)
+        assertEquals(60, config.webSocketKeepAliveSeconds)
     }
 
     @Test
@@ -136,12 +144,12 @@ class AdvancedSettingsModeTest {
         assertEquals(1000L, delayMax)
         assertEquals(200L, delayNormal)
 
-        val keepAliveMin = 5.coerceIn(10, 300)
-        val keepAliveMax = 500.coerceIn(10, 300)
-        val keepAliveNormal = 30.coerceIn(10, 300)
+        val keepAliveMin = 5.coerceIn(15, 120)
+        val keepAliveMax = 500.coerceIn(15, 120)
+        val keepAliveNormal = 30.coerceIn(15, 120)
 
-        assertEquals(10, keepAliveMin)
-        assertEquals(300, keepAliveMax)
+        assertEquals(15, keepAliveMin)
+        assertEquals(120, keepAliveMax)
         assertEquals(30, keepAliveNormal)
     }
 }

@@ -396,13 +396,13 @@ class MirrlyVpnService : VpnService() {
             uptimeMs = 0L
         )
 
-        if (packageName != "com.mirrly.tgproxy" || !NativeProxy.isEngineAuthorized()) {
-            val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-            if (!isDebug) {
-                updateState(VpnInternalState.FAILED, VpnFailureReason.ESTABLISH_FAILED)
-                stopSelf()
-                return
-            }
+        val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        val signatureStatus = com.mirrly.tgproxy.util.SignatureVerifier.verify(applicationContext)
+        if (!isDebug && (packageName != "com.mirrly.tgproxy" ||
+                signatureStatus == com.mirrly.tgproxy.util.SignatureStatus.UNOFFICIAL_MODIFIED)) {
+            updateState(VpnInternalState.FAILED, VpnFailureReason.ESTABLISH_FAILED)
+            stopSelf()
+            return
         }
 
         startJob?.cancel()

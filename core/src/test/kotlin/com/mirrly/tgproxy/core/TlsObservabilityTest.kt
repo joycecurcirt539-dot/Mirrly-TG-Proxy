@@ -133,7 +133,7 @@ class TlsObservabilityTest {
             if (it.name == "core") it.parentFile else it
         }
 
-        val wsRs = File(rootDir, "mirrlyengine/src/ws.rs")
+        val wsRs = File(rootDir.parentFile, "mirrlyengine/src/ws.rs")
         assertTrue(wsRs.exists(), "mirrlyengine/src/ws.rs must exist")
         val wsCode = wsRs.readText()
 
@@ -186,7 +186,7 @@ class TlsObservabilityTest {
             if (it.name == "core") it.parentFile else it
         }
 
-        val trackerRs = File(rootDir, "mirrlyengine/src/tls_observability.rs")
+        val trackerRs = File(rootDir.parentFile, "mirrlyengine/src/tls_observability.rs")
         assertTrue(trackerRs.exists(), "mirrlyengine/src/tls_observability.rs must exist")
         val trackerCode = trackerRs.readText()
 
@@ -207,7 +207,7 @@ class TlsObservabilityTest {
             if (it.name == "core") it.parentFile else it
         }
 
-        val trackerRs = File(rootDir, "mirrlyengine/src/tls_observability.rs")
+        val trackerRs = File(rootDir.parentFile, "mirrlyengine/src/tls_observability.rs")
         assertTrue(trackerRs.exists(), "mirrlyengine/src/tls_observability.rs must exist")
         val trackerCode = trackerRs.readText()
 
@@ -268,7 +268,7 @@ class TlsObservabilityTest {
             if (it.name == "core") it.parentFile else it
         }
 
-        val libRs = File(rootDir, "mirrlyengine/src/lib.rs")
+        val libRs = File(rootDir.parentFile, "mirrlyengine/src/lib.rs")
         val libCode = libRs.readText()
         assertTrue(
             libCode.contains("pub mod tls_observability;"),
@@ -283,7 +283,7 @@ class TlsObservabilityTest {
             "lib.rs must reset TLS_TRACKER on proxy start/stop"
         )
 
-        val wsRs = File(rootDir, "mirrlyengine/src/ws.rs")
+        val wsRs = File(rootDir.parentFile, "mirrlyengine/src/ws.rs")
         val wsCode = wsRs.readText()
         assertTrue(
             wsCode.contains("crate::tls_observability::TLS_TRACKER.write().record_success"),

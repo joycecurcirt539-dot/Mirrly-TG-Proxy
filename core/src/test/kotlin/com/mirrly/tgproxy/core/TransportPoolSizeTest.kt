@@ -206,15 +206,15 @@ class TransportPoolSizeTest {
 
     @Test
     fun testRustAndKotlinContract() {
-        val rustLib = File("..", "mirrlyengine/src/lib.rs").canonicalFile.readText()
-        val rustConfig = File("..", "mirrlyengine/src/config.rs").canonicalFile.readText()
+        val rustLib = File("../..", "mirrlyengine/src/lib.rs").canonicalFile.readText()
+        val rustConfig = File("../..", "mirrlyengine/src/config.rs").canonicalFile.readText()
         val kotlinNativeProxy = File("src/main/kotlin/com/mirrly/tgproxy/core/NativeProxy.kt").canonicalFile.readText()
         val kotlinProxyConfig = File("src/main/kotlin/com/mirrly/tgproxy/core/ProxyConfig.kt").canonicalFile.readText()
         val localProxy = File("src/main/kotlin/com/mirrly/tgproxy/core/LocalProxyServer.kt").canonicalFile.readText()
         val settingsUi = File("..", "app/src/main/java/com/mirrly/tgproxy/ui/SettingsScreen.kt").canonicalFile.readText()
         val homeUi = File("..", "app/src/main/java/com/mirrly/tgproxy/ui/HomeScreen.kt").canonicalFile.readText()
         val preferences = File("..", "app/src/main/java/com/mirrly/tgproxy/service/PreferencesManager.kt").canonicalFile.readText()
-        val nativeRuntimeTest = File("..", "mirrlyengine/tests/transport_pool_contract.rs").canonicalFile.readText()
+        val nativeRuntimeTest = File("../..", "mirrlyengine/tests/transport_pool_contract.rs").canonicalFile.readText()
 
         // 1. Rust exports the semantic setter, legacy pool size mapping, and telemetry.
         assertTrue(rustLib.contains("pub extern \"C\" fn GetTransportPoolStatusJson"))

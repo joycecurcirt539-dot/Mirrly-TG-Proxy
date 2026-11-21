@@ -4,9 +4,9 @@ set -euo pipefail
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Resolve project root
-if [ -d "$CURRENT_DIR/../../mirrlyengine" ]; then
+if [ -d "$CURRENT_DIR/../../mirrlyvpn" ]; then
     PROJECT_ROOT="$(cd "$CURRENT_DIR/../.." && pwd)"
-elif [ -d "$CURRENT_DIR/mirrlyengine" ]; then
+elif [ -d "$CURRENT_DIR/mirrlyvpn" ]; then
     PROJECT_ROOT="$CURRENT_DIR"
 else
     PROJECT_ROOT="$(pwd)"
@@ -213,7 +213,7 @@ else
     ABIS_TO_BUILD=("arm64-v8a" "armeabi-v7a" "x86" "x86_64")
 fi
 
-CRATES=("mirrlyengine" "mirrlyvpn")
+CRATES=("mirrlyvpn")
 for crate in "${CRATES[@]}"; do
     if [ ! -f "$PROJECT_ROOT/$crate/Cargo.toml" ]; then
         echo "ERROR: Crate Cargo.toml not found: $PROJECT_ROOT/$crate/Cargo.toml" >&2

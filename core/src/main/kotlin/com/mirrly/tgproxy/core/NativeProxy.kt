@@ -54,11 +54,8 @@ interface ProxyLibrary : Library {
     fun PromoteCfproxyDomainForDc(dcId: Int, isMedia: Int, domain: String): Int
     fun SetSecret(secret: String)
     fun SetSocks5Auth(username: String, password: String)
-    fun SetUplinkMode(mode: Int)
     fun GetSecretWithPrefix(): Pointer?
     fun GetStats(): Pointer?
-    fun SetBatteryQoSLevel(level: Int)
-    fun GetActiveCascadeStage(): Int
     fun FreeString(p: Pointer)
     fun SetIpv6OnlyNetwork(isIpv6Only: Int)
     fun SetMtprotoStandbyPerActiveSlot(size: Int): Int
@@ -75,7 +72,6 @@ interface ProxyLibrary : Library {
     fun IsDialThrottlingEnabled(): Int
     fun WarmupWsPool()
     fun OnScreenWakeup()
-    fun SetTrustPolicy(isPrivateNode: Int, allowPublicRelayFallback: Int)
     fun GetUsefulRxSliJson(): Pointer?
     fun GetDialBudgetStatsJson(): Pointer?
     fun GetDomainBalancerStatusJson(): Pointer?
@@ -86,8 +82,6 @@ interface ProxyLibrary : Library {
     fun PingWorker(domain: String, timeoutMs: Int): Pointer?
     fun ProbeTransportHealth(mode: Int, domain: String, timeoutMs: Int): Pointer?
     fun GetLastStartError(): Pointer?
-    fun GetEngineSecurityState(): Int
-    fun GetSecurityPostureReportJson(): Pointer?
 }
 
 interface VpnLibrary : Library {
@@ -95,6 +89,7 @@ interface VpnLibrary : Library {
         val INSTANCE: VpnLibrary by lazy {
             val lib = Native.load("mirrlyvpn", VpnLibrary::class.java) as VpnLibrary
             NativeProxy.isVpnLibraryLoaded = true
+            NativeProxy.onVpnLibraryLoaded(lib)
             lib
         }
     }
@@ -186,6 +181,27 @@ object NativeProxy {
     private var cachedVpnTlsEnabled: Boolean = true
 
     private fun isVpnEngineActive(): Boolean = isVpnStarted || isVpnLibraryLoaded
+
+    internal fun onVpnLibraryLoaded(vpn: VpnLibrary) {
+        try {
+            activeProtectCallback?.let { vpn.SetVpnProtectSocketCallback(it) }
+            vpn.SetVpnTlsEnabled(if (cachedVpnTlsEnabled) 1 else 0)
+            cachedNetworkGeneration?.let { vpn.SetVpnNetworkGeneration(it) }
+            cachedNetworkProfileJson?.let { vpn.SetVpnNetworkProfileJson(it) }
+            cachedIpv6OnlyNetwork?.let { vpn.SetVpnIpv6OnlyNetwork(if (it) 1 else 0) }
+            cachedBatteryQoSLevel?.let { lvl ->
+                val code = when (lvl) {
+                    QoSThrottleLevel.NONE -> 0
+                    QoSThrottleLevel.MODERATE -> 1
+                    QoSThrottleLevel.SEVERE -> 2
+                }
+                vpn.SetVpnBatteryQoSLevel(code)
+            }
+            cachedSocketBufferSizes?.let { (r, s) -> vpn.SetVpnSocketBufferSizes(r, s) }
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой первичной инициализации VpnLibrary: ${t.message}")
+        }
+    }
 
     fun setProtectCallback(onProtect: (Int) -> Boolean) {
         val cb = ProtectCallback { fd ->
@@ -657,15 +673,8 @@ object NativeProxy {
     }
 
     fun setUplinkMode(mode: UplinkMode) {
-        try {
-            val modeInt = when (mode) {
-                UplinkMode.WORKER -> 0
-                UplinkMode.AWG -> 4
-                else -> 0
-            }
-            ProxyLibrary.INSTANCE.SetUplinkMode(modeInt)
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setUplinkMode]: ${t.message}", t)
+        if (isVpnEngineActive()) {
+            setVpnUplinkMode(mode)
         }
     }
 
@@ -754,13 +763,6 @@ object NativeProxy {
             QoSThrottleLevel.MODERATE -> 1
             QoSThrottleLevel.SEVERE -> 2
         }
-        if (isStarted) {
-            try {
-                ProxyLibrary.INSTANCE.SetBatteryQoSLevel(code)
-            } catch (t: Throwable) {
-                AppLogger.w("NativeProxy", "Сбой вызова FFI [setBatteryQoSLevel]: ${t.message}")
-            }
-        }
         if (isVpnEngineActive()) {
             try {
                 VpnLibrary.INSTANCE.SetVpnBatteryQoSLevel(code)
@@ -779,20 +781,8 @@ object NativeProxy {
         }
     }
 
-    /**
-     * Возвращает активный этап каскадного аплинка:
-     * 0 = Нет данных / прямой режим
-     * 1 = Reserved
-     * 2 = WARP AmneziaWG (Обфусцированный WireGuard)
-     * 3 = Cloudflare Worker WSS (Гарантированный TCP 443)
-     */
     fun getActiveCascadeStage(): Int {
-        if (!isStarted) return 0
-        return try {
-            ProxyLibrary.INSTANCE.GetActiveCascadeStage()
-        } catch (_: Throwable) {
-            0
-        }
+        return 0
     }
 
     fun getSecretWithPrefix(): String? {
@@ -800,7 +790,7 @@ object NativeProxy {
         return try {
             val ptr = ProxyLibrary.INSTANCE.GetSecretWithPrefix() ?: return null
             try {
-                ptr.getString(0)
+                ptr.getString(0, "UTF-8").trim().takeIf { it.isNotEmpty() }
             } finally {
                 ProxyLibrary.INSTANCE.FreeString(ptr)
             }
@@ -1025,17 +1015,10 @@ object NativeProxy {
     }
 
     fun setTrustPolicy(
-        isPrivateNode: Boolean = false,
-        allowPublicRelayFallback: Boolean = false
+        @Suppress("UNUSED_PARAMETER") isPrivateNode: Boolean = false,
+        @Suppress("UNUSED_PARAMETER") allowPublicRelayFallback: Boolean = false
     ) {
-        try {
-            ProxyLibrary.INSTANCE.SetTrustPolicy(
-                if (isPrivateNode) 1 else 0,
-                if (allowPublicRelayFallback) 1 else 0
-            )
-        } catch (t: Throwable) {
-            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetTrustPolicy]: ${t.message}")
-        }
+        // Legacy trust policy stub removed from standalone mirrlyengine
     }
 
     fun getStageTimelineJson(): String? {
@@ -1216,29 +1199,6 @@ object NativeProxy {
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "FFI call failed [IsTlsClientHelloSplitEnabled]: ${t.message}", t)
             true
-        }
-    }
-
-    fun getEngineSecurityState(): Int {
-        return try {
-            ProxyLibrary.INSTANCE.GetEngineSecurityState()
-        } catch (_: Throwable) {
-            0
-        }
-    }
-
-    fun isEngineAuthorized(): Boolean {
-        return getEngineSecurityState() == 1
-    }
-
-    fun getSecurityPostureReportJson(): String? {
-        return try {
-            val ptr = ProxyLibrary.INSTANCE.GetSecurityPostureReportJson() ?: return null
-            val str = ptr.getString(0)
-            ProxyLibrary.INSTANCE.FreeString(ptr)
-            str
-        } catch (_: Throwable) {
-            null
         }
     }
 }

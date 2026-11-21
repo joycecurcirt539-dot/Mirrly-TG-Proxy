@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 class NativeFfiLifecycleContractTest {
     @Test
     fun `network generation FFI path does not require an entered Tokio runtime`() {
-        val source = File("..", "mirrlyengine/src/budget.rs").canonicalFile.readText()
+        val source = File("../..", "mirrlyengine/src/budget.rs").canonicalFile.readText()
         val functionStart = source.indexOf("pub fn notify_generation_change")
         val nextFunction = source.indexOf("\n    ///", startIndex = functionStart + 1)
 

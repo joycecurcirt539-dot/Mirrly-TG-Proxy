@@ -117,7 +117,7 @@ class DomainScoringPerDcTest {
 
     @Test
     fun testRustBalancerNoLeakageFromDc2Contract() {
-        val balancerRs = File("..", "mirrlyengine/src/balancer.rs").canonicalFile.readText()
+        val balancerRs = File("../..", "mirrlyengine/src/balancer.rs").canonicalFile.readText()
 
         // 1. MOB-026: No fallback to DC2 in get_fastest_domain_for_dc or get_domains_for_dc
         assertFalse(
@@ -149,7 +149,7 @@ class DomainScoringPerDcTest {
 
     @Test
     fun testNetworkGenerationNotificationContract() {
-        val networkProfileRs = File("..", "mirrlyengine/src/network_profile.rs").canonicalFile.readText()
+        val networkProfileRs = File("../..", "mirrlyengine/src/network_profile.rs").canonicalFile.readText()
 
         // When generation changes, BALANCER must be notified to switch generation and prune stale winners
         assertTrue(
@@ -160,7 +160,7 @@ class DomainScoringPerDcTest {
 
     @Test
     fun testProxyTracksUsefulSuccessAndFailureContract() {
-        val proxyRs = File("..", "mirrlyengine/src/proxy.rs").canonicalFile.readText()
+        val proxyRs = File("../..", "mirrlyengine/src/proxy.rs").canonicalFile.readText()
 
         // 1. bridge_ws records useful success when downstream data is received
         assertTrue(
@@ -184,7 +184,7 @@ class DomainScoringPerDcTest {
 
     @Test
     fun testFfiAndJnaContract() {
-        val rustLibRs = File("..", "mirrlyengine/src/lib.rs").canonicalFile.readText()
+        val rustLibRs = File("../..", "mirrlyengine/src/lib.rs").canonicalFile.readText()
         val kotlinNativeProxy = File("src/main/kotlin/com/mirrly/tgproxy/core/NativeProxy.kt").canonicalFile.readText()
 
         // Rust exports GetDomainBalancerStatusJson

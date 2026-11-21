@@ -790,7 +790,7 @@ class PreferencesManager(private val context: Context) {
         }
         val happyEyeballsDelayMs = prefs.getLong("happy_eyeballs_delay_ms", defaults.happyEyeballsDelayMs)
         val ipFamilyPreferenceName = prefs.getString("ip_family_preference", defaults.ipFamilyPreferenceName) ?: defaults.ipFamilyPreferenceName
-        val webSocketKeepAliveSeconds = prefs.getInt("socket_keep_alive_seconds", defaults.webSocketKeepAliveSeconds)
+        val webSocketKeepAliveSeconds = prefs.getInt("socket_keep_alive_seconds", defaults.webSocketKeepAliveSeconds).coerceIn(15, 120)
         var socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
         val socks5PortMigrationDone = prefs.getBoolean("socks5_port_migrated_10888", false)
         if (!socks5PortMigrationDone) {
@@ -1058,6 +1058,7 @@ class PreferencesManager(private val context: Context) {
             .putInt("battery_guard_threshold", config.batteryGuardThreshold)
             .putBoolean("battery_guard_stop_on_powersave", config.batteryGuardStopOnPowerSave)
             .putBoolean(KEY_TLS_ENABLED, config.isTlsEnabled)
+            .putBoolean(KEY_TLS_RECORD_PADDING_ENABLED, config.isTlsRecordPaddingEnabled)
             .putBoolean("is_adaptive_qos_enabled", config.isAdaptiveQoSEnabled)
             .putBoolean("dial_throttling_enabled", config.isDialThrottlingEnabled)
             .putBoolean("is_alarm_clock_watchdog_enabled", config.isAlarmClockWatchdogEnabled)
@@ -1094,6 +1095,7 @@ class PreferencesManager(private val context: Context) {
         _uplinkModeFlow.value = config.uplinkMode
         _vpnUplinkModeFlow.value = config.vpnUplinkMode
         _vpnTlsEnabledFlow.value = config.isVpnTlsEnabled
+        _isTlsRecordPaddingEnabledFlow.value = config.isTlsRecordPaddingEnabled
         _isAlarmClockWatchdogEnabledFlow.value = config.isAlarmClockWatchdogEnabled
         _isCpuAntiFreezeEnabledFlow.value = config.isCpuAntiFreezeEnabled
         _isTrafficPulseEnabledFlow.value = config.isTrafficPulseEnabled
@@ -3053,7 +3055,7 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun setSocketKeepAliveSeconds(seconds: Int) {
-        prefs.edit().putInt("socket_keep_alive_seconds", seconds.coerceIn(10, 300)).apply()
+        prefs.edit().putInt("socket_keep_alive_seconds", seconds.coerceIn(15, 120)).apply()
     }
 
     fun resetAdvancedSettingsToDefaults(config: ProxyConfig) {
@@ -3062,6 +3064,7 @@ class PreferencesManager(private val context: Context) {
             com.mirrly.tgproxy.util.LocaleHelper.isPersianLanguage(getAppLanguage()),
             isUserOverride = false
         )
+        setTlsRecordPaddingEnabled(true)
         setHappyEyeballsDelayMs(200L)
         setIpFamilyPreference("IPV4_ONLY")
         setSocketKeepAliveSeconds(60)
@@ -3069,6 +3072,7 @@ class PreferencesManager(private val context: Context) {
         config.applyPreset(com.mirrly.tgproxy.core.SpeedPreset.AUTO)
         config.tcpNoDelayModeName = com.mirrly.tgproxy.core.NagleMode.ENABLED.name
         config.tcpNoDelay = false
+        config.isTlsRecordPaddingEnabled = true
         config.bufferSizeBytes = 0
         config.happyEyeballsDelayMs = 200L
         config.ipFamilyPreferenceName = com.mirrly.tgproxy.core.IpFamilyPreference.IPV4_ONLY.name

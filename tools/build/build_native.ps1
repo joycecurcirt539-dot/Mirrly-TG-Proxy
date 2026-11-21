@@ -6,9 +6,9 @@ $ErrorActionPreference = "Stop"
 
 $currentDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Resolve project root (whether run from root or tools/build)
-$projectRoot = if (Test-Path "$currentDir\..\..\mirrlyengine") {
+$projectRoot = if (Test-Path "$currentDir\..\..\mirrlyvpn") {
     (Resolve-Path "$currentDir\..\..").Path
-} elseif (Test-Path "$currentDir\mirrlyengine") {
+} elseif (Test-Path "$currentDir\mirrlyvpn") {
     $currentDir
 } else {
     (Get-Location).Path
@@ -236,8 +236,7 @@ if ($effectiveSingleTarget) {
 }
 
 $crates = @(
-    @{ name = "mirrlyengine"; dir = (Join-Path $projectRoot "mirrlyengine"); soName = "libmirrlyengine.so" },
-    @{ name = "mirrlyvpn";    dir = (Join-Path $projectRoot "mirrlyvpn");    soName = "libmirrlyvpn.so" }
+    @{ name = "mirrlyvpn"; dir = (Join-Path $projectRoot "mirrlyvpn"); soName = "libmirrlyvpn.so" }
 )
 
 foreach ($crate in $crates) {

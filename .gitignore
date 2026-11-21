@@ -58,7 +58,6 @@ app/.cxx/
 
 # Rust / Cargo
 target/
-mirrlyengine/target/
 **/target/
 .cargo/
 
@@ -66,7 +65,6 @@ mirrlyengine/target/
 scratch/
 artifacts/
 legacy/
-mirrlyengine/legacy/
 
 # Editor swap and temp files
 *.swp
@@ -115,3 +113,8 @@ build_release.log
 temp_*.md
 test_*.md
 .system_generated/
+
+# Agent local config & skills (Repository Cleanliness Rule)
+.agents/
+GEMINI.md
+

@@ -309,12 +309,10 @@ class MainActivity : ComponentActivity() {
                 }
                 val isUnofficial = remember {
                     val isClonedPackage = applicationContext.packageName != "com.mirrly.tgproxy"
-                    val isEngineBlocked = !com.mirrly.tgproxy.core.NativeProxy.isEngineAuthorized()
                     val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
                     (signatureStatus == com.mirrly.tgproxy.util.SignatureStatus.UNOFFICIAL_MODIFIED ||
-                     isClonedPackage ||
-                     isEngineBlocked) && !isDebug
+                     isClonedPackage) && !isDebug
                 }
                 val isSecurityNoticeDismissedForever = remember {
                     com.mirrly.tgproxy.service.LaunchCountManager.isSecurityNoticeDismissedForever(applicationContext)

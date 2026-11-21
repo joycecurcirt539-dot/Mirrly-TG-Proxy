@@ -3,10 +3,9 @@ package com.mirrly.tgproxy.util
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import com.mirrly.tgproxy.core.AppLogger
-import com.mirrly.tgproxy.core.NativeProxy
 import java.io.File
 import java.security.MessageDigest
+import java.util.Locale
 
 enum class SignatureStatus {
     OFFICIAL_RELEASE,
@@ -40,7 +39,7 @@ object SignatureVerifier {
             out[i] = (ENC_A[i].toInt() xor MASK_A[i].toInt()).toByte()
             out[i + 16] = (ENC_B[i].toInt() xor MASK_B[i].toInt()).toByte()
         }
-        return out.joinToString("") { String.format("%02X", it) }
+        return out.joinToString("") { String.format(Locale.US, "%02X", it) }
     }
 
     @Volatile
@@ -64,14 +63,12 @@ object SignatureVerifier {
 
         val status = try {
             val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-            val isOfficialPackage = context.packageName == "com.mirrly.tgproxy"
-            val isAuthenticInEngine = isOfficialPackage && NativeProxy.isEngineAuthorized()
-
-            when {
-                isAuthenticInEngine -> SignatureStatus.OFFICIAL_RELEASE
-                isDebug -> SignatureStatus.DEBUG_BUILD
-                else -> SignatureStatus.UNOFFICIAL_MODIFIED
-            }
+            val signatures = getAppSignatures(context)
+            evaluateSignatureStatus(
+                packageName = context.packageName,
+                isDebug = isDebug,
+                signatures = signatures
+            )
         } catch (_: Throwable) {
             SignatureStatus.UNOFFICIAL_MODIFIED
         }
@@ -80,15 +77,37 @@ object SignatureVerifier {
         return status
     }
 
+    internal fun evaluateSignatureStatus(
+        packageName: String,
+        isDebug: Boolean,
+        signatures: List<ByteArray>,
+        expectedOfficialHex: String = getOfficialKeyCleanHex()
+    ): SignatureStatus {
+        val isOfficialPackage = packageName == "com.mirrly.tgproxy"
+        val normalizedExpected = expectedOfficialHex.replace(":", "").trim().uppercase(Locale.US)
+        val matchesOfficialCert = isOfficialPackage &&
+            normalizedExpected.length == 64 &&
+            signatures.isNotEmpty() &&
+            signatures.all { sig ->
+                hashSha256(sig).replace(":", "").uppercase(Locale.US) == normalizedExpected
+            }
+
+        return when {
+            matchesOfficialCert -> SignatureStatus.OFFICIAL_RELEASE
+            isDebug -> SignatureStatus.DEBUG_BUILD
+            else -> SignatureStatus.UNOFFICIAL_MODIFIED
+        }
+    }
+
+    internal fun getOfficialFingerprintFormatted(): String {
+        return getOfficialKeyCleanHex().chunked(2).joinToString(":")
+    }
+
     @Suppress("UNUSED_PARAMETER")
     fun verify(context: Context, expectedRemoteHash: String?): SignatureStatus = verify(context)
 
     @Suppress("UNUSED_PARAMETER")
     fun verify(context: Context, expectedRemoteHashes: List<String>?): SignatureStatus = verify(context)
-
-    fun getSecurityReportJson(): String? {
-        return NativeProxy.getSecurityPostureReportJson()
-    }
 
     @Suppress("UNUSED_PARAMETER")
     fun verifyApkFile(context: Context, apkFile: File, expectedRemoteHashes: List<String>? = null): SignatureStatus {
@@ -192,6 +211,6 @@ object SignatureVerifier {
     private fun hashSha256(bytes: ByteArray): String {
         val md = MessageDigest.getInstance("SHA-256")
         val digest = md.digest(bytes)
-        return digest.joinToString(":") { String.format("%02X", it) }
+        return digest.joinToString(":") { String.format(Locale.US, "%02X", it) }
     }
 }

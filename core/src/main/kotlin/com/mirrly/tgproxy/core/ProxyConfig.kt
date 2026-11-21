@@ -612,7 +612,43 @@ data class ProxyConfig(
     val secretBytes: ByteArray
         get() = hexToBytes(rawSecret32)
 
+    fun extractCustomFakeTlsDomainHex(): String? {
+        val normalized = secretHex.trim().lowercase().removePrefix("0x")
+        if (!normalized.startsWith("ee") || normalized.length <= 34) return null
+        val secretPart = normalized.substring(2, 34)
+        if (!secretPart.all { it in '0'..'9' || it in 'a'..'f' }) return null
+        val domainPart = normalized.substring(34)
+        if (domainPart.isEmpty() || domainPart.length % 2 != 0) return null
+        if (!domainPart.all { it in '0'..'9' || it in 'a'..'f' }) return null
+        return domainPart
+    }
+
+    fun getFakeTlsDomainHex(): String {
+        return extractCustomFakeTlsDomainHex() ?: DEFAULT_FAKETLS_DOMAIN_HEX
+    }
+
+    fun getSecretWithPrefix(): String {
+        val cleanSecret = rawSecret32
+        return if (isTlsEnabled) {
+            "ee$cleanSecret${getFakeTlsDomainHex()}"
+        } else {
+            "dd$cleanSecret"
+        }
+    }
+
+    fun getNativeStartSecret(): String {
+        val cleanSecret = rawSecret32
+        val customDomainHex = extractCustomFakeTlsDomainHex()
+        return if (customDomainHex != null) {
+            "ee$cleanSecret$customDomainHex"
+        } else {
+            cleanSecret
+        }
+    }
+
     companion object {
+        const val DEFAULT_FAKETLS_DOMAIN = "www.google.com"
+        const val DEFAULT_FAKETLS_DOMAIN_HEX = "7777772e676f6f676c652e636f6d"
         const val SOCKS5_UPLINK_WORKER = 0
         const val SOCKS5_UPLINK_FLOWSEAL = 1
         const val DEFAULT_CF_PEER_KEY = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="

@@ -41,9 +41,8 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            mirrlyengine/target/
             mirrlyvpn/target/
-          key: cargo-${{ runner.os }}-${{ hashFiles('mirrlyengine/Cargo.lock', 'mirrlyvpn/Cargo.lock') }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('mirrlyvpn/Cargo.lock') }}
           restore-keys: |
             cargo-${{ runner.os }}-
 
@@ -60,12 +59,11 @@ jobs:
       - name: Grant execute permissions
         run: chmod +x ./gradlew ./build_native.sh ./tools/build/build_native.sh
 
-      - name: Run Rust Engine Tests (mirrlyengine & mirrlyvpn)
+      - name: Run Rust Engine Tests (mirrlyvpn)
         run: |
-          (cd mirrlyengine && cargo test)
           (cd mirrlyvpn && cargo test)
 
-      - name: Build Native Rust Engines (mirrlyengine & mirrlyvpn for 4 ABIs)
+      - name: Build Native Rust Engine (mirrlyvpn for 4 ABIs; libmirrlyengine.so prebuilt)
         run: ./build_native.sh
 
       - name: Verify Native Libraries & 16 KiB ELF Alignment

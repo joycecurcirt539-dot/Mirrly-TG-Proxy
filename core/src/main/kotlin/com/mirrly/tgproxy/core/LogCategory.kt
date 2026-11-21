@@ -56,6 +56,8 @@ enum class LogCategory(
             "ProxyForegroundService",
             "MirrlyVpnService",
             "MirrlyVPN",
+            "MirrlyVpn",
+            "mirrlyvpn",
             "BootReceiver",
             "ScheduleManager",
             "System"

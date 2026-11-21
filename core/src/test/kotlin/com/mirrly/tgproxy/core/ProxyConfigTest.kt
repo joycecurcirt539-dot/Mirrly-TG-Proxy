@@ -2,6 +2,7 @@ package com.mirrly.tgproxy.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -594,5 +595,144 @@ class ProxyConfigTest {
             customCfDomain = ""
         )
         assertFalse(mtprotoConfig.isSocks5WorkerMissing())
+    }
+
+    @Test
+    fun testTelegramProxyUrlUsesDdPrefixWhenTlsDisabled() {
+        val raw32 = "00112233445566778899aabbccddeeff"
+        listOf(
+            "dd$raw32",
+            "ee${raw32}6578616d706c652e636f6d",
+            raw32
+        ).forEach { secret ->
+            val config = ProxyConfig(
+                bindHost = "127.0.0.1",
+                bindPort = 1443,
+                secretHex = secret,
+                isTlsEnabled = false
+            )
+            val server = LocalProxyServer(config)
+            assertEquals("dd$raw32", config.getSecretWithPrefix())
+            assertEquals(
+                "tg://proxy?server=127.0.0.1&port=1443&secret=dd$raw32",
+                server.getTelegramProxyUrl()
+            )
+        }
+    }
+
+    @Test
+    fun testTelegramProxyUrlUsesEePrefixWithDefaultGoogleDomainWhenTlsEnabled() {
+        val raw32 = "00112233445566778899aabbccddeeff"
+        val expectedSecret = "ee$raw32${ProxyConfig.DEFAULT_FAKETLS_DOMAIN_HEX}"
+        listOf("dd$raw32", raw32).forEach { secret ->
+            val config = ProxyConfig(
+                bindHost = "127.0.0.1",
+                bindPort = 1443,
+                secretHex = secret,
+                isTlsEnabled = true
+            )
+            val server = LocalProxyServer(config)
+            assertEquals(expectedSecret, config.getSecretWithPrefix())
+            assertEquals(
+                "tg://proxy?server=127.0.0.1&port=1443&secret=$expectedSecret",
+                server.getTelegramProxyUrl()
+            )
+        }
+    }
+
+    @Test
+    fun testTelegramProxyUrlPreservesCustomFakeTlsDomainAndSurvivesTlsToggle() {
+        val raw32 = "00112233445566778899aabbccddeeff"
+        val customDomainHex = "6578616d706c652e636f6d"
+        val customSecret = "ee$raw32$customDomainHex"
+        val config = ProxyConfig(
+            bindHost = "127.0.0.1",
+            bindPort = 1443,
+            secretHex = customSecret,
+            isTlsEnabled = true
+        )
+        val server = LocalProxyServer(config)
+
+        assertEquals(customSecret, server.getTelegramProxyUrl().substringAfter("secret="))
+
+        server.applyTlsEnabled(false)
+        assertEquals("dd$raw32", server.getTelegramProxyUrl().substringAfter("secret="))
+        assertEquals(customSecret, config.secretHex)
+
+        server.applyTlsEnabled(true)
+        assertEquals(customSecret, server.getTelegramProxyUrl().substringAfter("secret="))
+    }
+
+    @Test
+    fun testTelegramProxyUrlSanitizesMalformedEeSecretDomainFallback() {
+        val raw32 = "00112233445566778899aabbccddeeff"
+        val defaultSecret = "ee$raw32${ProxyConfig.DEFAULT_FAKETLS_DOMAIN_HEX}"
+
+        listOf(
+            "ee$raw32",
+            "ee${raw32}abc",
+            "ee${raw32}zzzz"
+        ).forEach { malformed ->
+            val config = ProxyConfig(secretHex = malformed, isTlsEnabled = true)
+            assertNull(config.extractCustomFakeTlsDomainHex())
+            assertEquals(defaultSecret, config.getSecretWithPrefix())
+        }
+
+        val upperConfig = ProxyConfig(
+            secretHex = "  0xEE${raw32.uppercase()}6578616D706C652E636F6D  ",
+            isTlsEnabled = true
+        )
+        assertEquals("6578616d706c652e636f6d", upperConfig.extractCustomFakeTlsDomainHex())
+        assertEquals("ee${raw32}6578616d706c652e636f6d", upperConfig.getSecretWithPrefix())
+    }
+
+    @Test
+    fun testNativeStartSecretPreservesCustomDomainOnlyWhenPresent() {
+        val raw32 = "00112233445566778899aabbccddeeff"
+        val customSecret = "ee${raw32}6578616d706c652e636f6d"
+
+        assertEquals(customSecret, ProxyConfig(secretHex = customSecret, isTlsEnabled = true).getNativeStartSecret())
+        assertEquals(customSecret, ProxyConfig(secretHex = customSecret, isTlsEnabled = false).getNativeStartSecret())
+        assertEquals(raw32, ProxyConfig(secretHex = "dd$raw32", isTlsEnabled = true).getNativeStartSecret())
+        assertEquals(raw32, ProxyConfig(secretHex = raw32, isTlsEnabled = false).getNativeStartSecret())
+    }
+
+    @Test
+    fun testGetTelegramProxyUrlNativeRunningCoordinationAndSocks5Bypass() {
+        val raw32 = "00112233445566778899aabbccddeeff"
+        val config = ProxyConfig(
+            bindHost = "127.0.0.1",
+            bindPort = 1443,
+            secretHex = "dd$raw32",
+            isTlsEnabled = true,
+            proxyModeName = ProxyMode.MTPROTO.name
+        )
+        val server = LocalProxyServer(config)
+        val nativeEe = "ee${raw32}636c6f7564666c6172652e636f6d"
+
+        val activeNativeUrl = server.getTelegramProxyUrlInternal(
+            isNativeMtprotoActive = true,
+            nativeSecretProvider = { "  $nativeEe  " }
+        )
+        assertEquals("tg://proxy?server=127.0.0.1&port=1443&secret=$nativeEe", activeNativeUrl)
+
+        val fallbackOnNullUrl = server.getTelegramProxyUrlInternal(
+            isNativeMtprotoActive = true,
+            nativeSecretProvider = { "   " }
+        )
+        assertEquals(
+            "tg://proxy?server=127.0.0.1&port=1443&secret=ee$raw32${ProxyConfig.DEFAULT_FAKETLS_DOMAIN_HEX}",
+            fallbackOnNullUrl
+        )
+
+        config.proxyModeName = ProxyMode.SOCKS5.name
+        val socks5BypassUrl = server.getTelegramProxyUrlInternal(
+            isNativeMtprotoActive = false,
+            nativeSecretProvider = { "dd00000000000000000000000000000000" }
+        )
+        assertEquals(
+            "tg://proxy?server=127.0.0.1&port=1443&secret=ee$raw32${ProxyConfig.DEFAULT_FAKETLS_DOMAIN_HEX}",
+            socks5BypassUrl
+        )
     }
 }

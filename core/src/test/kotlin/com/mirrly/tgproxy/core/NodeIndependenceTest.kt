@@ -277,7 +277,8 @@ class NodeIndependenceTest {
             if (it.name == "core") it.parentFile else it
         }
 
-        val nodeIndependenceRs = File(rootDir, "mirrlyengine/src/node_independence.rs")
+        val engineBase = File(rootDir.parentFile, "mirrlyengine")
+        val nodeIndependenceRs = File(engineBase, "src/node_independence.rs")
         assertTrue(nodeIndependenceRs.exists(), "mirrlyengine/src/node_independence.rs must exist")
         val nodeCode = nodeIndependenceRs.readText()
         assertTrue(nodeCode.contains("pub struct NodeTelemetry"), "Must declare NodeTelemetry")
@@ -290,7 +291,7 @@ class NodeIndependenceTest {
         assertTrue(nodeCode.contains("bytes_before_stall"), "Must track bytes_before_stall")
         assertTrue(nodeCode.contains("failure_correlation_score"), "Must calculate failure_correlation_score")
 
-        val proxyRs = File(rootDir, "mirrlyengine/src/proxy.rs")
+        val proxyRs = File(engineBase, "src/proxy.rs")
         val proxyCode = proxyRs.readText()
         assertTrue(
             proxyCode.contains("select_diverse_race_candidates"),
@@ -300,7 +301,7 @@ class NodeIndependenceTest {
             proxyCode.contains("bytes_before_stall"),
             "proxy.rs bridge_ws must track bytes_before_stall"
         )
-        val libRs = File(rootDir, "mirrlyengine/src/lib.rs")
+        val libRs = File(engineBase, "src/lib.rs")
         val libCode = libRs.readText()
         assertTrue(
             libCode.contains("pub mod node_independence;"),

@@ -82,7 +82,7 @@ class NetworkProfileTest {
 
     @Test
     fun `native profile setter has no scorer reset side effects`() {
-        val source = File("..", "mirrlyengine/src/network_profile.rs").canonicalFile.readText()
+        val source = File("../..", "mirrlyengine/src/network_profile.rs").canonicalFile.readText()
         val applyStart = source.indexOf("pub fn apply_profile(")
         val nextFunction = source.indexOf("\npub fn set_profile_json", applyStart)
 
@@ -98,7 +98,7 @@ class NetworkProfileTest {
         val kotlin = File(
             "src/main/kotlin/com/mirrly/tgproxy/core/NativeProxy.kt"
         ).canonicalFile.readText()
-        val rust = File("..", "mirrlyengine/src/lib.rs").canonicalFile.readText()
+        val rust = File("../..", "mirrlyengine/src/lib.rs").canonicalFile.readText()
 
         assertTrue(kotlin.contains("fun SetNetworkProfileJson(json: String): Int"))
         assertTrue(kotlin.contains("fun GetNetworkProfileJson(): Pointer?"))

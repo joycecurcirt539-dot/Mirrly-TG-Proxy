@@ -60,7 +60,6 @@ import com.mirrly.tgproxy.ui.theme.TextMuted
 import com.mirrly.tgproxy.ui.theme.TextWhite
 import com.mirrly.tgproxy.ui.theme.springPress
 import com.mirrly.tgproxy.util.SignatureVerifier
-import org.json.JSONObject
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -124,18 +123,7 @@ fun UnofficialBuildDialog(
     }
 
     val actualSha = remember { SignatureVerifier.getSignatureSha256(context) }
-    val reportJsonStr = remember { SignatureVerifier.getSecurityReportJson() }
-
-    val reportObj = remember(reportJsonStr) {
-        try {
-            if (!reportJsonStr.isNullOrBlank()) JSONObject(reportJsonStr) else null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    val officialSha = reportObj?.optString("official_fingerprint")?.takeIf { it.isNotBlank() }
-        ?: "00:32:69:CB:70:12:DF:37:61:E7:D3:92:79:5C:C3:55:02:43:39:A4:B2:1B:3F:B5:75:A4:C9:2B:CC:DD:25:16"
+    val officialSha = remember { SignatureVerifier.getOfficialFingerprintFormatted() }
 
     val warningAmber = Color(0xFFFF9E00)
     val alertRed = Color(0xFFFF453A)

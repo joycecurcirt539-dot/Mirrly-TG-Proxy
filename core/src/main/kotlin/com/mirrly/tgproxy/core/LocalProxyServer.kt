@@ -474,7 +474,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             }
         } else {
             AppLogger.i("LocalProxyServer", "Запуск нативного MTProto движка на ${config.bindHost}:${config.bindPort}...")
-            val secret = config.rawSecret32
+            val secret = config.getNativeStartSecret()
             val defaultDcIps = "1:149.154.175.50,2:149.154.167.51,3:149.154.175.100,4:149.154.167.91,5:91.108.56.130,203:91.105.192.100"
             val code = startNativeWithRetry(
                 label = "MTProto",
@@ -1244,14 +1244,23 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     fun getPoolSocketCount(): Int = stats.activeConnections.get()
 
-    fun getTelegramProxyUrl(): String {
-        val cleanSecret = config.rawSecret32
-        val secretWithPrefix = when {
-            config.secretHex.startsWith("ee") || config.secretHex.startsWith("dd") -> config.secretHex
-            else -> "dd$cleanSecret"
+    internal fun getTelegramProxyUrlInternal(
+        isNativeMtprotoActive: Boolean = isNativeRunning && !config.isSocks5Mode,
+        nativeSecretProvider: () -> String? = { NativeProxy.getSecretWithPrefix() }
+    ): String {
+        val nativeSecret = if (isNativeMtprotoActive) {
+            nativeSecretProvider()
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it.length >= 34 && (it.startsWith("ee") || it.startsWith("dd")) }
+        } else {
+            null
         }
+        val secretWithPrefix = nativeSecret ?: config.getSecretWithPrefix()
         return "tg://proxy?server=${config.bindHost}&port=${config.bindPort}&secret=$secretWithPrefix"
     }
+
+    fun getTelegramProxyUrl(): String = getTelegramProxyUrlInternal()
 
     fun getTelegramSocks5Url(): String {
         val userParam = try {

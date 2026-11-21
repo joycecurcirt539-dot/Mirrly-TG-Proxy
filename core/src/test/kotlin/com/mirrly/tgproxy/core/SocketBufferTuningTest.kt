@@ -226,10 +226,10 @@ class SocketBufferTuningTest {
 
     @Test
     fun testSourceAndNativeContractForSocketBufferTuning() {
-        val rustLib = File("..", "mirrlyengine/src/lib.rs").canonicalFile.readText()
-        val rustWs = File("..", "mirrlyengine/src/ws.rs").canonicalFile.readText()
-        val rustConfig = File("..", "mirrlyengine/src/config.rs").canonicalFile.readText()
-        val rustRuntimeTest = File("..", "mirrlyengine/tests/socket_buffer_runtime.rs").canonicalFile.readText()
+        val rustLib = File("../..", "mirrlyengine/src/lib.rs").canonicalFile.readText()
+        val rustWs = File("../..", "mirrlyengine/src/ws.rs").canonicalFile.readText()
+        val rustConfig = File("../..", "mirrlyengine/src/config.rs").canonicalFile.readText()
+        val rustRuntimeTest = File("../..", "mirrlyengine/tests/socket_buffer_runtime.rs").canonicalFile.readText()
         val kotlinNativeProxy = File("src/main/kotlin/com/mirrly/tgproxy/core/NativeProxy.kt").canonicalFile.readText()
         val kotlinLocalProxy = File("src/main/kotlin/com/mirrly/tgproxy/core/LocalProxyServer.kt").canonicalFile.readText()
 

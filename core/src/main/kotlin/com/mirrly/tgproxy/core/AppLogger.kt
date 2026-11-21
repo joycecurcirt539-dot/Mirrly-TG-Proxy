@@ -221,8 +221,8 @@ object AppLogger {
 
         logcatJob = loggerScope.launch {
             try {
-                // Filter logcat strictly to relevant app/proxy tags to stop framework log flooding
-                val tagsFilter = "MirrlyVPN:V TgWsProxy:V mirrlyengine:V LocalProxyServer:V ProxyForegroundService:V TgProxy:V BootReceiver:V MirrlySecNative:V AppLogger:V *:S"
+                // Filter logcat strictly to relevant app/proxy/vpn tags to stop framework log flooding
+                val tagsFilter = "MirrlyVPN:V MirrlyVpn:V mirrlyvpn:V TgWsProxy:V mirrlyengine:V LocalProxyServer:V ProxyForegroundService:V TgProxy:V BootReceiver:V MirrlySecNative:V AppLogger:V *:S"
                 val cmd = if (pid > 0) "logcat -v time --pid=$pid $tagsFilter" else "logcat -v time $tagsFilter"
                 val process = Runtime.getRuntime().exec(cmd)
                 logcatProcess = process

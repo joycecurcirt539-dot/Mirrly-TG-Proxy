@@ -16,10 +16,18 @@
 # --- JNA (Java Native Access) & Go/C Native Proxy ---
 -keep interface com.sun.jna.** { *; }
 -keep class com.sun.jna.** { *; }
+-keep interface * extends com.sun.jna.Library { *; }
+-keep class * implements com.sun.jna.Library { *; }
+-keep interface * extends com.sun.jna.Callback { *; }
+-keep class * implements com.sun.jna.Callback { *; }
 -dontwarn com.sun.jna.**
 -dontwarn java.awt.**
 -keep interface com.mirrly.tgproxy.core.ProxyLibrary { *; }
 -keep class com.mirrly.tgproxy.core.ProxyLibrary** { *; }
+-keep interface com.mirrly.tgproxy.core.VpnLibrary { *; }
+-keep class com.mirrly.tgproxy.core.VpnLibrary** { *; }
+-keep interface com.mirrly.tgproxy.core.ProtectCallback { *; }
+-keep class com.mirrly.tgproxy.core.ProtectCallback** { *; }
 -keep class com.mirrly.tgproxy.core.NativeProxy { *; }
 -keep class com.mirrly.tgproxy.core.NativeProxy** { *; }
 

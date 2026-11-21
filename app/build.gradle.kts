@@ -179,15 +179,10 @@ android {
 val rootDirFile = rootProject.projectDir
 val buildCargoNdk = tasks.register<Exec>("buildCargoNdk") {
     group = "build"
-    description = "Builds mirrlyengine and mirrlyvpn native Rust libraries via cargo-ndk for active ABIs into app/src/main/jniLibs"
+    description = "Builds mirrlyvpn native Rust library via cargo-ndk for active ABIs into app/src/main/jniLibs (libmirrlyengine.so is prebuilt from canonical mirrlyengine repo)"
     workingDir = rootDirFile
-    inputs.dir(rootDirFile.resolve("mirrlyengine/src")).withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir(rootDirFile.resolve("mirrlyvpn/src")).withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(
-        rootDirFile.resolve("mirrlyengine/Cargo.toml"),
-        rootDirFile.resolve("mirrlyengine/Cargo.lock"),
-        rootDirFile.resolve("mirrlyengine/build.rs"),
-        rootDirFile.resolve("mirrlyengine/.cargo/config.toml"),
         rootDirFile.resolve("mirrlyvpn/Cargo.toml"),
         rootDirFile.resolve("mirrlyvpn/Cargo.lock"),
         rootDirFile.resolve("mirrlyvpn/build.rs"),
@@ -206,7 +201,12 @@ val buildCargoNdk = tasks.register<Exec>("buildCargoNdk") {
     }
 }
 
-if (project.hasProperty("autoBuildNative") || System.getenv("AUTO_BUILD_NATIVE") == "true") {
+val isAnyJniLibMissing = activeAbis.any { abi ->
+    !project.file("src/main/jniLibs/$abi/libmirrlyengine.so").exists() ||
+        !project.file("src/main/jniLibs/$abi/libmirrlyvpn.so").exists()
+}
+
+if (isAnyJniLibMissing || project.hasProperty("autoBuildNative") || System.getenv("AUTO_BUILD_NATIVE") == "true") {
     tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach {
         dependsOn(buildCargoNdk)
     }

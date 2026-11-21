@@ -4530,7 +4530,7 @@ private fun SettingsAdvancedEngineeringSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf(15, 30, 60).forEach { seconds ->
+                    listOf(15, 30, 60, 120).forEach { seconds ->
                         val isSelected = keepAliveSeconds == seconds
                         val chipBorder by animateColorAsState(
                             targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
@@ -4557,14 +4557,18 @@ private fun SettingsAdvancedEngineeringSection(
                                     app.proxyServer.applyAdvancedNetworkSettings(webSocketKeepAliveSeconds = seconds)
                                     app.saveConfig()
                                 })
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = stringResource(R.string.unit_sec_format, seconds),
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = chipTextColor
+                                color = chipTextColor,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -4592,6 +4596,66 @@ private fun SettingsAdvancedEngineeringSection(
                 enabledTitleColor = Color(0xFFFFB74D),
                 onInfoClick = { onInfoClick("tls_enabled") }
             )
+
+            // 4.6. TLS Record Padding Control
+            val isTlsRecordPaddingEnabled by app.prefsManager.isTlsRecordPaddingEnabledFlow.collectAsState()
+            val protocolPrimary = LocalProtocolColors.current.primary
+            val tlsPaddingCardBorder by animateColorAsState(
+                targetValue = if (isTlsRecordPaddingEnabled) protocolPrimary.copy(alpha = 0.45f) else AmoledBorder,
+                animationSpec = tween(220),
+                label = "tlsPaddingCardBorder"
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, tlsPaddingCardBorder, RoundedCornerShape(18.dp))
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_tls_record_padding_title),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.5.sp,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            InfoButton { onInfoClick("tls_record_padding") }
+                        }
+                        Text(
+                            text = stringResource(R.string.settings_tls_record_padding_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+
+                    InertialSpringSwitch(
+                        checked = isTlsRecordPaddingEnabled,
+                        onCheckedChange = { checked ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            app.prefsManager.setTlsRecordPaddingEnabled(checked)
+                            app.saveConfig()
+                        },
+                        activeColor = protocolPrimary
+                    )
+                }
+            }
         }
 
         // 5. Reset Engineering Defaults
@@ -4955,9 +5019,6 @@ private fun SettingsUplinkWarpSection(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
-    val devWorkers = remember { app.prefsManager.getDeveloperWorkers() }
-    val customWorkers = remember { app.prefsManager.getCustomWorkers() }
-    val allWorkers = remember(devWorkers, customWorkers) { devWorkers + customWorkers }
 
     var activeAwgStrategy by remember { mutableStateOf(config.awgStrategy) }
     var customAwgIniText by remember { mutableStateOf(config.awgCustomIni) }
@@ -6980,6 +7041,7 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "socket_buffer" -> R.string.info_socket_buffer_title to R.string.info_socket_buffer_body
         "ws_keepalive" -> R.string.info_ws_keepalive_title to R.string.info_ws_keepalive_body
         "tls_enabled" -> R.string.info_tls_enabled_title to R.string.info_tls_enabled_body
+        "tls_record_padding" -> R.string.info_tls_record_padding_title to R.string.info_tls_record_padding_body
         "vpn_tls_enabled" -> R.string.info_vpn_tls_enabled_title to R.string.info_vpn_tls_enabled_body
         "vpn_core_info" -> R.string.info_vpn_system_title to R.string.info_vpn_system_body
         "vpn_splittunnel_info" -> R.string.info_vpn_splittunnel_title to R.string.info_vpn_splittunnel_body
