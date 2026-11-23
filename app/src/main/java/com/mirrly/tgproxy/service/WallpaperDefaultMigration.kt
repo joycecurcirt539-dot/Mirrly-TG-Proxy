@@ -49,7 +49,8 @@ internal object WallpaperDefaultMigrationPlanner {
         WallpaperPreset.PRESET_ID_DEFAULT_AMOLED,
         WallpaperPreset.PRESET_ID_SPACE_TOILET,
         WallpaperPreset.PRESET_ID_GRASS,
-        WallpaperPreset.PRESET_ID_BREEZE
+        WallpaperPreset.PRESET_ID_BREEZE,
+        WallpaperPreset.PRESET_ID_RANALDU
     )
 
     // Exact byte sizes of bundled built-in assets in assets/wallpapers/ for legacy installs without activePresetId.

@@ -85,6 +85,7 @@ data class ProxyConfig(
     var isTlsEnabled: Boolean = false,
     var isTlsRecordPaddingEnabled: Boolean = true,
     var isTlsClientHelloSplitEnabled: Boolean = true,
+    var isFlowsealPerDcEnabled: Boolean = false,
     var mtprotoStandbyPerActiveSlotValue: Int = 2,
     var isDcAuto: Boolean = true,
     var autostartOnBoot: Boolean = false,

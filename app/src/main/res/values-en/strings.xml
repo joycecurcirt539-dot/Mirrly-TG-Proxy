@@ -27,6 +27,7 @@
     <string name="onboarding_wallpaper_space_toilet_desc">Video wallpaper · 70% dimming</string>
     <string name="onboarding_wallpaper_grass_desc">Photo wallpaper · Soft focus</string>
     <string name="onboarding_wallpaper_breeze_desc">Photo wallpaper · Deep turquoise</string>
+    <string name="onboarding_wallpaper_ranaldu_desc">Photo wallpaper · RANALDU art</string>
     <string name="onboarding_wallpaper_amoled_title">Pure AMOLED</string>
     <string name="onboarding_wallpaper_amoled_desc">True black background · Default</string>
 
@@ -2109,6 +2110,8 @@ Download latest Mirrly TG Proxy build:
     <string name="info_tls_enabled_body">Critical setting controlling proxy stability and how ISP filters treat tunnel traffic:\n\n• Both states carry network risks: depending on your ISP and DPI rules, one mode may cause drops while the other can help restore network access in some cases.\n• Disabled by default (enabled by default for Persian): traffic uses plaintext WebSocket on port 80 with system DNS and direct connection probes without TLS; inner Telegram MTProto encryption stays active.\n• When enabled: traffic uses TLS 1.2 and 1.3 on port 443 with ClientHello splitting and FakeTLS.</string>
     <string name="info_tls_record_padding_title">TLS Record Padding</string>
     <string name="info_tls_record_padding_body">Adds padding to outbound TLS handshakes to mask characteristic packet lengths:\n\n• Enabled by default: applies RFC 7685 ClientHello padding and handshake record padding to resist DPI fingerprinting.\n• When to disable: turn off only if strict corporate firewalls or non-standard middleboxes reject padded TLS ClientHello packets.</string>
+    <string name="info_flowseal_per_dc_title">Dedicated CDN per DC</string>
+    <string name="info_flowseal_per_dc_body">Experimental Flowseal Anycast CDN routing mode for MTProto and SOCKS5:\n\n• Disabled by default: all Telegram datacenters share standard Flowseal CDN balancing.\n• When enabled: each datacenter and media slot receives its own disjoint Flowseal CDN server so heavy media traffic does not contend with other DCs.\n• Applies only to Anycast CDN Flowseal and does not affect personal Cloudflare Workers.</string>
     <string name="info_vpn_tls_enabled_title">VPN Tunnel TLS</string>
     <string name="info_vpn_tls_enabled_body">Controls Private DNS over TLS and TCP :443 endpoint probes in VPN mode:\n\n• Enabled by default: Private DNS DoT TCP :853 traffic passes through the tunnel and WARP endpoint probing can use TCP :443 fallback.\n• When disabled: outbound DoT :853 packets are dropped in the TUN reader so Android falls back to plain DNS :53 over configured VPN DNS resolvers, and WARP probing runs over UDP and ICMP only.\n• Underlying WireGuard and AmneziaWG tunnel encryption remains active in both states.</string>
 
@@ -2612,6 +2615,7 @@ Download latest Mirrly TG Proxy build:
     <string name="settings_customization_preset_space_toilet">Space Toilet</string>
     <string name="settings_customization_preset_grass">Morning Dew</string>
     <string name="settings_customization_preset_breeze">Ocean Breeze</string>
+    <string name="settings_customization_preset_ranaldu">RANALDU</string>
     <string name="settings_customization_preset_save_current">Save as Preset</string>
     <string name="settings_customization_preset_save_title">New Preset</string>
     <string name="settings_customization_preset_name_hint">Preset name</string>
@@ -2674,6 +2678,12 @@ Download latest Mirrly TG Proxy build:
     <string name="settings_tls_disabled_card_desc">Traffic switches to plaintext WebSocket on port 80 without TLS or FakeTLS. Transport headers are unencrypted and may be blocked by HTTP filters, while inner MTProto encryption remains intact. When TLS handshakes or SNI are blocked, disabling TLS can help restore connectivity in some cases.</string>
     <string name="settings_tls_record_padding_title">TLS Record Padding</string>
     <string name="settings_tls_record_padding_desc">Adds padding to outbound TLS ClientHello and handshake records to resist DPI fingerprinting</string>
+    <string name="settings_flowseal_per_dc_title">Dedicated CDN per DC</string>
+    <string name="settings_flowseal_per_dc_desc">Experimental · assigns a separate Flowseal CDN server to each datacenter and media slot</string>
+    <string name="settings_flowseal_per_dc_active_routes_title">Active DC Routes</string>
+    <string name="settings_flowseal_per_dc_waiting">Waiting for traffic · domains are assigned automatically on DC connect</string>
+    <string name="settings_flowseal_per_dc_media_tag">Media</string>
+    <string name="settings_flowseal_per_dc_chat_tag">Chat</string>
 
     <!-- VPN TLS Control -->
     <string name="settings_vpn_tls_enabled_title">VPN Tunnel TLS</string>

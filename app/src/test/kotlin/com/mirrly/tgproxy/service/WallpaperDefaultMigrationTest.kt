@@ -68,7 +68,8 @@ class WallpaperDefaultMigrationTest {
             WallpaperPreset.PRESET_ID_DEFAULT_AMOLED to PreferencesManager.WALLPAPER_TYPE_IMAGE,
             WallpaperPreset.PRESET_ID_SPACE_TOILET to PreferencesManager.WALLPAPER_TYPE_VIDEO,
             WallpaperPreset.PRESET_ID_GRASS to PreferencesManager.WALLPAPER_TYPE_IMAGE,
-            WallpaperPreset.PRESET_ID_BREEZE to PreferencesManager.WALLPAPER_TYPE_IMAGE
+            WallpaperPreset.PRESET_ID_BREEZE to PreferencesManager.WALLPAPER_TYPE_IMAGE,
+            WallpaperPreset.PRESET_ID_RANALDU to PreferencesManager.WALLPAPER_TYPE_IMAGE
         )
 
         builtinCases.forEach { (presetId, mediaType) ->

@@ -30,7 +30,7 @@ class WallpaperPresetTest {
     @Test
     fun builtinPresets_containExpectedPresets() {
         val presets = WallpaperPreset.BUILTIN_PRESETS
-        assertEquals(4, presets.size)
+        assertEquals(5, presets.size)
         assertEquals(WallpaperPreset.PRESET_ID_DEFAULT_AMOLED, presets.first().id)
 
         val defaultAmoled = presets.find { it.id == WallpaperPreset.PRESET_ID_DEFAULT_AMOLED }
@@ -60,6 +60,17 @@ class WallpaperPresetTest {
         assertEquals(5f, breeze?.blurDp ?: -1f, 0.001f)
         assertEquals(0.50f, breeze?.dimFactor ?: -1f, 0.001f)
         assertTrue(breeze?.isBuiltIn == true)
+
+        val ranaldu = presets.find { it.id == WallpaperPreset.PRESET_ID_RANALDU }
+        assertNotNull(ranaldu)
+        assertEquals("RANALDU", ranaldu?.title)
+        assertEquals(PreferencesManager.WALLPAPER_TYPE_IMAGE, ranaldu?.type)
+        assertEquals("wallpapers/RANALDU.png", ranaldu?.assetPath)
+        assertEquals("wallpapers/wallpaper_ranaldu_preview.jpg", ranaldu?.previewAssetPath)
+        assertEquals(0f, ranaldu?.blurDp ?: -1f, 0.001f)
+        assertEquals(0.45f, ranaldu?.dimFactor ?: -1f, 0.001f)
+        assertTrue(ranaldu?.isBuiltIn == true)
+        assertEquals("wallpapers/wallpaper_ranaldu_preview.jpg", ranaldu?.resolveStaticPreviewPath())
     }
 
     @Test

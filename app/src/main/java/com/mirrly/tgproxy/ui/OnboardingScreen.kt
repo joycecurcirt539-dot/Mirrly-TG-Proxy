@@ -856,6 +856,7 @@ private fun StepWallpaperSelection(
     val isSpaceToiletActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_SPACE_TOILET
     val isGrassActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_GRASS
     val isBreezeActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_BREEZE
+    val isRanalduActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_RANALDU
     val isAmoledActive = !hasCustomWallpaper ||
         activePresetId == null ||
         activePresetId == WallpaperPreset.PRESET_ID_DEFAULT_AMOLED
@@ -1002,7 +1003,36 @@ private fun StepWallpaperSelection(
             }
         )
 
-        // 5. User Custom Presets (if any)
+        // 5. RANALDU (Photo wallpaper)
+        val ranalduPreset = remember {
+            WallpaperPreset.BUILTIN_PRESETS.firstOrNull { it.id == WallpaperPreset.PRESET_ID_RANALDU }
+        }
+        val ranalduImage = rememberWallpaperImage("wallpapers/wallpaper_ranaldu_preview.jpg", 0L)
+        WallpaperSelectionCardItem(
+            title = ranalduPreset?.titleRes?.let { stringResource(it) } ?: "RANALDU",
+            subtitle = stringResource(R.string.onboarding_wallpaper_ranaldu_desc),
+            isSelected = isRanalduActive,
+            previewContent = {
+                if (ranalduImage != null) {
+                    Image(
+                        bitmap = ranalduImage.bitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            },
+            onClick = {
+                if (ranalduPreset != null) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    coroutineScope.launch {
+                        prefsManager?.applyPreset(ranalduPreset)
+                    }
+                }
+            }
+        )
+
+        // 6. User Custom Presets (if any)
         userPresets.forEach { userPreset ->
             val isUserPresetActive = hasCustomWallpaper && activePresetId == userPreset.id
             val userPreviewImage = rememberWallpaperImage(

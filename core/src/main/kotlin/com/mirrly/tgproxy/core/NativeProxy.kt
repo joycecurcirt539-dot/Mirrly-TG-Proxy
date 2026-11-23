@@ -52,6 +52,12 @@ interface ProxyLibrary : Library {
     fun SetSocks5UplinkMode(mode: Int)
     fun GetSocks5UplinkMode(): Int
     fun PromoteCfproxyDomainForDc(dcId: Int, isMedia: Int, domain: String): Int
+    fun SetFlowsealPerDcEnabled(enabled: Int)
+    fun IsFlowsealPerDcEnabled(): Int
+    fun SetFlowsealDcDomain(dcId: Int, isMedia: Int, domain: String): Int
+    fun SetFlowsealDcDomainsJson(json: String): Int
+    fun ClearFlowsealDcDomains()
+    fun GetFlowsealDcConfigJson(): Pointer?
     fun SetSecret(secret: String)
     fun SetSocks5Auth(username: String, password: String)
     fun GetSecretWithPrefix(): Pointer?
@@ -1201,7 +1207,104 @@ object NativeProxy {
             true
         }
     }
+
+    fun setFlowsealPerDcEnabled(enabled: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetFlowsealPerDcEnabled(if (enabled) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "FFI call failed [SetFlowsealPerDcEnabled]: ${t.message}")
+        }
+    }
+
+    fun isFlowsealPerDcEnabled(): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.IsFlowsealPerDcEnabled() != 0
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "FFI call failed [IsFlowsealPerDcEnabled]: ${t.message}")
+            false
+        }
+    }
+
+    fun setFlowsealDcDomain(dcId: Int, isMedia: Int, domain: String): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.SetFlowsealDcDomain(dcId, isMedia, domain) != 0
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "FFI call failed [SetFlowsealDcDomain]: ${t.message}")
+            false
+        }
+    }
+
+    fun setFlowsealDcDomainsJson(json: String): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.SetFlowsealDcDomainsJson(json) != 0
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "FFI call failed [SetFlowsealDcDomainsJson]: ${t.message}")
+            false
+        }
+    }
+
+    fun clearFlowsealDcDomains() {
+        try {
+            ProxyLibrary.INSTANCE.ClearFlowsealDcDomains()
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "FFI call failed [ClearFlowsealDcDomains]: ${t.message}")
+        }
+    }
+
+    fun getFlowsealDcConfigJson(): String {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetFlowsealDcConfigJson() ?: return "{}"
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "FFI call failed [GetFlowsealDcConfigJson]: ${t.message}")
+            "{}"
+        }
+    }
+
+    fun getFlowsealDcConfig(): FlowsealDcConfigStatus? {
+        return try {
+            val raw = getFlowsealDcConfigJson()
+            if (raw.isBlank() || raw == "{}") return null
+            val obj = JSONObject(raw)
+            val enabled = obj.optBoolean("enabled", false)
+            val activeArr = obj.optJSONArray("active_routes") ?: JSONArray()
+            val activeRoutes = mutableListOf<FlowsealActiveRoute>()
+            for (i in 0 until activeArr.length()) {
+                val item = activeArr.optJSONObject(i) ?: continue
+                val dcId = item.optInt("dc_id", 0)
+                val isMedia = item.optBoolean("is_media", false)
+                val domain = item.optString("domain", "")
+                if (dcId in 1..5 && domain.isNotBlank()) {
+                    activeRoutes.add(FlowsealActiveRoute(dcId = dcId, isMedia = isMedia, domain = domain))
+                }
+            }
+            val availableArr = obj.optJSONArray("available_domains") ?: JSONArray()
+            FlowsealDcConfigStatus(
+                enabled = enabled,
+                activeRoutes = activeRoutes,
+                availableDomainsCount = availableArr.length()
+            )
+        } catch (_: Throwable) {
+            null
+        }
+    }
 }
+
+data class FlowsealActiveRoute(
+    val dcId: Int,
+    val isMedia: Boolean,
+    val domain: String
+)
+
+data class FlowsealDcConfigStatus(
+    val enabled: Boolean,
+    val activeRoutes: List<FlowsealActiveRoute>,
+    val availableDomainsCount: Int
+)
 
 data class SocketBufferStatus(
     val configuredRecvBytes: Int,

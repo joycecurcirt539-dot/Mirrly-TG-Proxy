@@ -83,6 +83,9 @@ class PreferencesManager(private val context: Context) {
     private val _isTlsClientHelloSplitEnabledFlow = MutableStateFlow(isTlsClientHelloSplitEnabled())
     val isTlsClientHelloSplitEnabledFlow: StateFlow<Boolean> = _isTlsClientHelloSplitEnabledFlow.asStateFlow()
 
+    private val _isFlowsealPerDcEnabledFlow = MutableStateFlow(isFlowsealPerDcEnabled())
+    val isFlowsealPerDcEnabledFlow: StateFlow<Boolean> = _isFlowsealPerDcEnabledFlow.asStateFlow()
+
     private val _useWorkerMtprotoFlow = MutableStateFlow(prefs.getBoolean("use_worker_mtproto", false))
     val useWorkerMtprotoFlow: StateFlow<Boolean> = _useWorkerMtprotoFlow.asStateFlow()
 
@@ -603,6 +606,9 @@ class PreferencesManager(private val context: Context) {
         if (key == KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED) {
             _isTlsClientHelloSplitEnabledFlow.value = sharedPreferences.getBoolean(key, true)
         }
+        if (key == KEY_FLOWSEAL_PER_DC_ENABLED) {
+            _isFlowsealPerDcEnabledFlow.value = sharedPreferences.getBoolean(key, false)
+        }
         if (key == KEY_SOCKS5_UPLINK_MODE) {
             val mode = sharedPreferences.getInt(key, 1)
             _socks5UplinkModeFlow.value = mode
@@ -863,6 +869,7 @@ class PreferencesManager(private val context: Context) {
         }
         val isTlsRecordPaddingEnabled = prefs.getBoolean(KEY_TLS_RECORD_PADDING_ENABLED, defaults.isTlsRecordPaddingEnabled)
         val isTlsClientHelloSplitEnabled = prefs.getBoolean(KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED, defaults.isTlsClientHelloSplitEnabled)
+        val isFlowsealPerDcEnabled = prefs.getBoolean(KEY_FLOWSEAL_PER_DC_ENABLED, defaults.isFlowsealPerDcEnabled)
         val qosMigrationDone = prefs.getBoolean("qos_default_disabled_migrated_v2", false)
         val isBatteryGuardEnabled = if (!qosMigrationDone) {
             false
@@ -937,6 +944,7 @@ class PreferencesManager(private val context: Context) {
             isTlsEnabled = isTlsEnabled,
             isTlsRecordPaddingEnabled = isTlsRecordPaddingEnabled,
             isTlsClientHelloSplitEnabled = isTlsClientHelloSplitEnabled,
+            isFlowsealPerDcEnabled = isFlowsealPerDcEnabled,
             mtprotoStandbyPerActiveSlotValue = poolSize,
             autostartOnBoot = autostart,
             speedPresetName = speedPresetName,
@@ -1059,6 +1067,7 @@ class PreferencesManager(private val context: Context) {
             .putBoolean("battery_guard_stop_on_powersave", config.batteryGuardStopOnPowerSave)
             .putBoolean(KEY_TLS_ENABLED, config.isTlsEnabled)
             .putBoolean(KEY_TLS_RECORD_PADDING_ENABLED, config.isTlsRecordPaddingEnabled)
+            .putBoolean(KEY_FLOWSEAL_PER_DC_ENABLED, config.isFlowsealPerDcEnabled)
             .putBoolean("is_adaptive_qos_enabled", config.isAdaptiveQoSEnabled)
             .putBoolean("dial_throttling_enabled", config.isDialThrottlingEnabled)
             .putBoolean("is_alarm_clock_watchdog_enabled", config.isAlarmClockWatchdogEnabled)
@@ -1096,6 +1105,7 @@ class PreferencesManager(private val context: Context) {
         _vpnUplinkModeFlow.value = config.vpnUplinkMode
         _vpnTlsEnabledFlow.value = config.isVpnTlsEnabled
         _isTlsRecordPaddingEnabledFlow.value = config.isTlsRecordPaddingEnabled
+        _isFlowsealPerDcEnabledFlow.value = config.isFlowsealPerDcEnabled
         _isAlarmClockWatchdogEnabledFlow.value = config.isAlarmClockWatchdogEnabled
         _isCpuAntiFreezeEnabledFlow.value = config.isCpuAntiFreezeEnabled
         _isTrafficPulseEnabledFlow.value = config.isTrafficPulseEnabled
@@ -2309,6 +2319,7 @@ class PreferencesManager(private val context: Context) {
         const val KEY_WS_RANDOMIZATION_ENABLED = "ws_randomization_enabled"
         const val KEY_TLS_RECORD_PADDING_ENABLED = "tls_record_padding_enabled"
         const val KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED = "tls_client_hello_split_enabled"
+        const val KEY_FLOWSEAL_PER_DC_ENABLED = "flowseal_per_dc_enabled"
         const val KEY_ACTIVE_WORKER_ID_SOCKS5 = "active_worker_id_socks5"
         const val KEY_ACTIVE_WORKER_ID_MTPROTO = "active_worker_id_mtproto"
         const val KEY_USER_PRIMARY_WORKER_ID_SOCKS5 = "user_primary_worker_id_socks5"
@@ -3065,6 +3076,7 @@ class PreferencesManager(private val context: Context) {
             isUserOverride = false
         )
         setTlsRecordPaddingEnabled(true)
+        setFlowsealPerDcEnabled(false)
         setHappyEyeballsDelayMs(200L)
         setIpFamilyPreference("IPV4_ONLY")
         setSocketKeepAliveSeconds(60)
@@ -3073,6 +3085,7 @@ class PreferencesManager(private val context: Context) {
         config.tcpNoDelayModeName = com.mirrly.tgproxy.core.NagleMode.ENABLED.name
         config.tcpNoDelay = false
         config.isTlsRecordPaddingEnabled = true
+        config.isFlowsealPerDcEnabled = false
         config.bufferSizeBytes = 0
         config.happyEyeballsDelayMs = 200L
         config.ipFamilyPreferenceName = com.mirrly.tgproxy.core.IpFamilyPreference.IPV4_ONLY.name
@@ -3381,6 +3394,18 @@ class PreferencesManager(private val context: Context) {
             val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
             app?.config?.isTlsRecordPaddingEnabled = enabled
             app?.proxyServer?.applyTlsRecordPaddingEnabled(enabled)
+        } catch (_: Exception) {}
+    }
+
+    fun isFlowsealPerDcEnabled(): Boolean = prefs.getBoolean(KEY_FLOWSEAL_PER_DC_ENABLED, false)
+
+    fun setFlowsealPerDcEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_FLOWSEAL_PER_DC_ENABLED, enabled).apply()
+        _isFlowsealPerDcEnabledFlow.value = enabled
+        try {
+            val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
+            app?.config?.isFlowsealPerDcEnabled = enabled
+            app?.proxyServer?.applyFlowsealPerDcEnabled(enabled)
         } catch (_: Exception) {}
     }
 

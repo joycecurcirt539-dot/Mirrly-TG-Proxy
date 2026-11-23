@@ -58,6 +58,7 @@ data class WallpaperPreset(
         const val PRESET_ID_SPACE_TOILET = "builtin_space_toilet"
         const val PRESET_ID_GRASS = "builtin_grass"
         const val PRESET_ID_BREEZE = "builtin_breeze"
+        const val PRESET_ID_RANALDU = "builtin_ranaldu"
 
         val BUILTIN_PRESETS: List<WallpaperPreset> = listOf(
             WallpaperPreset(
@@ -102,6 +103,17 @@ data class WallpaperPreset(
                 previewAssetPath = "wallpapers/wallpaper_breeze_preview.jpg",
                 blurDp = 5f,
                 dimFactor = 0.50f,
+                isBuiltIn = true
+            ),
+            WallpaperPreset(
+                id = PRESET_ID_RANALDU,
+                title = "RANALDU",
+                titleRes = R.string.settings_customization_preset_ranaldu,
+                type = PreferencesManager.WALLPAPER_TYPE_IMAGE,
+                assetPath = "wallpapers/RANALDU.png",
+                previewAssetPath = "wallpapers/wallpaper_ranaldu_preview.jpg",
+                blurDp = 0f,
+                dimFactor = 0.45f,
                 isBuiltIn = true
             )
         )

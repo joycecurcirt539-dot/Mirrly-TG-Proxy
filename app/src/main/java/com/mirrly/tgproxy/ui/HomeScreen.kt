@@ -56,6 +56,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -93,9 +95,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.ReleaseInfo
@@ -559,7 +563,16 @@ fun HomeScreen(
     }
 
     val pureBlack = Color(0xFF000000)
+    var ronTriggerNonce by remember { mutableIntStateOf(0) }
+    var isRonCelebrating by remember { mutableStateOf(false) }
+    var ronOriginInRoot by remember { mutableStateOf<Offset?>(null) }
+    var pagerCenterXInRoot by remember { mutableStateOf<Float?>(null) }
+    var mascotCenterYInRoot by remember { mutableStateOf<Float?>(null) }
+    var mascotSizePx by remember { mutableFloatStateOf(0f) }
+    var topBarBottomInRoot by remember { mutableFloatStateOf(0f) }
+    val ronMascotMotion = remember { RonMascotMotionState() }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             Column(
@@ -567,6 +580,9 @@ fun HomeScreen(
                 modifier = Modifier
                     .adaptiveContainerWidth(600.dp)
                     .statusBarsPadding()
+                    .onGloballyPositioned { coords ->
+                        topBarBottomInRoot = coords.positionInRoot().y + coords.size.height
+                    }
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 // Subtle worker manager pull handle
@@ -831,7 +847,14 @@ fun HomeScreen(
                     },
                     useWorkerMtproto = useWorkerMtproto,
                     socks5UplinkMode = socks5UplinkMode,
-                    pagerProgress = pagerProgress.value
+                    pagerProgress = pagerProgress.value,
+                    isRonCelebrating = isRonCelebrating,
+                    onRonClick = {
+                        ronTriggerNonce++
+                    },
+                    onRonOriginPositioned = { origin ->
+                        ronOriginInRoot = origin
+                    }
                 )
             }
         },
@@ -933,6 +956,9 @@ fun HomeScreen(
                 userScrollEnabled = isInteractive && isHomeModeSwipeEnabled,
                 modifier = Modifier
                     .fillMaxSize()
+                    .onGloballyPositioned { coords ->
+                        pagerCenterXInRoot = coords.positionInRoot().x + coords.size.width * 0.5f
+                    }
                     .then(bodySheetBlurModifier),
                 beyondBoundsPageCount = 1
             ) { page ->
@@ -1129,17 +1155,34 @@ fun HomeScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .weight(1f)
+                        .onGloballyPositioned { coords ->
+                            if (page == pagerState.currentPage) {
+                                val pos = coords.positionInRoot()
+                                val sz = coords.size
+                                mascotCenterYInRoot = pos.y + sz.height * 0.5f
+                                mascotSizePx = with(densityScope) { ringSize.toPx() }
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
                             .size(ringSize)
                             .graphicsLayer {
-                                translationY = pageButtonInertiaOffsetY.toPx()
                                 val s = pageSpringScaleState.value
-                                scaleX = s
-                                scaleY = s
+                                val isVisiblePage = page == pagerState.currentPage
+                                val jumpScaleX = if (isVisiblePage) ronMascotMotion.scaleX else 1f
+                                val jumpScaleY = if (isVisiblePage) ronMascotMotion.scaleY else 1f
+                                val jumpY = if (isVisiblePage) ronMascotMotion.translationYPx else 0f
+                                val spinY = if (isVisiblePage) ronMascotMotion.rotationYDeg else 0f
+                                val tiltZ = if (isVisiblePage) ronMascotMotion.rotationZDeg else 0f
+                                translationY = pageButtonInertiaOffsetY.toPx() + jumpY
+                                scaleX = s * jumpScaleX
+                                scaleY = s * jumpScaleY
+                                rotationY = spinY
+                                rotationZ = tiltZ
+                                cameraDistance = 16f * density
                             }
                             .clickable(
                                 interactionSource = pagePowerInteractionSource,
@@ -1908,6 +1951,22 @@ fun HomeScreen(
                 )
             }
         }
+    }
+
+    val resolvedMascotCenter = remember(pagerCenterXInRoot, mascotCenterYInRoot) {
+        val cx = pagerCenterXInRoot
+        val cy = mascotCenterYInRoot
+        if (cx != null && cy != null) Offset(cx, cy) else null
+    }
+    RonCelebrationOverlay(
+        triggerNonce = ronTriggerNonce,
+        ronOriginInRoot = ronOriginInRoot,
+        mascotCenterInRoot = resolvedMascotCenter,
+        mascotSizePx = mascotSizePx,
+        topBarBottomInRoot = topBarBottomInRoot,
+        mascotMotion = ronMascotMotion,
+        onCelebrationActiveChange = { active -> isRonCelebrating = active }
+    )
     }
 }
 // end of HomeScreen
@@ -3728,6 +3787,9 @@ fun ProtocolSwitcherHeader(
     useWorkerMtproto: Boolean = true,
     socks5UplinkMode: Int = 1,
     pagerProgress: Float? = null,
+    isRonCelebrating: Boolean = false,
+    onRonClick: () -> Unit = {},
+    onRonOriginPositioned: (Offset) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -3735,9 +3797,7 @@ fun ProtocolSwitcherHeader(
     val density = LocalDensity.current
 
     val dragOffsetX = remember { Animatable(0f) }
-    val capsuleWidth = 270.dp
     val capsuleHeight = 31.dp
-    val tabWidth = capsuleWidth / 3
 
     val prefs = remember { com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager }
     val isCustomTheme by prefs.isCustomThemeEnabledFlow.collectAsState()
@@ -3757,208 +3817,260 @@ fun ProtocolSwitcherHeader(
         label = "switcherAccentColor"
     )
 
-    val targetOffset = when (currentTab) {
-        HomeScreenTab.MTPROTO -> 0.dp
-        HomeScreenTab.SOCKS5 -> tabWidth
-        HomeScreenTab.VPN -> tabWidth * 2
-    }
-
-    val animatedPillOffset by animateDpAsState(
-        targetValue = targetOffset,
-        animationSpec = spring(
-            dampingRatio = 0.88f,
-            stiffness = 380f
-        ),
-        label = "protoPillOffset"
-    )
-
-    val totalOffsetX = if (pagerProgress != null) {
-        (tabWidth * pagerProgress).coerceIn(0.dp, tabWidth * 2)
-    } else {
-        animatedPillOffset + with(density) { dragOffsetX.value.toDp() }
-    }
-
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
     ) {
-        // Switcher Pill Container
-        Box(
-            contentAlignment = Alignment.TopCenter
+        // Switcher Pill Row + "ron" Celebration Button
+        BoxWithConstraints(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Box(
-                modifier = Modifier
-                    .width(capsuleWidth)
-                    .height(capsuleHeight)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Transparent)
-                    .pointerInput(Unit) {
-                        detectHorizontalDragGestures(
-                            onDragStart = {
-                                scope.launch { dragOffsetX.stop() }
-                            },
-                            onDragEnd = {
-                                val currentDrag = dragOffsetX.value
-                                val thresholdPx = with(density) { 18.dp.toPx() }
-                                scope.launch {
-                                    if (currentDrag > thresholdPx) {
-                                        when (currentTab) {
-                                            HomeScreenTab.MTPROTO -> {
-                                                HapticHelper.performSwipeGlide(context)
-                                                onSelectTab(HomeScreenTab.SOCKS5)
-                                                onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
-                                            }
-                                            HomeScreenTab.SOCKS5 -> {
-                                                HapticHelper.performSwipeGlide(context)
-                                                onSelectTab(HomeScreenTab.VPN)
-                                            }
-                                            HomeScreenTab.VPN -> {}
-                                        }
-                                    } else if (currentDrag < -thresholdPx) {
-                                        when (currentTab) {
-                                            HomeScreenTab.VPN -> {
-                                                HapticHelper.performSwipeGlide(context)
-                                                onSelectTab(HomeScreenTab.SOCKS5)
-                                                onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
-                                            }
-                                            HomeScreenTab.SOCKS5 -> {
-                                                HapticHelper.performSwipeGlide(context)
-                                                onSelectTab(HomeScreenTab.MTPROTO)
-                                                onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
-                                            }
-                                            HomeScreenTab.MTPROTO -> {}
-                                        }
-                                    }
-                                    dragOffsetX.animateTo(
-                                        0f,
-                                        spring(
-                                            dampingRatio = 0.88f,
-                                            stiffness = 380f
-                                        )
-                                    )
-                                }
-                            },
-                            onDragCancel = {
-                                scope.launch {
-                                    dragOffsetX.animateTo(
-                                        0f,
-                                        spring(
-                                            dampingRatio = 0.90f,
-                                            stiffness = 380f
-                                        )
-                                    )
-                                }
-                            },
-                            onHorizontalDrag = { change, dragAmount ->
-                                change.consume()
-                                val current = dragOffsetX.value
-                                val damped = dragAmount * 0.32f
-                                val maxDragPx = with(density) { tabWidth.toPx() }
-                                scope.launch { dragOffsetX.snapTo((current + damped).coerceIn(-maxDragPx, maxDragPx)) }
-                            }
-                        )
-                    }
-            ) {
-                // Sliding Glowing Indicator Pill
+            val rowMaxWidth = maxWidth
+            val ronReservedWidth = 58.dp
+            val maxCenteredCapsule = (rowMaxWidth - ronReservedWidth * 2f).coerceAtLeast(0.dp)
+            val canKeepCapsuleCentered = maxCenteredCapsule >= 216.dp
+            val capsuleWidth = if (canKeepCapsuleCentered) {
+                minOf(252.dp, maxCenteredCapsule)
+            } else {
+                (rowMaxWidth - ronReservedWidth - 4.dp).coerceIn(192.dp, 252.dp)
+            }
+            val tabWidth = capsuleWidth / 3
+
+            val targetOffset = when (currentTab) {
+                HomeScreenTab.MTPROTO -> 0.dp
+                HomeScreenTab.SOCKS5 -> tabWidth
+                HomeScreenTab.VPN -> tabWidth * 2
+            }
+
+            val animatedPillOffset by animateDpAsState(
+                targetValue = targetOffset,
+                animationSpec = spring(
+                    dampingRatio = 0.88f,
+                    stiffness = 380f
+                ),
+                label = "protoPillOffset"
+            )
+
+            val totalOffsetX = if (pagerProgress != null) {
+                (tabWidth * pagerProgress).coerceIn(0.dp, tabWidth * 2)
+            } else {
+                animatedPillOffset + with(density) { dragOffsetX.value.toDp() }
+            }
+
+            val switcherPill = @Composable {
                 Box(
                     modifier = Modifier
-                        .offset(x = totalOffsetX.coerceIn(0.dp, tabWidth * 2))
-                        .width(tabWidth)
-                        .fillMaxHeight()
-                        .padding(2.5.dp)
-                        .clip(RoundedCornerShape(13.dp))
-                        .background(switcherAccentColor.copy(alpha = 0.16f))
-                        .border(
-                            1.dp,
-                            switcherAccentColor.copy(alpha = 0.55f),
-                            RoundedCornerShape(13.dp)
-                        )
-                )
-
-                // Segment Labels Row (3 tabs: MTProto | SOCKS5 | VPN)
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalAlignment = Alignment.CenterVertically
+                        .width(capsuleWidth)
+                        .height(capsuleHeight)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Transparent)
+                        .pointerInput(tabWidth) {
+                            detectHorizontalDragGestures(
+                                onDragStart = {
+                                    scope.launch { dragOffsetX.stop() }
+                                },
+                                onDragEnd = {
+                                    val currentDrag = dragOffsetX.value
+                                    val thresholdPx = with(density) { 18.dp.toPx() }
+                                    scope.launch {
+                                        if (currentDrag > thresholdPx) {
+                                            when (currentTab) {
+                                                HomeScreenTab.MTPROTO -> {
+                                                    HapticHelper.performSwipeGlide(context)
+                                                    onSelectTab(HomeScreenTab.SOCKS5)
+                                                    onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                                                }
+                                                HomeScreenTab.SOCKS5 -> {
+                                                    HapticHelper.performSwipeGlide(context)
+                                                    onSelectTab(HomeScreenTab.VPN)
+                                                }
+                                                HomeScreenTab.VPN -> {}
+                                            }
+                                        } else if (currentDrag < -thresholdPx) {
+                                            when (currentTab) {
+                                                HomeScreenTab.VPN -> {
+                                                    HapticHelper.performSwipeGlide(context)
+                                                    onSelectTab(HomeScreenTab.SOCKS5)
+                                                    onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                                                }
+                                                HomeScreenTab.SOCKS5 -> {
+                                                    HapticHelper.performSwipeGlide(context)
+                                                    onSelectTab(HomeScreenTab.MTPROTO)
+                                                    onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
+                                                }
+                                                HomeScreenTab.MTPROTO -> {}
+                                            }
+                                        }
+                                        dragOffsetX.animateTo(
+                                            0f,
+                                            spring(
+                                                dampingRatio = 0.88f,
+                                                stiffness = 380f
+                                            )
+                                        )
+                                    }
+                                },
+                                onDragCancel = {
+                                    scope.launch {
+                                        dragOffsetX.animateTo(
+                                            0f,
+                                            spring(
+                                                dampingRatio = 0.90f,
+                                                stiffness = 380f
+                                            )
+                                        )
+                                    }
+                                },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    val current = dragOffsetX.value
+                                    val damped = dragAmount * 0.32f
+                                    val maxDragPx = with(density) { tabWidth.toPx() }
+                                    scope.launch { dragOffsetX.snapTo((current + damped).coerceIn(-maxDragPx, maxDragPx)) }
+                                }
+                            )
+                        }
                 ) {
-                    // MTProto Tab
+                    // Sliding Glowing Indicator Pill
                     Box(
                         modifier = Modifier
-                            .weight(1f)
+                            .offset(x = totalOffsetX.coerceIn(0.dp, tabWidth * 2))
+                            .width(tabWidth)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                if (currentTab != HomeScreenTab.MTPROTO) {
-                                    HapticHelper.performTapClick(context)
-                                    onSelectTab(HomeScreenTab.MTPROTO)
-                                    onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "MTProto",
-                            color = if (currentTab == HomeScreenTab.MTPROTO) switcherAccentColor else TextMuted,
-                            fontSize = 11.5.sp,
-                            fontWeight = if (currentTab == HomeScreenTab.MTPROTO) FontWeight.Bold else FontWeight.Medium,
-                            letterSpacing = 0.3.sp
-                        )
-                    }
+                            .padding(2.5.dp)
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(switcherAccentColor.copy(alpha = 0.16f))
+                            .border(
+                                1.dp,
+                                switcherAccentColor.copy(alpha = 0.55f),
+                                RoundedCornerShape(13.dp)
+                            )
+                    )
 
-                    // SOCKS5 Tab
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                if (currentTab != HomeScreenTab.SOCKS5) {
-                                    HapticHelper.performTapClick(context)
-                                    onSelectTab(HomeScreenTab.SOCKS5)
-                                    onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
+                    // Segment Labels Row (3 tabs: MTProto | SOCKS5 | VPN)
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "SOCKS5",
-                            color = if (currentTab == HomeScreenTab.SOCKS5) switcherAccentColor else TextMuted,
-                            fontSize = 11.5.sp,
-                            fontWeight = if (currentTab == HomeScreenTab.SOCKS5) FontWeight.Bold else FontWeight.Medium,
-                            letterSpacing = 0.3.sp
-                        )
-                    }
+                        // MTProto Tab
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    if (currentTab != HomeScreenTab.MTPROTO) {
+                                        HapticHelper.performTapClick(context)
+                                        onSelectTab(HomeScreenTab.MTPROTO)
+                                        onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "MTProto",
+                                color = if (currentTab == HomeScreenTab.MTPROTO) switcherAccentColor else TextMuted,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (currentTab == HomeScreenTab.MTPROTO) FontWeight.Bold else FontWeight.Medium,
+                                letterSpacing = 0.3.sp,
+                                maxLines = 1
+                            )
+                        }
 
-                    // VPN Tab
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                if (currentTab != HomeScreenTab.VPN) {
-                                    HapticHelper.performTapClick(context)
-                                    onSelectTab(HomeScreenTab.VPN)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "VPN",
-                            color = if (currentTab == HomeScreenTab.VPN) switcherAccentColor else TextMuted,
-                            fontSize = 11.5.sp,
-                            fontWeight = if (currentTab == HomeScreenTab.VPN) FontWeight.Bold else FontWeight.Medium,
-                            letterSpacing = 0.3.sp
-                        )
+                        // SOCKS5 Tab
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    if (currentTab != HomeScreenTab.SOCKS5) {
+                                        HapticHelper.performTapClick(context)
+                                        onSelectTab(HomeScreenTab.SOCKS5)
+                                        onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "SOCKS5",
+                                color = if (currentTab == HomeScreenTab.SOCKS5) switcherAccentColor else TextMuted,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (currentTab == HomeScreenTab.SOCKS5) FontWeight.Bold else FontWeight.Medium,
+                                letterSpacing = 0.3.sp,
+                                maxLines = 1
+                            )
+                        }
+
+                        // VPN Tab
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    if (currentTab != HomeScreenTab.VPN) {
+                                        HapticHelper.performTapClick(context)
+                                        onSelectTab(HomeScreenTab.VPN)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "VPN",
+                                color = if (currentTab == HomeScreenTab.VPN) switcherAccentColor else TextMuted,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (currentTab == HomeScreenTab.VPN) FontWeight.Bold else FontWeight.Medium,
+                                letterSpacing = 0.3.sp,
+                                maxLines = 1
+                            )
+                        }
                     }
+                }
+            }
+
+            if (canKeepCapsuleCentered) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    switcherPill()
+                    RonCelebrationButton(
+                        isCelebrating = isRonCelebrating,
+                        accentColor = switcherAccentColor,
+                        onClick = onRonClick,
+                        onOriginPositioned = onRonOriginPositioned,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .offset {
+                                val pillRightPx = ((rowMaxWidth + capsuleWidth) / 2f).roundToPx()
+                                val gapPx = 8.dp.roundToPx()
+                                IntOffset(x = pillRightPx + gapPx, y = 0)
+                            }
+                    )
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    switcherPill()
+                    RonCelebrationButton(
+                        isCelebrating = isRonCelebrating,
+                        accentColor = switcherAccentColor,
+                        onClick = onRonClick,
+                        onOriginPositioned = onRonOriginPositioned
+                    )
                 }
             }
         }

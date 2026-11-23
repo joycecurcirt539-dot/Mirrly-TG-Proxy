@@ -4656,6 +4656,142 @@ private fun SettingsAdvancedEngineeringSection(
                     )
                 }
             }
+
+            // 4.7. Experimental Flowseal Per-DC CDN Isolation
+            val isFlowsealPerDcEnabled by app.prefsManager.isFlowsealPerDcEnabledFlow.collectAsState()
+            val flowsealPerDcCardBorder by animateColorAsState(
+                targetValue = if (isFlowsealPerDcEnabled) protocolPrimary.copy(alpha = 0.45f) else AmoledBorder,
+                animationSpec = tween(220),
+                label = "flowsealPerDcCardBorder"
+            )
+            var flowsealDcConfig by remember {
+                mutableStateOf<com.mirrly.tgproxy.core.FlowsealDcConfigStatus?>(null)
+            }
+            LaunchedEffect(isFlowsealPerDcEnabled) {
+                if (!isFlowsealPerDcEnabled) {
+                    flowsealDcConfig = null
+                    return@LaunchedEffect
+                }
+                while (true) {
+                    flowsealDcConfig = withContext(Dispatchers.IO) {
+                        NativeProxy.getFlowsealDcConfig()
+                    }
+                    kotlinx.coroutines.delay(2000L)
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, flowsealPerDcCardBorder, RoundedCornerShape(18.dp))
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.settings_flowseal_per_dc_title),
+                                    color = TextWhite,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.5.sp,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                InfoButton { onInfoClick("flowseal_per_dc") }
+                            }
+                            Text(
+                                text = stringResource(R.string.settings_flowseal_per_dc_desc),
+                                color = TextMuted,
+                                fontSize = 11.5.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+
+                        InertialSpringSwitch(
+                            checked = isFlowsealPerDcEnabled,
+                            onCheckedChange = { checked ->
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                app.prefsManager.setFlowsealPerDcEnabled(checked)
+                                app.saveConfig()
+                            },
+                            activeColor = protocolPrimary
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = isFlowsealPerDcEnabled,
+                        enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
+                        exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(200))
+                    ) {
+                        val routes = flowsealDcConfig?.activeRoutes.orEmpty()
+                        val mediaLabel = stringResource(R.string.settings_flowseal_per_dc_media_tag)
+                        val chatLabel = stringResource(R.string.settings_flowseal_per_dc_chat_tag)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, protocolPrimary.copy(alpha = 0.28f), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = stringResource(R.string.settings_flowseal_per_dc_active_routes_title),
+                                    color = protocolPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.5.sp
+                                )
+                                if (routes.isEmpty()) {
+                                    Text(
+                                        text = stringResource(R.string.settings_flowseal_per_dc_waiting),
+                                        color = TextMuted,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp
+                                    )
+                                } else {
+                                    routes.forEach { route ->
+                                        val slotTag = if (route.isMedia) mediaLabel else chatLabel
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "DC${route.dcId} · $slotTag",
+                                                color = TextWhite,
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Text(
+                                                text = route.domain,
+                                                color = TextMuted,
+                                                fontSize = 11.5.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // 5. Reset Engineering Defaults
@@ -7042,6 +7178,7 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "ws_keepalive" -> R.string.info_ws_keepalive_title to R.string.info_ws_keepalive_body
         "tls_enabled" -> R.string.info_tls_enabled_title to R.string.info_tls_enabled_body
         "tls_record_padding" -> R.string.info_tls_record_padding_title to R.string.info_tls_record_padding_body
+        "flowseal_per_dc" -> R.string.info_flowseal_per_dc_title to R.string.info_flowseal_per_dc_body
         "vpn_tls_enabled" -> R.string.info_vpn_tls_enabled_title to R.string.info_vpn_tls_enabled_body
         "vpn_core_info" -> R.string.info_vpn_system_title to R.string.info_vpn_system_body
         "vpn_splittunnel_info" -> R.string.info_vpn_splittunnel_title to R.string.info_vpn_splittunnel_body

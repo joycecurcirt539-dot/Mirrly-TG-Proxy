@@ -27,6 +27,7 @@
     <string name="onboarding_wallpaper_space_toilet_desc">Видео-обои · 70% затемнение</string>
     <string name="onboarding_wallpaper_grass_desc">Фото-обои · Мягкий фокус</string>
     <string name="onboarding_wallpaper_breeze_desc">Фото-обои · Бирюзовая глубина</string>
+    <string name="onboarding_wallpaper_ranaldu_desc">Фото-обои · Арт RANALDU</string>
     <string name="onboarding_wallpaper_amoled_title">Чистый AMOLED</string>
     <string name="onboarding_wallpaper_amoled_desc">Глубокий черный фон · По умолчанию</string>
 
@@ -2111,6 +2112,8 @@
     <string name="info_tls_enabled_body">Критически важная настройка, определяющая стабильность прокси и реакцию сетевых фильтров:\n\n• Оба режима несут сетевые риски: в зависимости от провайдера и правил ТСПУ один режим может приводить к сбоям, а другой в некоторых случаях поможет восстановить сеть.\n• Отключено по умолчанию (для персидского языка включено по умолчанию): транспорт работает по открытому WebSocket на порту 80 с системным DNS и прямыми проверками соединения без TLS; внутреннее шифрование MTProto сохраняется.\n• При включении: трафик передается через TLS 1.2 и 1.3 на порту 443 с фрагментацией ClientHello и FakeTLS.</string>
     <string name="info_tls_record_padding_title">Выравнивание записей TLS</string>
     <string name="info_tls_record_padding_body">Добавляет случайное дополнение в исходящее TLS-рукопожатие для скрытия характерного размера пакетов:\n\n• Включено по умолчанию: к исходящим пакетам TLS ClientHello применяется расширение padding RFC 7685 и выравнивание записей рукопожатия, затрудняющее сигнатурный анализ ТСПУ.\n• Когда отключать: выключите параметр только при сбоях рукопожатия на нестандартных шлюзах или строгих корпоративных файрволах.</string>
+    <string name="info_flowseal_per_dc_title">Отдельный CDN для каждого DC</string>
+    <string name="info_flowseal_per_dc_body">Экспериментальный режим маршрутизации Flowseal Anycast CDN для MTProto и SOCKS5:\n\n• Выключено по умолчанию: все дата-центры Telegram используют общую балансировку Flowseal CDN.\n• При включении: каждый дата-центр и медиа-слот получает собственный непересекающийся сервер Flowseal CDN, чтобы нагрузка от медиа на одном узле не мешала другим DC.\n• Режим применяется только для Anycast CDN Flowseal и не влияет на персональный Cloudflare Worker.</string>
     <string name="info_vpn_tls_enabled_title">TLS в VPN-туннеле</string>
     <string name="info_vpn_tls_enabled_body">Управляет обработкой TLS-запросов Private DNS и резервных проверок в режиме VPN:\n\n• Включено по умолчанию: пакеты Private DNS по DoT TCP :853 пропускаются через туннель, а зондирование эндпоинтов WARP может использовать резервную TCP-проверку :443.\n• При отключении: исходящие пакеты DoT :853 отбрасываются в TUN-обработчике для автоматического отката системы на обычный DNS :53 через выбранные DNS-серверы VPN, а пробы WARP выполняются только по UDP и ICMP.\n• Шифрование самого туннеля WireGuard и AmneziaWG сохраняется в обоих режимах.</string>
 
@@ -2614,6 +2617,7 @@
     <string name="settings_customization_preset_space_toilet">Space Toilet</string>
     <string name="settings_customization_preset_grass">Утренняя роса</string>
     <string name="settings_customization_preset_breeze">Морской бриз</string>
+    <string name="settings_customization_preset_ranaldu">RANALDU</string>
     <string name="settings_customization_preset_save_current">Сохранить как пресет</string>
     <string name="settings_customization_preset_save_title">Новый пресет</string>
     <string name="settings_customization_preset_name_hint">Название пресета</string>
@@ -2676,6 +2680,12 @@
     <string name="settings_tls_disabled_card_desc">Транспорт переведен на открытый WebSocket по порту 80 без TLS и FakeTLS. Заголовки запросов передаются без TLS-шифрования и могут блокироваться фильтрами по HTTP-сигнатурам, но внутреннее шифрование MTProto сохраняется. При блокировке TLS-рукопожатий и SNI отключение TLS в некоторых случаях помогает восстановить сеть.</string>
     <string name="settings_tls_record_padding_title">Выравнивание записей TLS</string>
     <string name="settings_tls_record_padding_desc">Добавляет случайное дополнение в TLS ClientHello и записи рукопожатия для защиты от DPI</string>
+    <string name="settings_flowseal_per_dc_title">Отдельный CDN для каждого DC</string>
+    <string name="settings_flowseal_per_dc_desc">Экспериментально · назначает отдельный сервер Flowseal CDN для каждого дата-центра и медиа-слота</string>
+    <string name="settings_flowseal_per_dc_active_routes_title">Активные маршруты DC</string>
+    <string name="settings_flowseal_per_dc_waiting">Ожидание трафика · домены назначаются автоматически при подключении к DC</string>
+    <string name="settings_flowseal_per_dc_media_tag">Медиа</string>
+    <string name="settings_flowseal_per_dc_chat_tag">Чат</string>
 
     <!-- VPN TLS Control -->
     <string name="settings_vpn_tls_enabled_title">TLS в VPN-туннеле</string>

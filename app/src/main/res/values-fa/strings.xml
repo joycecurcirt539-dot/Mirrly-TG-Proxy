@@ -2077,6 +2077,8 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="info_tls_enabled_body">تنظیم حیاتی برای پایداری پروکسی و نحوه برخورد فیلترینگ با ترافیک:\n\n• هر دو حالت ریسک قطع اتصال دارند: بسته به اپراتور و قوانین DPI، یکی از این دو وضعیت ممکن است در برخی موارد اتصال شبکه را بازیابی کند.\n• در زبان فارسی به صورت پیش‌فرض فعال است: ارتباط از طریق TLS 1.2 و 1.3 روی پورت ۴۴۳ با تکه‌سازی ClientHello و FakeTLS برقرار می‌شود.\n• در صورت غیرفعال‌سازی: WebSocket ساده روی پورت ۸۰ با DNS سیستم و بررسی مستقیم اتصال بدون TLS اجرا می‌شود؛ رمزنگاری داخلی MTProto فعال می‌ماند.</string>
     <string name="info_tls_record_padding_title">هم‌اندازه‌سازی رکوردهای TLS</string>
     <string name="info_tls_record_padding_body">به بسته‌های دست‌تکانی TLS خروجی بایت‌های پوششی اضافه می‌کند تا الگوی طول بسته‌ها پنهان شود:\n\n• فعال به‌صورت پیش‌فرض: افزونه padding استاندارد RFC 7685 را به TLS ClientHello اعمال می‌کند تا شناسایی ترافیک توسط DPI دشوارتر شود.\n• زمان غیرفعال‌سازی: تنها در صورتی خاموش کنید که فایروال یا درگاه میانی بسته‌های TLS دارای padding را رد کند.</string>
+    <string name="info_flowseal_per_dc_title">CDN جداگانه برای هر DC</string>
+    <string name="info_flowseal_per_dc_body">حالت آزمایشی مسیریابی Flowseal Anycast CDN برای MTProto و SOCKS5:\n\n• غیرفعال به‌صورت پیش‌فرض: همه دیتاسنترهای تلگرام از تعادل‌سنجی مشترک Flowseal CDN استفاده می‌کنند.\n• هنگام فعال‌سازی: به هر دیتاسنتر و اسلات رسانه یک سرور Flowseal CDN مجزا و بدون هم‌پوشانی اختصاص می‌یابد تا ترافیک سنگین رسانه روی سایر دیتاسنترها اثر نگذارد.\n• تنها برای Anycast CDN Flowseal اعمال می‌شود و بر Cloudflare Worker شخصی اثری ندارد.</string>
     <string name="info_vpn_tls_enabled_title">رمزنگاری TLS در تونل VPN</string>
     <string name="info_vpn_tls_enabled_body">نحوه مدیریت ترافیک Private DNS DoT و بررسی‌های پشتیبان ۴۴۳ در حالت VPN را کنترل می‌کند:\n\n• به صورت پیش‌فرض فعال است: ترافیک Private DNS روی TCP ۸۵۳ از تونل عبور می‌کند و بررسی گره‌های WARP مجاز به استفاده از TCP ۴۴۳ است.\n• در صورت غیرفعال‌سازی: بسته‌های DoT ۸۵۳ در لایه TUN متوقف می‌شوند تا سیستم به صورت خودکار به DNS ساده ۵۳ روی سرورهای DNS تنظیم‌شده در VPN برگردد و بررسی WARP فقط از طریق UDP و ICMP انجام شود.\n• رمزنگاری اصلی تونل WireGuard و AmneziaWG در هر دو حالت فعال باقی می‌ماند.</string>
 
@@ -2565,6 +2567,7 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_customization_preset_space_toilet">Space Toilet</string>
     <string name="settings_customization_preset_grass">شبنم صبحگاهی</string>
     <string name="settings_customization_preset_breeze">نسیم دریا</string>
+    <string name="settings_customization_preset_ranaldu">RANALDU</string>
     <string name="settings_customization_preset_save_current">ذخیره به عنوان پیش‌تنظیم</string>
     <string name="settings_customization_preset_save_title">پیش‌تنظیم جدید</string>
     <string name="settings_customization_preset_name_hint">نام پیش‌تنظیم</string>
@@ -2612,6 +2615,12 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_tls_disabled_card_desc">ترافیک بدون TLS و FakeTLS از طریق WebSocket ساده روی پورت ۸۰ منتقل می‌شود. هدرهای انتقال بدون رمزنگاری هستند و ممکن است مسدود شوند، اما رمزنگاری داخلی MTProto حفظ می‌گردد. هنگام مسدودسازی TLS و SNI، غیرفعال کردن TLS در برخی موارد به بازیابی شبکه کمک می‌کند.</string>
     <string name="settings_tls_record_padding_title">هم‌اندازه‌سازی رکوردهای TLS</string>
     <string name="settings_tls_record_padding_desc">افزودن بایت‌های پوششی به TLS ClientHello و دست‌تکانی خروجی برای مقابله با شناسایی DPI</string>
+    <string name="settings_flowseal_per_dc_title">CDN جداگانه برای هر DC</string>
+    <string name="settings_flowseal_per_dc_desc">آزمایشی · سرور Flowseal CDN جداگانه به هر دیتاسنتر و اسلات رسانه اختصاص می‌دهد</string>
+    <string name="settings_flowseal_per_dc_active_routes_title">مسیرهای فعال DC</string>
+    <string name="settings_flowseal_per_dc_waiting">در انتظار ترافیک · دامنه‌ها هنگام اتصال به هر DC به‌صورت خودکار انتخاب می‌شوند</string>
+    <string name="settings_flowseal_per_dc_media_tag">رسانه</string>
+    <string name="settings_flowseal_per_dc_chat_tag">گفتگو</string>
 
     <!-- VPN TLS Control -->
     <string name="settings_vpn_tls_enabled_title">رمزنگاری TLS در تونل VPN</string>
@@ -2736,6 +2745,7 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="onboarding_wallpaper_space_toilet_desc">Video wallpaper · 70% dimming</string>
     <string name="onboarding_wallpaper_grass_desc">Photo wallpaper · Soft focus</string>
     <string name="onboarding_wallpaper_breeze_desc">Photo wallpaper · Deep turquoise</string>
+    <string name="onboarding_wallpaper_ranaldu_desc">تصویر زمینه · طرح RANALDU</string>
     <string name="onboarding_wallpaper_amoled_title">Pure AMOLED</string>
     <string name="onboarding_wallpaper_amoled_desc">پس‌زمینه مشکی خالص · پیش‌فرض</string>
 

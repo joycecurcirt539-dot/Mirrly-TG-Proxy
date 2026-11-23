@@ -402,6 +402,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         NativeProxy.setTlsEnabled(config.isTlsEnabled)
         NativeProxy.setTlsRecordPaddingEnabled(config.isTlsRecordPaddingEnabled)
         NativeProxy.setTlsClientHelloSplitEnabled(config.isTlsClientHelloSplitEnabled)
+        NativeProxy.setFlowsealPerDcEnabled(config.isFlowsealPerDcEnabled)
         NativeProxy.setDialThrottlingEnabled(config.isDialThrottlingEnabled)
 
         if (isVpnServer) {
@@ -879,6 +880,16 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             } catch (t: Throwable) {
                 AppLogger.w("LocalProxyServer", "NativeProxy.setTlsRecordPaddingEnabled($enabled) не удался: ${t.message}")
             }
+        }
+    }
+
+    fun applyFlowsealPerDcEnabled(enabled: Boolean) {
+        config.isFlowsealPerDcEnabled = enabled
+        AppLogger.i("LocalProxyServer", "Смена режима Flowseal Per-DC CDN → $enabled")
+        try {
+            NativeProxy.setFlowsealPerDcEnabled(enabled)
+        } catch (t: Throwable) {
+            AppLogger.w("LocalProxyServer", "NativeProxy.setFlowsealPerDcEnabled($enabled) не удался: ${t.message}")
         }
     }
 
